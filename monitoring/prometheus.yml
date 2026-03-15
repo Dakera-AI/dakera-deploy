@@ -1,0 +1,72 @@
+# =============================================================================
+# Prometheus Configuration for Dakera
+# =============================================================================
+# This configuration scrapes metrics from Dakera and other services
+# for local development monitoring.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+# Alertmanager configuration (optional for development)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: []
+
+# Rule files (optional)
+# rule_files:
+#   - "alerts/*.yml"
+
+scrape_configs:
+  # ==========================================================================
+  # Prometheus Self-Monitoring
+  # ==========================================================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          environment: 'development'
+
+  # ==========================================================================
+  # Dakera Metrics
+  # ==========================================================================
+  - job_name: 'dakera'
+    static_configs:
+      - targets: ['dakera:3000']
+        labels:
+          service: 'dakera'
+          instance_mode: 'single'
+          environment: 'development'
+      - targets: ['dakera-1:3000', 'dakera-2:3000', 'dakera-3:3000']
+        labels:
+          service: 'dakera'
+          instance_mode: 'ha'
+          environment: 'development'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # ==========================================================================
+  # MinIO Metrics (if enabled)
+  # ==========================================================================
+  - job_name: 'minio'
+    static_configs:
+      - targets: ['minio:9000']
+        labels:
+          service: 'minio'
+          environment: 'development'
+    metrics_path: '/minio/v2/metrics/cluster'
+    scheme: http
+
+  # ==========================================================================
+  # Redis Metrics (if using redis-exporter)
+  # ==========================================================================
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+  #       labels:
+  #         service: 'redis'
+  #         environment: 'development'

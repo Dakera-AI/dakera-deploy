@@ -1,0 +1,37 @@
+# Traefik Dynamic Configuration for Dakera HA
+# File-based configuration to avoid Docker provider API version issues
+
+http:
+  # Services define the backend servers
+  services:
+    dakera-http:
+      loadBalancer:
+        servers:
+          - url: "http://dakera-1:3000"
+          - url: "http://dakera-2:3000"
+          - url: "http://dakera-3:3000"
+        healthCheck:
+          path: /health
+          interval: "5s"
+          timeout: "3s"
+
+    dakera-grpc:
+      loadBalancer:
+        servers:
+          - url: "h2c://dakera-1:50051"
+          - url: "h2c://dakera-2:50051"
+          - url: "h2c://dakera-3:50051"
+
+  # Routers define how to match requests
+  routers:
+    dakera-http:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - http
+      service: dakera-http
+
+    dakera-grpc:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - grpc
+      service: dakera-grpc

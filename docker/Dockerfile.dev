@@ -1,0 +1,136 @@
+# syntax=docker/dockerfile:1
+# =============================================================================
+# Dakera Dev Dockerfile - Fast Incremental Builds
+# =============================================================================
+# Uses BuildKit cache mounts to persist cargo registry and target directory
+# between builds. After initial build (~5-8 min), subsequent builds with only
+# source code changes complete in ~30-120 seconds.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile ha up -d --build
+#   ./dev.sh up         # First time
+#   ./dev.sh rebuild    # After code changes (fast)
+# =============================================================================
+
+# ============================================================================
+# Build Stage
+# ============================================================================
+FROM rustlang/rust:nightly-bookworm AS builder
+
+# Install build dependencies (cached layer - rarely changes)
+RUN apt-get update && apt-get install -y \
+    cmake \
+    clang \
+    mold \
+    libclang-dev \
+    librocksdb-dev \
+    libssl-dev \
+    pkg-config \
+    protobuf-compiler \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy custom CA certificates (for corporate proxy/Netskope)
+COPY certs/netskope-ca.crt /tmp/netskope-ca.crt
+RUN mkdir -p /usr/local/share/ca-certificates/netskope && \
+    cd /tmp && \
+    csplit -f netskope-cert- -b '%02d.crt' netskope-ca.crt '/-----BEGIN CERTIFICATE-----/' '{*}' && \
+    rm -f netskope-cert-00.crt && \
+    mv netskope-cert-*.crt /usr/local/share/ca-certificates/netskope/ && \
+    update-ca-certificates
+
+# Set SSL cert environment variables for cargo
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_DIR=/etc/ssl/certs
+ENV CARGO_HTTP_CAINFO=/etc/ssl/certs/ca-certificates.crt
+# Force openssl-sys to dynamically link against system OpenSSL
+ENV OPENSSL_NO_VENDOR=1
+# Use mold linker (10-50x faster linking than default ld)
+ENV RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold"
+# Parallel build jobs
+ENV CARGO_BUILD_JOBS=8
+
+WORKDIR /build
+
+# Copy all source code
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+# Vendored dependencies (hf-hub with native-tls fix, patched in workspace Cargo.toml)
+COPY vendor ./vendor
+
+# Build with BuildKit cache mounts for incremental compilation.
+# The cache mounts persist between Docker builds:
+#   - cargo-registry: downloaded crate sources
+#   - cargo-git: git dependencies
+#   - dakera-target: compiled artifacts (incremental compilation)
+#
+# First build: compiles everything (~5-8 min)
+# Subsequent builds: only recompiles changed crates (~30-120 sec)
+#
+# IMPORTANT: Only clean the frequently-changed crates (api, common, client, cli)
+# so cargo recompiles them. Heavy deps (engine, storage, inference, rocksdb)
+# stay cached — they rarely change and take 10+ min to compile.
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=dakera-target,target=/build/target \
+    cargo clean -p api -p dakera-common -p dakera-client -p dakera-cli --profile docker 2>/dev/null; \
+    cargo build --profile docker --bin dakera && \
+    cp /build/target/docker/dakera /dakera
+
+# ============================================================================
+# Runtime Stage (minimal)
+# ============================================================================
+FROM debian:bookworm-slim AS runtime
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    librocksdb7.8 \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy custom CA certificates from builder
+COPY --from=builder /usr/local/share/ca-certificates/netskope/ /usr/local/share/ca-certificates/netskope/
+RUN update-ca-certificates
+
+# Set SSL cert environment variables for runtime
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_DIR=/etc/ssl/certs
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV REQWEST_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash dakera
+
+# Copy the binary from builder
+COPY --from=builder /dakera /usr/local/bin/dakera
+
+# Create data directories
+RUN mkdir -p /data/cache /data/rocksdb /data/vectors /data/models && \
+    chown -R dakera:dakera /data
+
+# Switch to non-root user
+USER dakera
+WORKDIR /home/dakera
+
+# Environment variables
+ENV RUST_LOG=info
+ENV DAKERA_HOST=0.0.0.0
+ENV DAKERA_PORT=3000
+ENV DAKERA_GRPC_PORT=50051
+ENV DAKERA_CACHE_DIR=/data/cache
+ENV DAKERA_ROCKSDB_PATH=/data/rocksdb
+ENV HF_HOME=/home/dakera/.cache/huggingface
+
+# Expose ports
+EXPOSE 3000 50051
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Run the server
+CMD ["dakera"]

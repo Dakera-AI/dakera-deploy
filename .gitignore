@@ -1,0 +1,34 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Docker volumes and data
+data/
+volumes/
+
+# Secrets and certificates
+*.pem
+*.key
+*.crt
+!certs/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/

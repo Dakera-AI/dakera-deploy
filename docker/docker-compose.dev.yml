@@ -1,0 +1,54 @@
+# Dakera Development Docker Compose
+# Lightweight setup for local development and testing
+
+version: "3.8"
+
+services:
+  # ==========================================================================
+  # MinIO - S3-Compatible Object Storage (Development)
+  # ==========================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: dakera-dev-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"      # S3 API
+      - "9001:9001"      # Web Console
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio-dev-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - dev-net
+
+  # ==========================================================================
+  # MinIO Setup - Create bucket on startup
+  # ==========================================================================
+  minio-setup:
+    image: minio/mc:latest
+    container_name: dakera-dev-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/dakera --ignore-existing;
+      exit 0;
+      "
+    networks:
+      - dev-net
+
+volumes:
+  minio-dev-data:
+    driver: local
+
+networks:
+  dev-net:
+    driver: bridge

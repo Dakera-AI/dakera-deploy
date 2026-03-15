@@ -1,0 +1,107 @@
+# Dakera Docker Compose
+# Includes Dakera + MinIO for S3-compatible storage
+
+version: "3.8"
+
+services:
+  # ==========================================================================
+  # Dakera - Vector Database Server
+  # ==========================================================================
+  dakera:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: dakera
+    ports:
+      - "3000:3000"      # REST API
+      - "50051:50051"    # gRPC API
+    environment:
+      - RUST_LOG=info,dakera=debug
+      - DAKERA_HOST=0.0.0.0
+      - DAKERA_PORT=3000
+      - DAKERA_GRPC_PORT=50051
+      # S3/MinIO Configuration
+      - DAKERA_S3_ENDPOINT=http://minio:9000
+      - DAKERA_S3_BUCKET=dakera
+      - DAKERA_S3_ACCESS_KEY=minioadmin
+      - DAKERA_S3_SECRET_KEY=minioadmin
+      - DAKERA_S3_REGION=us-east-1
+      # Cache Configuration
+      - DAKERA_L1_CACHE_SIZE=1073741824  # 1GB
+      - DAKERA_L2_CACHE_PATH=/data/rocksdb
+    volumes:
+      - dakera-cache:/data/cache
+      - dakera-rocksdb:/data/rocksdb
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - dakera-net
+
+  # ==========================================================================
+  # MinIO - S3-Compatible Object Storage
+  # ==========================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: dakera-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"      # S3 API
+      - "9001:9001"      # Web Console
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - dakera-net
+
+  # ==========================================================================
+  # MinIO Setup - Create bucket on startup
+  # ==========================================================================
+  minio-setup:
+    image: minio/mc:latest
+    container_name: dakera-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/dakera --ignore-existing;
+      mc anonymous set download myminio/dakera;
+      exit 0;
+      "
+    networks:
+      - dakera-net
+
+# ==========================================================================
+# Volumes
+# ==========================================================================
+volumes:
+  dakera-cache:
+    driver: local
+  dakera-rocksdb:
+    driver: local
+  minio-data:
+    driver: local
+
+# ==========================================================================
+# Networks
+# ==========================================================================
+networks:
+  dakera-net:
+    driver: bridge
