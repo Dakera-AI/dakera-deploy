@@ -1,0 +1,6 @@
+---
+# Hadolint configuration
+# DL3008: Pin versions in apt-get install - impractical for system packages
+#         as pinned versions become unavailable across distro updates
+ignored:
+  - DL3008

@@ -17,7 +17,7 @@
 FROM rust:1.92-bookworm AS builder
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     clang \
     mold \
@@ -42,8 +42,8 @@ ENV RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold"
 
 # Copy custom CA certificates (for corporate proxy/Netskope)
 COPY certs/netskope-ca.crt /tmp/netskope-ca.crt
+WORKDIR /tmp
 RUN mkdir -p /usr/local/share/ca-certificates/netskope && \
-    cd /tmp && \
     csplit -f netskope-cert- -b '%02d.crt' netskope-ca.crt '/-----BEGIN CERTIFICATE-----/' '{*}' && \
     rm -f netskope-cert-00.crt && \
     mv netskope-cert-*.crt /usr/local/share/ca-certificates/netskope/ && \
@@ -121,7 +121,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:bookworm-slim AS runtime
 
 # Install runtime dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     librocksdb7.8 \
