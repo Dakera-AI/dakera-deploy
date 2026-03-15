@@ -1,5 +1,8 @@
 # Dakera Deployment
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)](https://docs.docker.com/)
+
 Deployment configurations for Dakera -- a high-performance vector database built for AI agent memory.
 
 This repository contains Docker configurations, high-availability clustering, load balancing, and monitoring setup for running Dakera in development and production environments.
@@ -256,6 +259,18 @@ docker compose -f docker-compose.ha.yml start dakera-3
 ```bash
 docker compose -f docker-compose.dev.yml up -d --build
 ```
+
+## Related Repositories
+
+| Repository | Description |
+|------------|-------------|
+| [dakera](https://github.com/dakera-ai/dakera) | Core vector database engine (Rust) |
+| [dakera-py](https://github.com/dakera-ai/dakera-py) | Python SDK |
+| [dakera-js](https://github.com/dakera-ai/dakera-js) | TypeScript/JavaScript SDK |
+| [dakera-go](https://github.com/dakera-ai/dakera-go) | Go SDK |
+| [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) | MCP Server for AI agent memory |
+| [dakera-docs](https://github.com/dakera-ai/dakera-docs) | Documentation |
+| [dakera-cortex](https://github.com/dakera-ai/dakera-cortex) | Flagship demo with AI agents |
 
 ## License
 
