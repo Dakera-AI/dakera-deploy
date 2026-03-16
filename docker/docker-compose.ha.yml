@@ -1,47 +1,89 @@
-# Dakera High Availability Docker Compose
-# 3-node cluster with Traefik load balancer and shared MinIO storage
+# =============================================================================
+# Dakera - High Availability Cluster
+# =============================================================================
+# Full production-like stack: 3-node cluster with load balancer, shared storage,
+# caching, monitoring, and dashboard.
+#
+# All services use published container images — no local builds required.
 #
 # Usage:
-#   docker-compose -f docker-compose.ha.yml up -d
-#   docker-compose -f docker-compose.ha.yml ps
-#   docker-compose -f docker-compose.ha.yml logs -f dakera-1
+#   docker compose -f docker-compose.ha.yml up -d
+#   docker compose -f docker-compose.ha.yml up -d --profile monitoring
+#   docker compose -f docker-compose.ha.yml up -d --profile full
+#   docker compose -f docker-compose.ha.yml down
 #
-# Health check:
-#   curl http://localhost:3000/health
-#   curl http://localhost:3000/admin/cluster/status
-#
-# Stop:
-#   docker-compose -f docker-compose.ha.yml down
+# Endpoints:
+#   Dakera API (LB):   http://localhost:3000
+#   Dakera gRPC (LB):  localhost:50051
+#   Dashboard:          http://localhost:3002
+#   Traefik Dashboard:  http://localhost:8080
+#   MinIO Console:      http://localhost:9001
+#   Prometheus:         http://localhost:9090   (--profile monitoring)
+#   Grafana:            http://localhost:3003   (--profile monitoring)
+#   Jaeger UI:          http://localhost:16686  (--profile monitoring)
+# =============================================================================
 
-version: "3.8"
+x-dakera-common: &dakera-common
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:latest}
+  restart: unless-stopped
+  networks:
+    - dakera-ha-net
+  expose:
+    - "3000"
+    - "50051"
+    - "7946"
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 15s
+
+x-dakera-env: &dakera-env
+  DAKERA_HOST: "0.0.0.0"
+  DAKERA_PORT: "3000"
+  DAKERA_GRPC_PORT: "50051"
+  DAKERA_CLUSTER_MODE: "true"
+  DAKERA_GOSSIP_PORT: "7946"
+  # Storage — shared MinIO
+  DAKERA_STORAGE: "s3"
+  DAKERA_S3_ENDPOINT: "http://minio:9000"
+  DAKERA_S3_BUCKET: "dakera"
+  AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-minioadmin}"
+  AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+  DAKERA_S3_REGION: "us-east-1"
+  # Cache
+  DAKERA_L1_CACHE_SIZE: "536870912"
+  DAKERA_L2_CACHE_PATH: "/data/rocksdb"
+  DAKERA_CACHE_REDIS_URL: "redis://redis:6379"
+  # Auth
+  DAKERA_AUTH_ENABLED: "${DAKERA_AUTH_ENABLED:-false}"
+  DAKERA_ROOT_API_KEY: "${DAKERA_ROOT_API_KEY:-dk_dev_root_key_change_in_production}"
+  # Logging
+  RUST_LOG: "${RUST_LOG:-info,dakera=debug}"
 
 services:
   # ==========================================================================
-  # Traefik Load Balancer
+  # Traefik — Load Balancer
   # ==========================================================================
   traefik:
-    image: traefik:v2.10
+    image: traefik:v3.3
     container_name: dakera-lb
     command:
-      # API and Dashboard
       - "--api.dashboard=true"
       - "--api.insecure=true"
-      # File provider (avoids Docker API version issues)
       - "--providers.file.filename=/etc/traefik/dynamic.yml"
       - "--providers.file.watch=true"
-      # Entrypoints
       - "--entrypoints.http.address=:3000"
       - "--entrypoints.grpc.address=:50051"
-      # Health check configuration
       - "--ping=true"
       - "--ping.entrypoint=http"
-      # Logging
       - "--log.level=INFO"
       - "--accesslog=true"
     ports:
-      - "3000:3000"      # REST API (load balanced)
-      - "50051:50051"    # gRPC API (load balanced)
-      - "8080:8080"      # Traefik Dashboard
+      - "${LB_HTTP_PORT:-3000}:3000"
+      - "${LB_GRPC_PORT:-50051}:50051"
+      - "${TRAEFIK_DASHBOARD_PORT:-8080}:8080"
     volumes:
       - ./traefik-dynamic.yml:/etc/traefik/dynamic.yml:ro
     healthcheck:
@@ -60,237 +102,110 @@ services:
   # Dakera Node 1 (Primary)
   # ==========================================================================
   dakera-1:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+    <<: *dakera-common
     container_name: dakera-1
     hostname: dakera-1
     environment:
-      # Node Identity
-      - DAKERA_NODE_ID=node-1
-      - DAKERA_HOST=0.0.0.0
-      - DAKERA_PORT=3000
-      - DAKERA_GRPC_PORT=50051
-      # Cluster Configuration
-      - DAKERA_CLUSTER_MODE=true
-      - DAKERA_CLUSTER_ROLE=primary
-      - DAKERA_CLUSTER_SEEDS=dakera-2:7946,dakera-3:7946
-      # Gossip Protocol
-      - DAKERA_GOSSIP_PORT=7946
-      - DAKERA_GOSSIP_BIND=0.0.0.0:7946
-      - DAKERA_API_ADVERTISE=http://dakera-1:3000
-      # Storage Backend - Use S3/MinIO for shared persistent storage
-      - DAKERA_STORAGE=s3
-      - DAKERA_S3_ENDPOINT=http://minio:9000
-      - DAKERA_S3_BUCKET=dakera
-      - AWS_ACCESS_KEY_ID=minioadmin
-      - AWS_SECRET_ACCESS_KEY=minioadmin
-      - DAKERA_S3_REGION=us-east-1
-      # Cache Configuration
-      - DAKERA_L1_CACHE_SIZE=536870912  # 512MB per node
-      - DAKERA_L2_CACHE_PATH=/data/rocksdb
-      # Authentication (disabled for testing)
-      - DAKERA_AUTH_ENABLED=false
-      - DAKERA_ROOT_API_KEY=dk_root_change_me_in_production
-      # Logging
-      - RUST_LOG=info,dakera=debug,engine::distributed=debug
+      <<: *dakera-env
+      DAKERA_NODE_ID: "node-1"
+      DAKERA_CLUSTER_ROLE: "primary"
+      DAKERA_CLUSTER_SEEDS: "dakera-2:7946,dakera-3:7946"
+      DAKERA_GOSSIP_BIND: "0.0.0.0:7946"
+      DAKERA_API_ADVERTISE: "http://dakera-1:3000"
     volumes:
       - dakera-1-cache:/data/cache
       - dakera-1-rocksdb:/data/rocksdb
-    expose:
-      - "3000"
-      - "50051"
-      - "7946"
     depends_on:
-      minio:
-        condition: service_healthy
       minio-setup:
         condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-    restart: unless-stopped
-    networks:
-      - dakera-ha-net
-    labels:
-      # Traefik HTTP routing
-      - "traefik.enable=true"
-      - "traefik.http.routers.dakera-http.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.dakera-http.entrypoints=http"
-      - "traefik.http.services.dakera-http.loadbalancer.server.port=3000"
-      - "traefik.http.services.dakera-http.loadbalancer.healthcheck.path=/health"
-      - "traefik.http.services.dakera-http.loadbalancer.healthcheck.interval=5s"
-      - "traefik.http.services.dakera-http.loadbalancer.healthcheck.timeout=3s"
-      # Traefik gRPC routing
-      - "traefik.http.routers.dakera-grpc.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.dakera-grpc.entrypoints=grpc"
-      - "traefik.http.services.dakera-grpc.loadbalancer.server.port=50051"
-      - "traefik.http.services.dakera-grpc.loadbalancer.server.scheme=h2c"
+      redis:
+        condition: service_healthy
 
   # ==========================================================================
   # Dakera Node 2 (Replica)
   # ==========================================================================
   dakera-2:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+    <<: *dakera-common
     container_name: dakera-2
     hostname: dakera-2
     environment:
-      # Node Identity
-      - DAKERA_NODE_ID=node-2
-      - DAKERA_HOST=0.0.0.0
-      - DAKERA_PORT=3000
-      - DAKERA_GRPC_PORT=50051
-      # Cluster Configuration
-      - DAKERA_CLUSTER_MODE=true
-      - DAKERA_CLUSTER_ROLE=replica
-      - DAKERA_CLUSTER_SEEDS=dakera-1:7946,dakera-3:7946
-      # Gossip Protocol
-      - DAKERA_GOSSIP_PORT=7946
-      - DAKERA_GOSSIP_BIND=0.0.0.0:7946
-      - DAKERA_API_ADVERTISE=http://dakera-2:3000
-      # Storage Backend - Use S3/MinIO for shared persistent storage
-      - DAKERA_STORAGE=s3
-      - DAKERA_S3_ENDPOINT=http://minio:9000
-      - DAKERA_S3_BUCKET=dakera
-      - AWS_ACCESS_KEY_ID=minioadmin
-      - AWS_SECRET_ACCESS_KEY=minioadmin
-      - DAKERA_S3_REGION=us-east-1
-      # Cache Configuration
-      - DAKERA_L1_CACHE_SIZE=536870912  # 512MB per node
-      - DAKERA_L2_CACHE_PATH=/data/rocksdb
-      # Authentication (disabled for testing)
-      - DAKERA_AUTH_ENABLED=false
-      - DAKERA_ROOT_API_KEY=dk_root_change_me_in_production
-      # Logging
-      - RUST_LOG=info,dakera=debug,engine::distributed=debug
+      <<: *dakera-env
+      DAKERA_NODE_ID: "node-2"
+      DAKERA_CLUSTER_ROLE: "replica"
+      DAKERA_CLUSTER_SEEDS: "dakera-1:7946,dakera-3:7946"
+      DAKERA_GOSSIP_BIND: "0.0.0.0:7946"
+      DAKERA_API_ADVERTISE: "http://dakera-2:3000"
     volumes:
       - dakera-2-cache:/data/cache
       - dakera-2-rocksdb:/data/rocksdb
-    expose:
-      - "3000"
-      - "50051"
-      - "7946"
     depends_on:
-      minio:
-        condition: service_healthy
       minio-setup:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
       dakera-1:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-    restart: unless-stopped
-    networks:
-      - dakera-ha-net
-    labels:
-      # Traefik HTTP routing (same service as node-1)
-      - "traefik.enable=true"
-      - "traefik.http.routers.dakera-http.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.dakera-http.entrypoints=http"
-      - "traefik.http.services.dakera-http.loadbalancer.server.port=3000"
-      # Traefik gRPC routing
-      - "traefik.http.routers.dakera-grpc.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.dakera-grpc.entrypoints=grpc"
-      - "traefik.http.services.dakera-grpc.loadbalancer.server.port=50051"
-      - "traefik.http.services.dakera-grpc.loadbalancer.server.scheme=h2c"
 
   # ==========================================================================
   # Dakera Node 3 (Replica)
   # ==========================================================================
   dakera-3:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+    <<: *dakera-common
     container_name: dakera-3
     hostname: dakera-3
     environment:
-      # Node Identity
-      - DAKERA_NODE_ID=node-3
-      - DAKERA_HOST=0.0.0.0
-      - DAKERA_PORT=3000
-      - DAKERA_GRPC_PORT=50051
-      # Cluster Configuration
-      - DAKERA_CLUSTER_MODE=true
-      - DAKERA_CLUSTER_ROLE=replica
-      - DAKERA_CLUSTER_SEEDS=dakera-1:7946,dakera-2:7946
-      # Gossip Protocol
-      - DAKERA_GOSSIP_PORT=7946
-      - DAKERA_GOSSIP_BIND=0.0.0.0:7946
-      - DAKERA_API_ADVERTISE=http://dakera-3:3000
-      # Storage Backend - Use S3/MinIO for shared persistent storage
-      - DAKERA_STORAGE=s3
-      - DAKERA_S3_ENDPOINT=http://minio:9000
-      - DAKERA_S3_BUCKET=dakera
-      - AWS_ACCESS_KEY_ID=minioadmin
-      - AWS_SECRET_ACCESS_KEY=minioadmin
-      - DAKERA_S3_REGION=us-east-1
-      # Cache Configuration
-      - DAKERA_L1_CACHE_SIZE=536870912  # 512MB per node
-      - DAKERA_L2_CACHE_PATH=/data/rocksdb
-      # Authentication (disabled for testing)
-      - DAKERA_AUTH_ENABLED=false
-      - DAKERA_ROOT_API_KEY=dk_root_change_me_in_production
-      # Logging
-      - RUST_LOG=info,dakera=debug,engine::distributed=debug
+      <<: *dakera-env
+      DAKERA_NODE_ID: "node-3"
+      DAKERA_CLUSTER_ROLE: "replica"
+      DAKERA_CLUSTER_SEEDS: "dakera-1:7946,dakera-2:7946"
+      DAKERA_GOSSIP_BIND: "0.0.0.0:7946"
+      DAKERA_API_ADVERTISE: "http://dakera-3:3000"
     volumes:
       - dakera-3-cache:/data/cache
       - dakera-3-rocksdb:/data/rocksdb
-    expose:
-      - "3000"
-      - "50051"
-      - "7946"
     depends_on:
-      minio:
-        condition: service_healthy
       minio-setup:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
       dakera-1:
         condition: service_healthy
+
+  # ==========================================================================
+  # Redis — Distributed Cache
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: dakera-redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 15s
     restart: unless-stopped
     networks:
       - dakera-ha-net
-    labels:
-      # Traefik HTTP routing (same service as node-1 and node-2)
-      - "traefik.enable=true"
-      - "traefik.http.routers.dakera-http.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.dakera-http.entrypoints=http"
-      - "traefik.http.services.dakera-http.loadbalancer.server.port=3000"
-      # Traefik gRPC routing
-      - "traefik.http.routers.dakera-grpc.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.dakera-grpc.entrypoints=grpc"
-      - "traefik.http.services.dakera-grpc.loadbalancer.server.port=50051"
-      - "traefik.http.services.dakera-grpc.loadbalancer.server.scheme=h2c"
 
   # ==========================================================================
-  # MinIO - Shared S3-Compatible Object Storage
+  # MinIO — Shared S3-Compatible Object Storage
   # ==========================================================================
   minio:
     image: minio/minio:latest
     container_name: dakera-ha-minio
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"      # S3 API
-      - "9001:9001"      # Web Console
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
-      - minio-ha-data:/data
+      - minio-data:/data
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
@@ -301,7 +216,7 @@ services:
       - dakera-ha-net
 
   # ==========================================================================
-  # MinIO Setup - Create bucket on startup
+  # MinIO Setup — Create bucket on startup
   # ==========================================================================
   minio-setup:
     image: minio/mc:latest
@@ -311,40 +226,107 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin};
       mc mb myminio/dakera --ignore-existing;
       mc anonymous set download myminio/dakera;
-      echo 'MinIO bucket setup complete';
+      echo 'Dakera bucket ready';
       exit 0;
       "
     networks:
       - dakera-ha-net
 
-# ==========================================================================
-# Volumes - Persistent storage for each node
-# ==========================================================================
+  # ==========================================================================
+  # Dakera Dashboard — Web UI
+  # ==========================================================================
+  dashboard:
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:latest}
+    container_name: dakera-dashboard
+    ports:
+      - "${DASHBOARD_PORT:-3002}:3000"
+    environment:
+      - DAKERA_API_URL=http://traefik:3000
+      - DAKERA_API_KEY=${DAKERA_ROOT_API_KEY:-dk_dev_root_key_change_in_production}
+    depends_on:
+      dakera-1:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - dakera-ha-net
+
+  # ==========================================================================
+  # Prometheus — Metrics Collection (optional)
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dakera-prometheus
+    profiles: ["monitoring", "full"]
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+    networks:
+      - dakera-ha-net
+
+  # ==========================================================================
+  # Grafana — Dashboards & Visualization (optional)
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dakera-grafana
+    profiles: ["monitoring", "full"]
+    ports:
+      - "${GRAFANA_PORT:-3003}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-dakera}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - dakera-ha-net
+
+  # ==========================================================================
+  # Jaeger — Distributed Tracing (optional)
+  # ==========================================================================
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: dakera-jaeger
+    profiles: ["monitoring", "full"]
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: unless-stopped
+    networks:
+      - dakera-ha-net
+
 volumes:
   dakera-1-cache:
-    driver: local
   dakera-1-rocksdb:
-    driver: local
   dakera-2-cache:
-    driver: local
   dakera-2-rocksdb:
-    driver: local
   dakera-3-cache:
-    driver: local
   dakera-3-rocksdb:
-    driver: local
-  minio-ha-data:
-    driver: local
+  redis-data:
+  minio-data:
+  prometheus-data:
+  grafana-data:
 
-# ==========================================================================
-# Networks - Isolated network for HA cluster
-# ==========================================================================
 networks:
   dakera-ha-net:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.28.0.0/16
