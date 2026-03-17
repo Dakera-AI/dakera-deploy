@@ -33,6 +33,12 @@ services:
       - DAKERA_S3_REGION=us-east-1
       - DAKERA_L1_CACHE_SIZE=1073741824
       - DAKERA_L2_CACHE_PATH=/data/rocksdb
+      # Tiered storage (L1 hot → L2 warm → L3 cold via S3)
+      - DAKERA_TIERED_STORAGE=true
+      - DAKERA_HOT_TO_WARM_SECS=3600
+      - DAKERA_WARM_TO_COLD_SECS=86400
+      - DAKERA_AUTO_TIER=true
+      - DAKERA_TIER_CHECK_INTERVAL_SECS=300
       - DAKERA_AUTH_ENABLED=${DAKERA_AUTH_ENABLED:-false}
       - DAKERA_ROOT_API_KEY=${DAKERA_ROOT_API_KEY:-dk_dev_root_key_change_in_production}
     volumes:
@@ -105,7 +111,7 @@ services:
     ports:
       - "${DASHBOARD_PORT:-3002}:3000"
     environment:
-      - DAKERA_API_URL=http://dakera:3000
+      - DAKERA_API_UPSTREAM=http://dakera:3000
       - DAKERA_API_KEY=${DAKERA_ROOT_API_KEY:-dk_dev_root_key_change_in_production}
     depends_on:
       dakera:
