@@ -39,6 +39,7 @@ services:
       - DAKERA_WARM_TO_COLD_SECS=86400
       - DAKERA_AUTO_TIER=true
       - DAKERA_TIER_CHECK_INTERVAL_SECS=300
+      - DAKERA_MAX_BODY_SIZE=524288000
       - DAKERA_AUTH_ENABLED=${DAKERA_AUTH_ENABLED:-false}
       - DAKERA_ROOT_API_KEY=${DAKERA_ROOT_API_KEY:-dk_dev_root_key_change_in_production}
     volumes:
