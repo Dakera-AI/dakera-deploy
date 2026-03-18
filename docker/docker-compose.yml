@@ -40,11 +40,19 @@ services:
       - DAKERA_AUTO_TIER=true
       - DAKERA_TIER_CHECK_INTERVAL_SECS=300
       - DAKERA_MAX_BODY_SIZE=524288000
-      - DAKERA_AUTH_ENABLED=${DAKERA_AUTH_ENABLED:-false}
-      - DAKERA_ROOT_API_KEY=${DAKERA_ROOT_API_KEY:-dk_dev_root_key_change_in_production}
+      - DAKERA_AUTH_ENABLED=${DAKERA_AUTH_ENABLED:-true}
+      - DAKERA_ROOT_API_KEY=${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.example)}
     volumes:
       - dakera-cache:/data/cache
       - dakera-rocksdb:/data/rocksdb
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
     depends_on:
       minio-setup:
         condition: service_completed_successfully
@@ -73,6 +81,14 @@ services:
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
@@ -95,7 +111,6 @@ services:
       /bin/sh -c "
       mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin};
       mc mb myminio/dakera --ignore-existing;
-      mc anonymous set download myminio/dakera;
       echo 'Dakera bucket ready';
       exit 0;
       "
@@ -113,7 +128,7 @@ services:
       - "${DASHBOARD_PORT:-3002}:3000"
     environment:
       - DAKERA_API_UPSTREAM=http://dakera:3000
-      - DAKERA_API_KEY=${DAKERA_ROOT_API_KEY:-dk_dev_root_key_change_in_production}
+      - DAKERA_API_KEY=${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.example)}
     depends_on:
       dakera:
         condition: service_healthy
