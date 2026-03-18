@@ -47,8 +47,16 @@ docker compose -f docker-compose.dev.yml up -d
 
 Production-grade single-node deployment with MinIO, caching, and health checks.
 
+**First-time setup — configure credentials before starting:**
+
 ```bash
 cd docker
+cp .env.example .env
+# Edit .env — set DAKERA_ROOT_API_KEY and MinIO credentials
+# Generate a strong key: openssl rand -hex 32
+```
+
+```bash
 docker compose up -d
 ```
 
@@ -259,6 +267,20 @@ docker compose -f docker-compose.ha.yml start dakera-3
 ```bash
 docker compose -f docker-compose.dev.yml up -d --build
 ```
+
+## Security
+
+Before deploying to a production or internet-facing environment:
+
+| Requirement | How |
+|-------------|-----|
+| Enable authentication | `DAKERA_AUTH_ENABLED=true` (default in production compose) |
+| Set a strong root API key | `DAKERA_ROOT_API_KEY=$(openssl rand -hex 32)` |
+| Change MinIO credentials | Set `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` in `.env` |
+| Network isolation | Do **not** expose MinIO ports (9000, 9001) publicly |
+| TLS termination | Use a reverse proxy (nginx, Traefik, Caddy) with HTTPS |
+
+See [CONFIGURATION.md](https://github.com/dakera-ai/dakera-docs/blob/main/CONFIGURATION.md) for the full authentication reference.
 
 ## Related Repositories
 
