@@ -1,0 +1,89 @@
+{
+  // Dakera local dev environment for VS Code / Cursor
+  // Opens a workspace with Dakera + MinIO running as sidecar services.
+  // No credentials or local installs required — everything runs in Docker.
+  "name": "Dakera Local Dev",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "workspace",
+  "workspaceFolder": "/workspace",
+
+  // Forward Dakera and MinIO ports to localhost
+  "forwardPorts": [3000, 50051, 9000, 9001],
+  "portsAttributes": {
+    "3000": {
+      "label": "Dakera REST API",
+      "onAutoForward": "silent"
+    },
+    "50051": {
+      "label": "Dakera gRPC",
+      "onAutoForward": "silent"
+    },
+    "9000": {
+      "label": "MinIO S3 API",
+      "onAutoForward": "silent"
+    },
+    "9001": {
+      "label": "MinIO Console",
+      "onAutoForward": "openBrowser"
+    }
+  },
+
+  // Language runtimes for SDK development
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true,
+      "installOhMyZsh": false,
+      "upgradePackages": false
+    },
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "stable"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    },
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.22"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // Rust
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        // Python
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        // TypeScript / Node
+        "ms-vscode.vscode-typescript-next",
+        // Go
+        "golang.go",
+        // Tools
+        "humao.rest-client",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "editor.formatOnSave": true,
+        "rust-analyzer.check.command": "clippy",
+        "python.defaultInterpreterPath": "/usr/local/bin/python"
+      }
+    }
+  },
+
+  // Install Dakera SDKs and print connection info after the container starts
+  "postCreateCommand": "pip install --quiet dakera 2>/dev/null || true; npm install --quiet -g dakera 2>/dev/null || true; echo '' && echo '=== Dakera local dev stack ready ===' && echo '  REST API:      http://localhost:3000' && echo '  gRPC:          localhost:50051' && echo '  MinIO Console: http://localhost:9001  (minioadmin / minioadmin)' && echo '  Auth:          disabled (local dev only)' && echo ''",
+
+  // Environment variables available in the workspace shell
+  "remoteEnv": {
+    "DAKERA_API_URL": "http://dakera:3000",
+    "DAKERA_GRPC_URL": "dakera:50051",
+    "DAKERA_ROOT_API_KEY": "dev-local-insecure-key"
+  }
+}
