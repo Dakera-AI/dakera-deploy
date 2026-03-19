@@ -1,3 +1,25 @@
-# NOTE: Docker image publishing is handled by the main dakera repo.
+name: Release
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - 'v*'
+
+# Docker image publishing is handled by the main dakera repo.
 # dakera-deploy releases are for deployment config updates only.
-# This workflow is intentionally empty — no Docker build needed here.
+
+permissions:
+  contents: read
+
+jobs:
+  release-info:
+    name: Release Info
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log release
+        run: |
+          echo "Deployment config release: ${{ github.ref_name }}"
+          echo "Docker image publishing is handled by the main dakera repo."
+          echo "No build artifacts needed for config-only releases."
