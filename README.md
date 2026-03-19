@@ -7,10 +7,42 @@ Deployment configurations for Dakera -- a high-performance vector database built
 
 This repository contains Docker configurations, high-availability clustering, load balancing, and monitoring setup for running Dakera in development and production environments.
 
+## VS Code / Cursor Devcontainer (Recommended)
+
+The fastest way to get a full Dakera dev environment — no local installs required.
+
+**Prerequisites:** [Docker](https://docs.docker.com/get-started/get-docker/) + [VS Code](https://code.visualstudio.com/) with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers), or [Cursor](https://www.cursor.com/).
+
+```bash
+git clone https://github.com/dakera-ai/dakera-deploy
+# Open the folder in VS Code / Cursor, then:
+# "Reopen in Container" when prompted (or Ctrl+Shift+P → Dev Containers: Reopen in Container)
+```
+
+That's it. The container build will:
+1. Pull the Dakera server image and MinIO
+2. Initialize the storage bucket
+3. Install Python, Node, Go, and Rust SDKs
+4. Open VS Code/Cursor with Rust Analyzer, REST Client, and other extensions pre-configured
+
+**Service endpoints (available on localhost):**
+
+| Service | URL | Notes |
+|---------|-----|-------|
+| Dakera REST API | http://localhost:3000 | Main API |
+| Dakera gRPC | localhost:50051 | gRPC endpoint |
+| MinIO Console | http://localhost:9001 | `minioadmin` / `minioadmin` |
+| MinIO S3 API | http://localhost:9000 | S3-compatible |
+
+Auth is disabled for local dev. See [docker-compose deployment](#default-full-single-node) for production auth setup.
+
+---
+
 ## Deployment Profiles
 
 | Profile | Description | Use Case |
 |---------|-------------|----------|
+| **devcontainer** | VS Code/Cursor one-click setup | SDK development, local testing |
 | **local** | Single instance, in-memory storage | Quick testing, no dependencies |
 | **dev** | MinIO storage backend for development | Local development with persistence |
 | **default** | Dakera + MinIO with full configuration | Staging / single-node production |
@@ -102,6 +134,9 @@ Pre-configured dashboards include request rates, latency percentiles, cache hit 
 
 ```
 dakera-deploy/
+├── .devcontainer/                   # VS Code / Cursor devcontainer
+│   ├── devcontainer.json            # Container config (extensions, ports, env)
+│   └── docker-compose.yml           # Dakera + MinIO dev services
 ├── docker/                          # Docker deployment configs
 │   ├── Dockerfile                   # Production multi-stage build
 │   ├── Dockerfile.dev               # Dev build with fast incremental compilation
