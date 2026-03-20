@@ -47,6 +47,14 @@ docker compose -f docker-compose.dev.yml up -d
 
 Production-grade single-node deployment with MinIO, caching, and health checks.
 
+> **Version pinning**: The default image tags are pinned to the latest stable release.
+> To run a specific version, set `DAKERA_IMAGE` and `DASHBOARD_IMAGE` in your `.env`:
+> ```bash
+> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:v0.6.0
+> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:v0.3.0
+> ```
+> Pinning to explicit versions prevents unexpected upgrades in production.
+
 **First-time setup — configure credentials before starting:**
 
 ```bash
