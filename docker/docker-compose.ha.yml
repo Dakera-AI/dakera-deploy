@@ -249,7 +249,7 @@ services:
   # Dakera Dashboard — Web UI
   # ==========================================================================
   dashboard:
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.3.8}
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.3.10}
     container_name: dakera-dashboard
     ports:
       - "${DASHBOARD_PORT:-3002}:3000"
