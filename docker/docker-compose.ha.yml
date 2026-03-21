@@ -24,7 +24,7 @@
 # =============================================================================
 
 x-dakera-common: &dakera-common
-  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.6.0}
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.6.2}
   restart: unless-stopped
   networks:
     - dakera-ha-net
