@@ -4,6 +4,12 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-03-21
+
+### Fixed
+
+- Bump dakera-dashboard: `0.3.10` → `0.3.12` (UTF-8 WASM panic fix — Memory Network graph render)
+
 ## [0.2.0] - 2026-03-21
 
 ### Added
