@@ -15,7 +15,7 @@ services:
   # Dakera - Vector Database Server
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.6.3}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.6.4}
     container_name: dakera
     ports:
       - "${DAKERA_PORT:-3000}:3000"
