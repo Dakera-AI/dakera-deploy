@@ -4,6 +4,27 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-21
+
+### Added
+
+- VS Code / Cursor devcontainer for one-command local dev stack (#8)
+- Pinned default images to versioned tags in all compose files — dakera `0.6.3`, dakera-dashboard `0.3.3` (#9)
+
+### Fixed
+
+- Remove broken Docker publish workflow; add valid no-op release workflow (#6, #7)
+- Remove `v` prefix from GHCR image tags — GHCR publishes `0.6.x` not `v0.6.x` (#10)
+- Bump dakera image: `0.6.0` → `0.6.2` (Memory Network fix) → `0.6.3` (rustls security patch) (#12, #14)
+- Bump dakera-dashboard: `0.3.0` → `0.3.1` (Safari black screen fix) → `0.3.2` (WASM + mobile nav fix) → `0.3.3` (SSE api_key fix)
+- Sync HA compose image versions to match standard compose configs
+
+### Security
+
+- Add explicit `GITHUB_TOKEN` permissions to CI workflow (#5)
+
+## [0.1.1] - 2026-03-18
+
 ### Security — SA-2026-001 (Critical)
 
 Three critical insecure-default vulnerabilities were found in the default Docker Compose configuration
