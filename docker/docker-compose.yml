@@ -121,7 +121,7 @@ services:
   # Dakera Dashboard (optional)
   # ==========================================================================
   dashboard:
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.3.12}
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.3.13}
     container_name: dakera-dashboard
     profiles: ["dashboard", "full"]
     ports:
