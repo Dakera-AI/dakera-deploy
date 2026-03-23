@@ -1,6 +1,6 @@
 {
   "annotations": { "list": [] },
-  "description": "Dakera vector database — HTTP traffic, cache, storage, cluster health, and memory decay (v0.8.0+)",
+  "description": "Dakera AI agent memory platform — HTTP traffic, cache, storage, cluster health, and memory decay (v0.8.0+)",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,

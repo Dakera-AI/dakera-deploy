@@ -12,7 +12,7 @@
 
 services:
   # ==========================================================================
-  # Dakera - Vector Database Server
+  # Dakera - AI Agent Memory Platform
   # ==========================================================================
   dakera:
     image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.8.1}

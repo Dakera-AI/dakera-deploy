@@ -5,7 +5,7 @@
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5)](https://kubernetes.io/)
 [![Helm](https://img.shields.io/badge/Helm-Chart-0F1689)](https://helm.sh/)
 
-Deployment configurations for Dakera -- a high-performance vector database built for AI agent memory.
+Deployment configurations for Dakera — the AI agent memory platform.
 
 This repository contains Docker configurations, high-availability clustering, load balancing, and monitoring setup for running Dakera in development and production environments.
 
@@ -454,7 +454,7 @@ See [CONFIGURATION.md](https://github.com/dakera-ai/dakera-docs/blob/main/CONFIG
 
 | Repository | Description |
 |------------|-------------|
-| [dakera](https://github.com/dakera-ai/dakera) | Core vector database engine (Rust) |
+| [dakera](https://github.com/dakera-ai/dakera) | Core AI agent memory engine (Rust) |
 | [dakera-py](https://github.com/dakera-ai/dakera-py) | Python SDK |
 | [dakera-js](https://github.com/dakera-ai/dakera-js) | TypeScript/JavaScript SDK |
 | [dakera-go](https://github.com/dakera-ai/dakera-go) | Go SDK |
