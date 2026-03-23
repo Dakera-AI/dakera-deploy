@@ -1,0 +1,65 @@
+# =============================================================================
+# Dakera - Kubernetes Ingress
+# =============================================================================
+# Routes external traffic to Dakera server, Dashboard, and MCP server.
+# Requires an Ingress controller (nginx recommended).
+#
+# Install nginx ingress controller:
+#   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.12.0/deploy/static/provider/cloud/deploy.yaml
+#
+# Replace <your-domain> with your actual domain name.
+# For TLS, add cert-manager annotations or provide a TLS secret.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dakera
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera
+    app.kubernetes.io/component: ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "500m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # Uncomment for TLS with cert-manager:
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  # Uncomment for TLS:
+  # tls:
+  #   - hosts:
+  #       - api.dakera.yourdomain.com
+  #       - dashboard.dakera.yourdomain.com
+  #     secretName: dakera-tls
+  rules:
+    - host: api.dakera.yourdomain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dakera
+                port:
+                  name: http
+    - host: dashboard.dakera.yourdomain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dakera-dashboard
+                port:
+                  name: http
+    - host: mcp.dakera.yourdomain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dakera-mcp
+                port:
+                  name: http

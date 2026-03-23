@@ -1,0 +1,64 @@
+# =============================================================================
+# Dakera MCP Server - Kubernetes Deployment
+# =============================================================================
+# The MCP server exposes Dakera memory tools to AI agents via the
+# Model Context Protocol (MCP). One instance per cluster is sufficient.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dakera-mcp
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dakera-mcp
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dakera-mcp
+        app.kubernetes.io/component: mcp
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: dakera-mcp
+          image: ghcr.io/dakera-ai/dakera-mcp:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          env:
+            - name: DAKERA_URL
+              value: "http://dakera:3000"
+            - name: DAKERA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dakera-secrets
+                  key: DAKERA_ROOT_API_KEY
+            - name: MCP_PORT
+              value: "3001"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

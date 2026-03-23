@@ -1,0 +1,62 @@
+# =============================================================================
+# Dakera Dashboard - Kubernetes Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dakera-dashboard
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera-dashboard
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/version: "0.3.22"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dakera-dashboard
+      app.kubernetes.io/component: dashboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dakera-dashboard
+        app.kubernetes.io/component: dashboard
+        app.kubernetes.io/version: "0.3.22"
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: dashboard
+          image: ghcr.io/dakera-ai/dakera-dashboard:0.3.22
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: DAKERA_API_UPSTREAM
+              value: "http://dakera:3000"
+            - name: DAKERA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dakera-secrets
+                  key: DAKERA_ROOT_API_KEY
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

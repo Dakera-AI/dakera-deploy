@@ -1,0 +1,182 @@
+# =============================================================================
+# Dakera Helm Chart - Default Values
+# =============================================================================
+# Override any value with:
+#   helm install dakera ./charts/dakera -f my-values.yaml
+#   helm install dakera ./charts/dakera --set dakera.replicaCount=3
+
+# ---- Dakera Server ----------------------------------------------------------
+dakera:
+  image:
+    repository: ghcr.io/dakera-ai/dakera
+    tag: "0.8.1"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  config:
+    host: "0.0.0.0"
+    port: 3000
+    grpcPort: 50051
+    storage: s3
+    s3Bucket: dakera
+    s3Region: us-east-1
+    l1CacheSize: "1073741824"  # 1 GB
+    l2CachePath: /data/rocksdb
+    tieredStorage: true
+    hotToWarmSecs: 3600
+    warmToColdSecs: 86400
+    autoTier: true
+    tierCheckIntervalSecs: 300
+    maxBodySize: "524288000"  # 500 MB
+    authEnabled: true
+    rustLog: info
+
+  # Root API key — REQUIRED. Set via --set or external secret.
+  # rootApiKey: ""
+
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  service:
+    type: ClusterIP
+    httpPort: 3000
+    grpcPort: 50051
+
+# ---- Dakera Dashboard -------------------------------------------------------
+dashboard:
+  enabled: true
+  image:
+    repository: ghcr.io/dakera-ai/dakera-dashboard
+    tag: "0.3.22"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+# ---- Dakera MCP Server ------------------------------------------------------
+mcp:
+  enabled: true
+  image:
+    repository: ghcr.io/dakera-ai/dakera-mcp
+    tag: "latest"
+    pullPolicy: Always
+
+  replicaCount: 1
+
+  config:
+    port: 3001
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  service:
+    type: ClusterIP
+    port: 3001
+
+# ---- MinIO (built-in S3) ----------------------------------------------------
+minio:
+  enabled: true
+  image:
+    repository: minio/minio
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Credentials — override via --set or external secret
+  rootUser: minioadmin
+  rootPassword: ""  # REQUIRED — set before deploying
+
+  persistence:
+    size: 50Gi
+    storageClass: ""
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+# Use external S3 instead of MinIO:
+# minio:
+#   enabled: false
+# dakera:
+#   config:
+#     s3Endpoint: https://s3.amazonaws.com
+
+# ---- Ingress ----------------------------------------------------------------
+ingress:
+  enabled: false
+  className: nginx
+  # apiHost: api.dakera.yourdomain.com
+  # dashboardHost: dashboard.dakera.yourdomain.com
+  # mcpHost: mcp.dakera.yourdomain.com
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  tls: []
+    # - secretName: dakera-tls
+    #   hosts:
+    #     - api.dakera.yourdomain.com
+
+# ---- Monitoring (Prometheus + Grafana) -------------------------------------
+monitoring:
+  enabled: false
+
+  prometheus:
+    image:
+      repository: prom/prometheus
+      tag: v3.2.0
+    retention: 15d
+    persistence:
+      size: 10Gi
+      storageClass: ""
+
+  grafana:
+    image:
+      repository: grafana/grafana
+      tag: "11.4.0"
+    adminUser: admin
+    adminPassword: ""  # auto-generated if empty
+    persistence:
+      size: 5Gi
+      storageClass: ""
+
+# ---- Global -----------------------------------------------------------------
+global:
+  namespace: dakera
+  imagePullSecrets: []

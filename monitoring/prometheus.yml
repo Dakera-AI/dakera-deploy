@@ -1,6 +1,9 @@
 # =============================================================================
 # Prometheus Configuration for Dakera
 # =============================================================================
+# Used by:
+#   - monitoring/docker-compose.yml  (standalone monitoring stack)
+#   - docker/docker-compose.ha.yml   (--profile monitoring)
 
 global:
   scrape_interval: 15s
@@ -13,29 +16,36 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  # Dakera HA cluster nodes
+  # Dakera single-node (docker-compose.yml default setup)
   - job_name: 'dakera'
     static_configs:
-      - targets: ['dakera-1:3000', 'dakera-2:3000', 'dakera-3:3000']
+      - targets: ['dakera:3000']
         labels:
-          cluster: 'ha'
+          deployment: 'single-node'
     metrics_path: '/metrics'
     scrape_interval: 10s
     scrape_timeout: 5s
+
+  # Dakera HA cluster nodes (docker-compose.ha.yml)
+  # Uncomment when using HA profile:
+  # - job_name: 'dakera-ha'
+  #   static_configs:
+  #     - targets: ['dakera-1:3000', 'dakera-2:3000', 'dakera-3:3000']
+  #       labels:
+  #         deployment: 'ha'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 10s
+  #   scrape_timeout: 5s
 
   # MinIO metrics
   - job_name: 'minio'
     static_configs:
       - targets: ['minio:9000']
     metrics_path: '/minio/v2/metrics/cluster'
+    scrape_interval: 30s
 
-  # Redis metrics (via redis-exporter, if added)
-  # - job_name: 'redis'
+  # Traefik metrics (HA profile only)
+  # - job_name: 'traefik'
   #   static_configs:
-  #     - targets: ['redis-exporter:9121']
-
-  # Traefik metrics
-  - job_name: 'traefik'
-    static_configs:
-      - targets: ['traefik:8080']
-    metrics_path: '/metrics'
+  #     - targets: ['traefik:8080']
+  #   metrics_path: '/metrics'

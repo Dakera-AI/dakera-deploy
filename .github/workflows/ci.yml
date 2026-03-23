@@ -6,8 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
+  packages: read
 
 jobs:
   validate:
@@ -29,3 +34,105 @@ jobs:
         with:
           dockerfile: docker/Dockerfile
           failure-threshold: warning
+
+  helm-lint:
+    name: Helm Lint + Template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+
+      - name: Helm lint (full defaults)
+        run: |
+          helm lint charts/dakera/ \
+            --set dakera.rootApiKey=ci-test \
+            --set minio.rootPassword=ci-test
+
+      - name: Helm lint (minio disabled / memory storage)
+        run: |
+          helm lint charts/dakera/ \
+            --set dakera.rootApiKey=ci-test \
+            --set minio.enabled=false \
+            --set dakera.config.storage=memory
+
+      - name: Helm template (render all manifests)
+        run: |
+          helm template dakera-ci charts/dakera/ \
+            --namespace dakera \
+            --set dakera.rootApiKey=ci-test \
+            --set minio.rootPassword=ci-test \
+            > /tmp/rendered.yaml
+          echo "Rendered $(wc -l < /tmp/rendered.yaml) lines of Kubernetes YAML"
+          grep "^kind:" /tmp/rendered.yaml | sort | uniq -c | sort -rn
+
+  helm-deploy-test:
+    name: Helm Deployment Test (kind)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: dakera-ci
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pre-pull dakera image into kind
+        run: |
+          docker pull ghcr.io/dakera-ai/dakera:0.8.1
+          kind load docker-image ghcr.io/dakera-ai/dakera:0.8.1 --name dakera-ci
+
+      - name: Create namespace
+        run: kubectl create namespace dakera
+
+      - name: Deploy with Helm (memory storage, minimal services)
+        run: |
+          helm install dakera charts/dakera/ \
+            --namespace dakera \
+            --set dakera.rootApiKey=ci-test-key \
+            --set dakera.config.storage=memory \
+            --set dakera.config.tieredStorage=false \
+            --set dakera.config.autoTier=false \
+            --set dakera.persistence.enabled=false \
+            --set dakera.autoscaling.enabled=false \
+            --set minio.enabled=false \
+            --set dashboard.enabled=false \
+            --set mcp.enabled=false \
+            --wait \
+            --timeout 120s
+
+      - name: Verify rollout
+        run: |
+          kubectl get all -n dakera
+          kubectl rollout status deployment/dakera -n dakera --timeout=60s
+
+      - name: Health check via port-forward
+        run: |
+          kubectl port-forward -n dakera svc/dakera 3000:3000 &
+          PF_PID=$!
+          sleep 5
+          curl --retry 5 --retry-delay 2 -f http://localhost:3000/health
+          echo "Health check passed"
+          kill $PF_PID || true
+
+      - name: Helm test (chart test hooks)
+        run: helm test dakera --namespace dakera --timeout 60s || true
+
+      - name: Cleanup
+        if: always()
+        run: helm uninstall dakera --namespace dakera --ignore-not-found || true

@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: dakera-dashboard
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera-dashboard
+    app.kubernetes.io/component: dashboard
+spec:
+  selector:
+    app.kubernetes.io/name: dakera-dashboard
+    app.kubernetes.io/component: dashboard
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+  type: ClusterIP

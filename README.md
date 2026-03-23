@@ -2,8 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)](https://docs.docker.com/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5)](https://kubernetes.io/)
+[![Helm](https://img.shields.io/badge/Helm-Chart-0F1689)](https://helm.sh/)
 
-Deployment configurations for Dakera -- a high-performance vector database built for AI agent memory.
+Deployment configurations for Dakera — the AI agent memory platform.
 
 This repository contains Docker configurations, high-availability clustering, load balancing, and monitoring setup for running Dakera in development and production environments.
 
@@ -48,6 +50,7 @@ Auth is disabled for local dev. See [docker-compose deployment](#default-full-si
 | **default** | Dakera + MinIO with full configuration | Staging / single-node production |
 | **ha** | 3-node cluster with Traefik load balancer | Production high availability |
 | **monitoring** | Prometheus + Grafana observability stack | Metrics and dashboards |
+| **kubernetes** | kubectl manifests or Helm chart | Production (cloud-native) |
 
 ## Quick Start
 
@@ -124,19 +127,29 @@ docker compose -f docker-compose.ha.yml up -d
 Add observability to any deployment profile.
 
 ```bash
-# Start Dakera with monitoring
+# Start Dakera with monitoring (standalone monitoring compose)
 cd docker
 docker compose up -d
 
-# Start monitoring stack
-cd ../monitoring
-docker compose up -d  # (if using a separate monitoring compose)
+cd ..
+docker compose -f docker/docker-compose.yml -f monitoring/docker-compose.yml up -d
+```
+
+Or use the monitoring profile in the HA stack:
+
+```bash
+cd docker
+docker compose -f docker-compose.ha.yml --profile monitoring up -d
 ```
 
 - Prometheus: http://localhost:9090
-- Grafana: http://localhost:3001 (admin/admin)
+- Grafana: http://localhost:3003 (admin/dakera)
 
-Pre-configured dashboards include request rates, latency percentiles, cache hit ratios, storage metrics, and cluster health.
+Pre-configured dashboards include request rates, latency percentiles, cache hit ratios, storage metrics, cluster health, and memory decay metrics (v0.8.0+).
+
+### Kubernetes
+
+Production deployment via kubectl or Helm. See [Kubernetes Deployment](#kubernetes-deployment) below.
 
 ## Directory Structure
 
@@ -154,7 +167,34 @@ dakera-deploy/
 │   ├── docker-compose.local.yml     # Local: single instance, in-memory
 │   ├── docker-compose.ha.yml        # HA: 3-node cluster + Traefik LB
 │   └── traefik-dynamic.yml          # Traefik routing and load balancer config
+├── k8s/                             # Kubernetes manifests (production)
+│   ├── namespace.yaml               # dakera namespace
+│   ├── configmap.yaml               # Non-secret server configuration
+│   ├── secret.example.yaml          # Secret template (never commit secrets)
+│   ├── dakera/                      # Dakera server
+│   │   ├── deployment.yaml
+│   │   ├── service.yaml
+│   │   └── hpa.yaml                 # Horizontal Pod Autoscaler
+│   ├── dashboard/                   # Dashboard UI
+│   │   ├── deployment.yaml
+│   │   └── service.yaml
+│   ├── mcp/                         # MCP server (AI agent memory tools)
+│   │   ├── deployment.yaml
+│   │   └── service.yaml
+│   ├── minio/                       # MinIO (use native S3 in cloud)
+│   │   ├── statefulset.yaml
+│   │   └── service.yaml
+│   ├── monitoring/                  # Prometheus + Grafana
+│   │   ├── prometheus.yaml
+│   │   └── grafana.yaml
+│   ├── ingress.yaml                 # Nginx ingress (edit hostnames)
+│   └── kustomization.yaml           # kubectl apply -k k8s/
+├── charts/dakera/                   # Helm chart
+│   ├── Chart.yaml
+│   ├── values.yaml                  # All configurable defaults
+│   └── templates/                   # Helm templates
 ├── monitoring/                      # Observability stack
+│   ├── docker-compose.yml           # Standalone monitoring compose
 │   ├── prometheus.yml               # Prometheus scrape configuration
 │   └── grafana/                     # Grafana provisioning
 │       └── provisioning/
@@ -163,7 +203,7 @@ dakera-deploy/
 │           └── dashboards/
 │               ├── dashboards.yml   # Dashboard auto-provisioning config
 │               └── json/
-│                   └── dakera-overview.json  # Pre-built overview dashboard
+│                   └── dakera-overview.json  # Overview + decay dashboards
 ├── LICENSE
 ├── CHANGELOG.md
 └── README.md
@@ -311,6 +351,91 @@ docker compose -f docker-compose.ha.yml start dakera-3
 docker compose -f docker-compose.dev.yml up -d --build
 ```
 
+## Kubernetes Deployment
+
+Production-grade deployment on Kubernetes. Covers Dakera server, Dashboard, and MCP server. Use **docker-compose** for local/development; use **Kubernetes** for production.
+
+### Prerequisites
+
+- Kubernetes 1.27+
+- kubectl configured for your cluster
+- [nginx ingress controller](https://kubernetes.github.io/ingress-nginx/) (for external access)
+- [Helm 3](https://helm.sh/) (optional — for Helm-based deploy)
+
+### Option A: Raw manifests (kubectl + Kustomize)
+
+```bash
+# 1. Create secrets (replace values)
+kubectl create namespace dakera
+kubectl create secret generic dakera-secrets \
+  --from-literal=DAKERA_ROOT_API_KEY=$(openssl rand -hex 32) \
+  --from-literal=MINIO_ROOT_USER=minioadmin \
+  --from-literal=MINIO_ROOT_PASSWORD=$(openssl rand -hex 16) \
+  --from-literal=AWS_ACCESS_KEY_ID=minioadmin \
+  --from-literal=AWS_SECRET_ACCESS_KEY=<minio-password> \
+  --namespace dakera
+
+# 2. Edit ingress hostnames
+# Edit k8s/ingress.yaml — replace yourdomain.com with your real domain
+
+# 3. Apply all resources
+kubectl apply -k k8s/
+
+# 4. Verify pods are running
+kubectl get pods -n dakera
+
+# 5. Check Dakera health
+kubectl port-forward -n dakera svc/dakera 3000:3000
+curl http://localhost:3000/health
+```
+
+### Option B: Helm
+
+```bash
+# Install with Helm
+helm install dakera ./charts/dakera \
+  --namespace dakera \
+  --create-namespace \
+  --set dakera.rootApiKey=$(openssl rand -hex 32) \
+  --set minio.rootPassword=$(openssl rand -hex 16)
+
+# With ingress + monitoring enabled
+helm install dakera ./charts/dakera \
+  --namespace dakera \
+  --create-namespace \
+  --set dakera.rootApiKey=$(openssl rand -hex 32) \
+  --set minio.rootPassword=$(openssl rand -hex 16) \
+  --set ingress.enabled=true \
+  --set ingress.apiHost=api.dakera.yourdomain.com \
+  --set ingress.dashboardHost=dashboard.dakera.yourdomain.com \
+  --set monitoring.enabled=true
+
+# Upgrade
+helm upgrade dakera ./charts/dakera --reuse-values
+
+# Uninstall
+helm uninstall dakera -n dakera
+```
+
+### Resource Summary
+
+| Component | CPU Request | Memory Request | Default Replicas |
+|-----------|------------|---------------|-----------------|
+| Dakera server | 500m | 512Mi | 1 (HPA: 1–5) |
+| Dashboard | 100m | 64Mi | 1 |
+| MCP server | 50m | 64Mi | 1 |
+| MinIO | 250m | 256Mi | 1 (StatefulSet) |
+| Prometheus | 250m | 256Mi | 1 |
+| Grafana | 100m | 128Mi | 1 |
+
+### Production Tips
+
+- **Use native S3** (AWS S3, GCS) instead of MinIO in cloud environments: set `DAKERA_S3_ENDPOINT` to your provider's endpoint and disable MinIO (`minio.enabled=false` in Helm)
+- **Enable autoscaling**: the HPA scales Dakera pods 1–5 based on CPU/memory. Set `minReplicas: 3` for HA
+- **TLS**: add cert-manager annotations to `k8s/ingress.yaml` or `ingress.annotations` in Helm values
+- **Secrets management**: use an external secrets operator (External Secrets, Vault) instead of `kubectl create secret` for production
+- **Metrics**: Dakera exposes Prometheus metrics at `GET /metrics` — pods have `prometheus.io/scrape: "true"` annotations for auto-discovery
+
 ## Security
 
 Before deploying to a production or internet-facing environment:
@@ -329,7 +454,7 @@ See [CONFIGURATION.md](https://github.com/dakera-ai/dakera-docs/blob/main/CONFIG
 
 | Repository | Description |
 |------------|-------------|
-| [dakera](https://github.com/dakera-ai/dakera) | Core vector database engine (Rust) |
+| [dakera](https://github.com/dakera-ai/dakera) | Core AI agent memory engine (Rust) |
 | [dakera-py](https://github.com/dakera-ai/dakera-py) | Python SDK |
 | [dakera-js](https://github.com/dakera-ai/dakera-js) | TypeScript/JavaScript SDK |
 | [dakera-go](https://github.com/dakera-ai/dakera-go) | Go SDK |
