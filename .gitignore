@@ -25,6 +25,9 @@ volumes/
 *.crt
 !certs/.gitkeep
 
+# Kubernetes secrets (never commit real secrets)
+k8s/secret.yaml
+
 # Logs
 *.log
 logs/

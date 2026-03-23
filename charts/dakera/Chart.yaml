@@ -1,0 +1,17 @@
+apiVersion: v2
+name: dakera
+description: Dakera — high-performance vector database for AI agent memory
+type: application
+version: 0.1.0
+appVersion: "0.8.1"
+keywords:
+  - vector-database
+  - ai
+  - memory
+  - mcp
+home: https://github.com/dakera-ai/dakera-deploy
+sources:
+  - https://github.com/dakera-ai/dakera
+maintainers:
+  - name: Dakera AI
+    url: https://github.com/dakera-ai

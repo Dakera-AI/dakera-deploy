@@ -1,0 +1,102 @@
+# =============================================================================
+# MinIO - Kubernetes StatefulSet
+# =============================================================================
+# For cloud deployments, prefer native S3 (AWS) or GCS over self-hosted MinIO.
+# Use this for on-prem / bare-metal clusters.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dakera-minio
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera-minio
+    app.kubernetes.io/component: storage
+spec:
+  serviceName: dakera-minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dakera-minio
+      app.kubernetes.io/component: storage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dakera-minio
+        app.kubernetes.io/component: storage
+    spec:
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: init-bucket
+          image: minio/mc:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until mc alias set myminio http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD; do sleep 2; done
+              mc mb myminio/dakera --ignore-existing
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: dakera-secrets
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dakera-secrets
+                  key: MINIO_ROOT_PASSWORD
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args:
+            - server
+            - /data
+            - --console-address
+            - ":9001"
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: dakera-secrets
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dakera-secrets
+                  key: MINIO_ROOT_PASSWORD
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 50Gi
