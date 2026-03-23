@@ -1,0 +1,93 @@
+# =============================================================================
+# Dakera Server - Kubernetes Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dakera
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera
+    app.kubernetes.io/component: server
+    app.kubernetes.io/version: "0.8.1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dakera
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dakera
+        app.kubernetes.io/component: server
+        app.kubernetes.io/version: "0.8.1"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: dakera
+          image: ghcr.io/dakera-ai/dakera:0.8.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: dakera-config
+            - secretRef:
+                name: dakera-secrets
+          volumeMounts:
+            - name: rocksdb
+              mountPath: /data/rocksdb
+            - name: cache
+              mountPath: /data/cache
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+      volumes:
+        - name: rocksdb
+          persistentVolumeClaim:
+            claimName: dakera-rocksdb
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dakera-rocksdb
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera
+    app.kubernetes.io/component: server
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi

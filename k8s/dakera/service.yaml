@@ -1,0 +1,25 @@
+# =============================================================================
+# Dakera Server - Kubernetes Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: dakera
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera
+    app.kubernetes.io/component: server
+spec:
+  selector:
+    app.kubernetes.io/name: dakera
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: 50051
+      targetPort: grpc
+      protocol: TCP
+  type: ClusterIP

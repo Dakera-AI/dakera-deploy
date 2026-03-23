@@ -1,0 +1,30 @@
+# =============================================================================
+# Dakera - Kubernetes ConfigMap (non-secret configuration)
+# =============================================================================
+# Secrets (API keys, passwords) belong in a Secret — see secret.example.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dakera-config
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera
+    app.kubernetes.io/component: config
+data:
+  DAKERA_HOST: "0.0.0.0"
+  DAKERA_PORT: "3000"
+  DAKERA_GRPC_PORT: "50051"
+  DAKERA_STORAGE: "s3"
+  DAKERA_S3_ENDPOINT: "http://dakera-minio:9000"
+  DAKERA_S3_BUCKET: "dakera"
+  DAKERA_S3_REGION: "us-east-1"
+  DAKERA_L1_CACHE_SIZE: "1073741824"
+  DAKERA_L2_CACHE_PATH: "/data/rocksdb"
+  DAKERA_TIERED_STORAGE: "true"
+  DAKERA_HOT_TO_WARM_SECS: "3600"
+  DAKERA_WARM_TO_COLD_SECS: "86400"
+  DAKERA_AUTO_TIER: "true"
+  DAKERA_TIER_CHECK_INTERVAL_SECS: "300"
+  DAKERA_MAX_BODY_SIZE: "524288000"
+  DAKERA_AUTH_ENABLED: "true"
+  RUST_LOG: "info"

@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dakera.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dakera.labels" . | nindent 4 }}
+data:
+  DAKERA_HOST: {{ .Values.dakera.config.host | quote }}
+  DAKERA_PORT: {{ .Values.dakera.config.port | quote }}
+  DAKERA_GRPC_PORT: {{ .Values.dakera.config.grpcPort | quote }}
+  DAKERA_STORAGE: {{ .Values.dakera.config.storage | quote }}
+  DAKERA_S3_ENDPOINT: "http://{{ include "dakera.fullname" . }}-minio:9000"
+  DAKERA_S3_BUCKET: {{ .Values.dakera.config.s3Bucket | quote }}
+  DAKERA_S3_REGION: {{ .Values.dakera.config.s3Region | quote }}
+  DAKERA_L1_CACHE_SIZE: {{ .Values.dakera.config.l1CacheSize | quote }}
+  DAKERA_L2_CACHE_PATH: {{ .Values.dakera.config.l2CachePath | quote }}
+  DAKERA_TIERED_STORAGE: {{ .Values.dakera.config.tieredStorage | quote }}
+  DAKERA_HOT_TO_WARM_SECS: {{ .Values.dakera.config.hotToWarmSecs | quote }}
+  DAKERA_WARM_TO_COLD_SECS: {{ .Values.dakera.config.warmToColdSecs | quote }}
+  DAKERA_AUTO_TIER: {{ .Values.dakera.config.autoTier | quote }}
+  DAKERA_TIER_CHECK_INTERVAL_SECS: {{ .Values.dakera.config.tierCheckIntervalSecs | quote }}
+  DAKERA_MAX_BODY_SIZE: {{ .Values.dakera.config.maxBodySize | quote }}
+  DAKERA_AUTH_ENABLED: {{ .Values.dakera.config.authEnabled | quote }}
+  RUST_LOG: {{ .Values.dakera.config.rustLog | quote }}

@@ -1,0 +1,40 @@
+# =============================================================================
+# Dakera - Kustomize root (kubectl apply -k k8s/)
+# =============================================================================
+# Apply all resources to a cluster:
+#   kubectl apply -k k8s/
+#
+# Apply with custom overlay (e.g. production):
+#   kubectl apply -k k8s/overlays/production/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dakera
+
+resources:
+  # Namespace (must be first)
+  - namespace.yaml
+  # Config & Secrets
+  - configmap.yaml
+  # Storage
+  - minio/statefulset.yaml
+  - minio/service.yaml
+  # Core server
+  - dakera/deployment.yaml
+  - dakera/service.yaml
+  - dakera/hpa.yaml
+  # Dashboard UI
+  - dashboard/deployment.yaml
+  - dashboard/service.yaml
+  # MCP Server
+  - mcp/deployment.yaml
+  - mcp/service.yaml
+  # Ingress (edit ingress.yaml hostnames before applying)
+  - ingress.yaml
+  # Monitoring (optional — comment out if not needed)
+  - monitoring/prometheus.yaml
+  - monitoring/grafana.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: dakera
+  app.kubernetes.io/managed-by: kustomize

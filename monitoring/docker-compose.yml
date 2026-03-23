@@ -1,0 +1,57 @@
+# =============================================================================
+# Dakera - Monitoring Stack (Prometheus + Grafana)
+# =============================================================================
+# Standalone monitoring compose — attach to any running Dakera deployment.
+#
+# Usage (attach to default single-node):
+#   docker compose -f docker/docker-compose.yml \
+#                  -f monitoring/docker-compose.yml \
+#                  up -d
+#
+# Or use the monitoring profile in docker-compose.ha.yml:
+#   docker compose -f docker/docker-compose.ha.yml --profile monitoring up -d
+#
+# Endpoints:
+#   Prometheus: http://localhost:9090
+#   Grafana:    http://localhost:3003  (admin / dakera)
+# =============================================================================
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.2.0
+    container_name: dakera-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: dakera-grafana
+    ports:
+      - "${GRAFANA_PORT:-3003}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-dakera}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/json/dakera-overview.json
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
