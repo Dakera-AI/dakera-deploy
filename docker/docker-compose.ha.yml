@@ -24,7 +24,7 @@
 # =============================================================================
 
 x-dakera-common: &dakera-common
-  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.8.1}
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.8.2}
   restart: unless-stopped
   networks:
     - dakera-ha-net
@@ -249,7 +249,7 @@ services:
   # Dakera Dashboard — Web UI
   # ==========================================================================
   dashboard:
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.3.22}
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.3.23}
     container_name: dakera-dashboard
     ports:
       - "${DASHBOARD_PORT:-3002}:3000"
