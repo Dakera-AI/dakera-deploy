@@ -35,6 +35,23 @@ jobs:
           dockerfile: docker/Dockerfile
           failure-threshold: warning
 
+  kustomize-validate:
+    name: Kustomize Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kubectl (includes kustomize)
+        uses: azure/setup-kubectl@v4
+
+      - name: kustomize build (validate raw manifests)
+        run: kustomize build k8s/ > /tmp/kustomize-output.yaml
+
+      - name: Check rendered manifest summary
+        run: |
+          echo "Rendered $(wc -l < /tmp/kustomize-output.yaml) lines"
+          grep "^kind:" /tmp/kustomize-output.yaml | sort | uniq -c | sort -rn
+
   helm-lint:
     name: Helm Lint + Template
     runs-on: ubuntu-latest
@@ -94,8 +111,9 @@ jobs:
 
       - name: Pre-pull dakera image into kind
         run: |
-          docker pull ghcr.io/dakera-ai/dakera:0.8.1
-          kind load docker-image ghcr.io/dakera-ai/dakera:0.8.1 --name dakera-ci
+          DAKERA_TAG=$(grep '^appVersion:' charts/dakera/Chart.yaml | awk '{gsub(/"/, "", $2); print $2}')
+          docker pull ghcr.io/dakera-ai/dakera:${DAKERA_TAG}
+          kind load docker-image ghcr.io/dakera-ai/dakera:${DAKERA_TAG} --name dakera-ci
 
       - name: Create namespace
         run: kubectl create namespace dakera
