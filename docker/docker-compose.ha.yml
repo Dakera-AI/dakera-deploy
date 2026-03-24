@@ -17,15 +17,19 @@
 #   docker compose -f docker-compose.ha.yml up -d --profile full
 #   docker compose -f docker-compose.ha.yml down
 #
-# Endpoints:
-#   Dakera API (LB):   http://localhost:3000
-#   Dakera gRPC (LB):  localhost:50051
-#   Dashboard:          http://localhost:3002
-#   Traefik Dashboard:  http://localhost:8080
-#   MinIO Console:      http://localhost:9001
-#   Prometheus:         http://localhost:9090   (--profile monitoring)
-#   Grafana:            http://localhost:3003   (--profile monitoring)
-#   Jaeger UI:          http://localhost:16686  (--profile monitoring)
+# Endpoints (default HA_ port overrides — safe for single-server co-deployment):
+#   Dakera API (LB):   http://localhost:3100   (HA_LB_HTTP_PORT)
+#   Dakera gRPC (LB):  localhost:50151          (HA_LB_GRPC_PORT)
+#   Dashboard:          http://localhost:3202   (HA_DASHBOARD_PORT)
+#   Traefik Dashboard:  http://localhost:8080   (HA_TRAEFIK_PORT)
+#   MinIO API:          http://localhost:9100   (HA_MINIO_API_PORT)
+#   MinIO Console:      http://localhost:9101   (HA_MINIO_CONSOLE_PORT)
+#   Redis:              localhost:6480          (HA_REDIS_PORT)
+#   Prometheus:         http://localhost:9190   (--profile monitoring, HA_PROMETHEUS_PORT)
+#   Grafana:            http://localhost:3203   (--profile monitoring, HA_GRAFANA_PORT)
+#   Jaeger UI:          http://localhost:16787  (--profile monitoring, HA_JAEGER_UI_PORT)
+#
+# Override any port by setting the corresponding HA_* env var. See .env.ha.example.
 # =============================================================================
 
 name: dakera-ha
@@ -96,9 +100,9 @@ services:
       - "--log.level=INFO"
       - "--accesslog=true"
     ports:
-      - "${LB_HTTP_PORT:-3000}:3000"
-      - "${LB_GRPC_PORT:-50051}:50051"
-      - "${TRAEFIK_DASHBOARD_PORT:-8080}:8080"
+      - "${HA_LB_HTTP_PORT:-3100}:3000"
+      - "${HA_LB_GRPC_PORT:-50151}:50051"
+      - "${HA_TRAEFIK_PORT:-8080}:8080"
     volumes:
       - ./traefik-dynamic.yml:/etc/traefik/dynamic.yml:ro
     healthcheck:
@@ -196,7 +200,7 @@ services:
     container_name: dakera-redis
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${HA_REDIS_PORT:-6480}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -216,8 +220,8 @@ services:
     container_name: dakera-ha-minio
     command: server /data --console-address ":9001"
     ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "${HA_MINIO_API_PORT:-9100}:9000"
+      - "${HA_MINIO_CONSOLE_PORT:-9101}:9001"
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -259,7 +263,7 @@ services:
     image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.3.25}
     container_name: dakera-dashboard
     ports:
-      - "${DASHBOARD_PORT:-3002}:3000"
+      - "${HA_DASHBOARD_PORT:-3202}:3000"
     environment:
       - DAKERA_API_UPSTREAM=http://dakera-traefik:3000
       - DAKERA_API_KEY=${DAKERA_ROOT_API_KEY:-dk_dev_root_key_change_in_production}
@@ -278,7 +282,7 @@ services:
     container_name: dakera-prometheus
     profiles: ["monitoring", "full"]
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "${HA_PROMETHEUS_PORT:-9190}:9090"
     volumes:
       - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
@@ -301,7 +305,7 @@ services:
     container_name: dakera-grafana
     profiles: ["monitoring", "full"]
     ports:
-      - "${GRAFANA_PORT:-3003}:3000"
+      - "${HA_GRAFANA_PORT:-3203}:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-dakera}
@@ -323,7 +327,7 @@ services:
     container_name: dakera-jaeger
     profiles: ["monitoring", "full"]
     ports:
-      - "${JAEGER_UI_PORT:-16686}:16686"
+      - "${HA_JAEGER_UI_PORT:-16787}:16686"
       - "4317:4317"
       - "4318:4318"
     environment:
