@@ -15,7 +15,7 @@ services:
   # Dakera - AI Agent Memory Platform
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.8.1}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.8.2}
     container_name: dakera
     ports:
       - "${DAKERA_PORT:-3000}:3000"
@@ -121,7 +121,7 @@ services:
   # Dakera Dashboard (optional)
   # ==========================================================================
   dashboard:
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.3.22}
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.3.23}
     container_name: dakera-dashboard
     profiles: ["dashboard", "full"]
     ports:
