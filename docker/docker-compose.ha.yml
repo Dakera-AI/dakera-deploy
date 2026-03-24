@@ -6,6 +6,11 @@
 #
 # All services use published container images — no local builds required.
 #
+# IMPORTANT: This file sets `name: dakera-ha` to isolate it from the single-node
+# stack (docker-compose.yml, project name: dakera). Without this, both stacks
+# share the same Compose project name and Docker reconciliation removes each
+# other's containers on `up` — causing the MinIO/network interference (DAK-829).
+#
 # Usage:
 #   docker compose -f docker-compose.ha.yml up -d
 #   docker compose -f docker-compose.ha.yml up -d --profile monitoring
@@ -22,6 +27,8 @@
 #   Grafana:            http://localhost:3003   (--profile monitoring)
 #   Jaeger UI:          http://localhost:16686  (--profile monitoring)
 # =============================================================================
+
+name: dakera-ha
 
 x-dakera-common: &dakera-common
   image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.8.2}
