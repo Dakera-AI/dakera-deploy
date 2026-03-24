@@ -4,6 +4,10 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+### Fixed
+
+- Add explicit `name: dakera-ha` to `docker-compose.ha.yml` and `name: dakera` to `docker-compose.yml` — prevents Compose project name collision that caused MinIO container eviction from the network when starting the HA stack alongside the single-node stack (DAK-829)
+
 ## [0.2.4] - 2026-03-24
 
 ### Fixed
