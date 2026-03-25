@@ -16,7 +16,7 @@ permissions:
 jobs:
   release-info:
     name: Release Info
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64]
     steps:
       - name: Log release
         run: |
