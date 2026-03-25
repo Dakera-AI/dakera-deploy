@@ -35,7 +35,7 @@
 name: dakera-ha
 
 x-dakera-common: &dakera-common
-  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.8.4}
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.8.5}
   restart: unless-stopped
   networks:
     - dakera-ha-net
@@ -260,7 +260,7 @@ services:
   # Dakera Dashboard — Web UI
   # ==========================================================================
   dashboard:
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.3.26}
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.3.28}
     container_name: dakera-dashboard
     ports:
       - "${HA_DASHBOARD_PORT:-3202}:3000"
