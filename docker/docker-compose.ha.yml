@@ -67,6 +67,8 @@ x-dakera-env: &dakera-env
   DAKERA_L1_CACHE_SIZE: "536870912"
   DAKERA_L2_CACHE_PATH: "/data/rocksdb"
   DAKERA_CACHE_REDIS_URL: "redis://redis:6379"
+  # OPS-3: shared Redis for rate-limit counters, SSE pub/sub fan-out, leader lock
+  DAKERA_REDIS_URL: "redis://redis:6379"
   # Tiered storage (L1 hot → L2 warm → L3 cold)
   DAKERA_TIERED_STORAGE: "true"
   DAKERA_HOT_TO_WARM_SECS: "3600"
