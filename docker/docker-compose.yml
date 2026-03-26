@@ -120,6 +120,51 @@ services:
       - dakera-net
 
   # ==========================================================================
+  # Prometheus + Grafana (optional — monitoring profile)
+  # ==========================================================================
+  # Enable with:  docker compose --profile monitoring up -d
+  # Prometheus:   http://localhost:9090
+  # Grafana:      http://localhost:3003  (admin / dakera)
+  prometheus:
+    image: prom/prometheus:v3.2.0
+    container_name: dakera-prometheus
+    profiles: ["monitoring", "full"]
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+    networks:
+      - dakera-net
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: dakera-grafana
+    profiles: ["monitoring", "full"]
+    ports:
+      - "${GRAFANA_PORT:-3003}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-dakera}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/json/dakera-overview.json
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - dakera-net
+
+  # ==========================================================================
   # Dakera Dashboard (optional)
   # ==========================================================================
   dashboard:
@@ -142,6 +187,8 @@ volumes:
   dakera-cache:
   dakera-rocksdb:
   minio-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   dakera-net:
