@@ -183,6 +183,42 @@ services:
     networks:
       - dakera-net
 
+  # ==========================================================================
+  # Dakera ODE — On-Demand Enhancement sidecar (optional)
+  # ==========================================================================
+  # Enable with:  docker compose --profile ode up -d
+  # ODE endpoint: http://localhost:8080/ode/enhance
+  # Webhook:      http://localhost:8080/internal/webhook/memory-stored
+  #
+  # Configure dakera to fire webhook events:
+  #   DAKERA_ODE_WEBHOOK_URL=http://dakera-ode:8080/internal/webhook/memory-stored
+  # ==========================================================================
+  dakera-ode:
+    image: ${ODE_IMAGE:-ghcr.io/dakera-ai/dakera-ode:0.9.0}
+    container_name: dakera-ode
+    profiles: ["ode", "full"]
+    ports:
+      - "${ODE_PORT:-8080}:8080"
+    environment:
+      - LOG_LEVEL=${ODE_LOG_LEVEL:-info}
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - dakera-net
+
 volumes:
   dakera-cache:
   dakera-rocksdb:
