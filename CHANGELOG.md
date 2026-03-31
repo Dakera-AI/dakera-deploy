@@ -4,6 +4,13 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-03-31
+
+### Changed
+
+- Bump dakera server default image: `0.9.6` → `0.9.7`
+  - v0.9.7: CE-7 Time-Window Recall (since/until on recall), COG-3 Proactive Memory Consolidation (background DBSCAN per namespace)
+
 ## [0.2.6] - 2026-03-31
 
 ### Changed
