@@ -4,6 +4,19 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-03-31
+
+### Changed
+
+- Bump dakera server default image: `0.8.6` → `0.9.6` (weekly batch)
+  - v0.9.0: CE-4 full-text search, CE-5 Knowledge Graph, OPS-2 vector primitives, OPS-3 batch upsert, ODE integration REST API
+  - v0.9.1: SEC-3 zero-downtime encryption key rotation fix
+  - v0.9.2: SEC-4 HMAC-SHA256 webhook auth
+  - v0.9.3: Docker Debian Trixie (glibc 2.40, ORT ARM64 fix)
+  - v0.9.4: ODE-2 GLiNER entity extraction
+  - v0.9.5: ODE webhook HMAC security patch
+  - v0.9.6: COG-1 memory lifecycle (MemoryPolicy), COG-2 associative recall, KG-2 graph query/export
+
 ## [0.2.5] - 2026-03-24
 
 ### Fixed
