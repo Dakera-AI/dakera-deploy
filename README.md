@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)](https://docs.docker.com/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5)](https://kubernetes.io/)
-[![Helm](https://img.shields.io/badge/Helm-Chart-0F1689)](https://helm.sh/)
+[![Helm](https://img.shields.io/badge/Helm-v0.9.9-0F1689)](https://github.com/orgs/dakera-ai/packages/container/package/charts%2Fdakera)
 
 Deployment configurations for Dakera — the AI agent memory platform. Persistent, session-aware, cross-agent memory for your AI agents.
 
@@ -413,18 +413,18 @@ curl http://localhost:3000/health
 
 ### Option B: Helm
 
+The chart is published to GHCR as an OCI artifact. Helm 3.8+ required.
+
 ```bash
-# Install with Helm
-helm install dakera ./charts/dakera \
-  --namespace dakera \
-  --create-namespace \
+# Install from GHCR OCI (recommended)
+helm install dakera oci://ghcr.io/dakera-ai/charts/dakera --version 0.9.9 \
+  --namespace dakera --create-namespace \
   --set dakera.rootApiKey=$(openssl rand -hex 32) \
   --set minio.rootPassword=$(openssl rand -hex 16)
 
 # With ingress + monitoring enabled
-helm install dakera ./charts/dakera \
-  --namespace dakera \
-  --create-namespace \
+helm install dakera oci://ghcr.io/dakera-ai/charts/dakera --version 0.9.9 \
+  --namespace dakera --create-namespace \
   --set dakera.rootApiKey=$(openssl rand -hex 32) \
   --set minio.rootPassword=$(openssl rand -hex 16) \
   --set ingress.enabled=true \
@@ -432,12 +432,25 @@ helm install dakera ./charts/dakera \
   --set ingress.dashboardHost=dashboard.dakera.yourdomain.com \
   --set monitoring.enabled=true
 
-# Upgrade
-helm upgrade dakera ./charts/dakera --reuse-values
+# Upgrade to a new version
+helm upgrade dakera oci://ghcr.io/dakera-ai/charts/dakera --version <new-version> --reuse-values
 
 # Uninstall
 helm uninstall dakera -n dakera
 ```
+
+<details>
+<summary>Install from local checkout</summary>
+
+```bash
+git clone https://github.com/dakera-ai/dakera-deploy
+helm install dakera ./dakera-deploy/charts/dakera \
+  --namespace dakera --create-namespace \
+  --set dakera.rootApiKey=$(openssl rand -hex 32) \
+  --set minio.rootPassword=$(openssl rand -hex 16)
+```
+
+</details>
 
 ### Resource Summary
 
