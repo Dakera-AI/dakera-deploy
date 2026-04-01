@@ -1,0 +1,52 @@
+name: Set Helm Chart GHCR Visibility
+
+# One-shot workflow to set charts/dakera GHCR package visibility to public.
+# Use this when a chart has already been published but the package is private.
+# Triggered manually via workflow_dispatch.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  set-visibility:
+    name: Set charts/dakera package to public
+    runs-on: [self-hosted, linux, arm64]
+    steps:
+      - name: Set GHCR package visibility to public
+        run: |
+          HTTP=$(curl -s -o /tmp/pkg-vis.json -w "%{http_code}" \
+            -X PATCH \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/orgs/dakera-ai/packages/container/charts%2Fdakera" \
+            -d '{"visibility":"public"}')
+          echo "GitHub API response (HTTP $HTTP):"
+          cat /tmp/pkg-vis.json
+          if [ "$HTTP" = "200" ]; then
+            echo "✅ charts/dakera GHCR package is now PUBLIC"
+          else
+            echo "❌ Failed to set visibility (HTTP $HTTP)"
+            exit 1
+          fi
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+
+      - name: Verify chart is publicly accessible
+        run: |
+          # Get latest chart version from GHCR tags
+          echo "Verifying latest chart version is publicly accessible..."
+          helm registry logout ghcr.io || true
+          mkdir -p /tmp/helm-verify
+          if helm show chart oci://ghcr.io/dakera-ai/charts/dakera 2>&1; then
+            echo "✅ charts/dakera is publicly accessible"
+          else
+            echo "❌ charts/dakera still not publicly accessible — check package settings"
+            exit 1
+          fi
