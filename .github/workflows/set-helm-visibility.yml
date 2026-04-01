@@ -3,6 +3,11 @@ name: Set Helm Chart GHCR Visibility
 # One-shot workflow to set charts/dakera GHCR package visibility to public.
 # Use this when a chart has already been published but the package is private.
 # Triggered manually via workflow_dispatch.
+#
+# NOTE: GITHUB_TOKEN (packages:write) should be able to set org package visibility
+# if the package was created by a workflow in this same repo. If 404 is returned,
+# a PAT with packages:write scope is needed (store as GH_PAT_PACKAGES secret).
+# Manual fix: https://github.com/orgs/dakera-ai/packages/container/charts%2Fdakera/settings
 
 on:
   workflow_dispatch:
@@ -16,21 +21,25 @@ jobs:
     runs-on: [self-hosted, linux, arm64]
     steps:
       - name: Set GHCR package visibility to public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          HTTP=$(curl -s -o /tmp/pkg-vis.json -w "%{http_code}" \
-            -X PATCH \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
+          echo "Setting charts/dakera visibility to public via gh cli..."
+          RESULT=$(gh api \
+            --method PATCH \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/orgs/dakera-ai/packages/container/charts%2Fdakera" \
-            -d '{"visibility":"public"}')
-          echo "GitHub API response (HTTP $HTTP):"
-          cat /tmp/pkg-vis.json
-          if [ "$HTTP" = "200" ]; then
-            echo "✅ charts/dakera GHCR package is now PUBLIC"
+            "/orgs/dakera-ai/packages/container/charts%2Fdakera" \
+            --field visibility=public \
+            2>&1)
+          EXIT=$?
+          echo "Exit: $EXIT | Response: $RESULT"
+          if [ $EXIT -eq 0 ]; then
+            echo "SUCCESS: charts/dakera package visibility set to public"
           else
-            echo "❌ Failed to set visibility (HTTP $HTTP)"
-            exit 1
+            echo "WARN: gh api failed (exit $EXIT)"
+            echo "If 404: package needs manual visibility fix at:"
+            echo "  https://github.com/orgs/dakera-ai/packages/container/charts%2Fdakera/settings"
+            echo "Continuing to verify accessibility..."
           fi
 
       - name: Set up Helm
@@ -40,13 +49,13 @@ jobs:
 
       - name: Verify chart is publicly accessible
         run: |
-          # Get latest chart version from GHCR tags
-          echo "Verifying latest chart version is publicly accessible..."
+          echo "Verifying chart public accessibility (no auth)..."
           helm registry logout ghcr.io || true
           mkdir -p /tmp/helm-verify
           if helm show chart oci://ghcr.io/dakera-ai/charts/dakera 2>&1; then
-            echo "✅ charts/dakera is publicly accessible"
+            echo "OK: charts/dakera is publicly accessible"
           else
-            echo "❌ charts/dakera still not publicly accessible — check package settings"
+            echo "FAIL: charts/dakera is NOT publicly accessible"
+            echo "Manual fix: https://github.com/orgs/dakera-ai/packages/container/charts%2Fdakera/settings"
             exit 1
           fi
