@@ -4,6 +4,13 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-04-01
+
+### Changed
+
+- Bump dakera server default image: `0.9.7` → `0.9.8`
+  - v0.9.8: KG-3 Deep Associative Recall — configurable N-hop knowledge graph traversal on recall
+
 ## [0.2.7] - 2026-03-31
 
 ### Changed
