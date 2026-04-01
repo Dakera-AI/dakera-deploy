@@ -87,7 +87,7 @@ mcp:
   enabled: true
   image:
     repository: ghcr.io/dakera-ai/dakera-mcp
-    tag: "0.9.1"
+    tag: "0.9.2"
     pullPolicy: IfNotPresent
 
   replicaCount: 1
