@@ -4,6 +4,13 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-01
+
+### Changed
+
+- Bump dakera server image: `0.9.8` → `0.9.9` in docker-compose, docker-compose.ha, and k8s/dakera/deployment.yaml
+  - v0.9.9: SEC-5 per-namespace rate limiting for store/recall ops (MemoryPolicy)
+
 ## [0.2.9] - 2026-04-01
 
 ### Changed
