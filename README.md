@@ -1,13 +1,35 @@
 # Dakera Deployment
 
+[![Server](https://img.shields.io/badge/dakera-v0.9.9-blue)](https://github.com/dakera-ai/dakera/releases/tag/v0.9.9)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)](https://docs.docker.com/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5)](https://kubernetes.io/)
 [![Helm](https://img.shields.io/badge/Helm-Chart-0F1689)](https://helm.sh/)
 
-Deployment configurations for Dakera — the AI agent memory platform.
+Deployment configurations for Dakera — the AI agent memory platform. Persistent, session-aware, cross-agent memory for your AI agents.
 
 This repository contains Docker configurations, high-availability clustering, load balancing, and monitoring setup for running Dakera in development and production environments.
+
+## Zero to Running in 5 Minutes
+
+No config required. Dakera runs in-memory by default — great for local testing and development.
+
+```bash
+git clone https://github.com/dakera-ai/dakera-deploy
+cd dakera-deploy/docker
+docker compose -f docker-compose.local.yml up -d
+```
+
+That's it. Dakera is now running at **http://localhost:3000**.
+
+```bash
+# Verify it's healthy
+curl http://localhost:3000/health
+```
+
+To persist data across restarts, use the [Development profile](#development-with-minio-storage) (MinIO-backed) or the [Default profile](#default-full-single-node) (production-grade).
+
+For IDE-integrated development, see the [VS Code / Cursor Devcontainer](#vs-code--cursor-devcontainer-recommended) below.
 
 ## VS Code / Cursor Devcontainer (Recommended)
 
@@ -85,8 +107,8 @@ Production-grade single-node deployment with MinIO, caching, and health checks.
 > **Version pinning**: The default image tags are pinned to the latest stable release.
 > To run a specific version, set `DAKERA_IMAGE` and `DASHBOARD_IMAGE` in your `.env`:
 > ```bash
-> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:v0.6.0
-> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:v0.3.0
+> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.9.9
+> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.3.28
 > ```
 > Pinning to explicit versions prevents unexpected upgrades in production.
 
@@ -467,4 +489,4 @@ See [CONFIGURATION.md](https://github.com/dakera-ai/dakera-docs/blob/main/CONFIG
 
 ## License
 
-Copyright 2025 Dakera AI. See [LICENSE](LICENSE) for details.
+Copyright 2026 Dakera AI. See [LICENSE](LICENSE) for details.
