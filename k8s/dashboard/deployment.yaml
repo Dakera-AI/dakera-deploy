@@ -9,7 +9,7 @@ metadata:
   labels:
     app.kubernetes.io/name: dakera-dashboard
     app.kubernetes.io/component: dashboard
-    app.kubernetes.io/version: "0.3.22"
+    app.kubernetes.io/version: "0.3.28"
 spec:
   replicas: 1
   selector:
@@ -21,12 +21,12 @@ spec:
       labels:
         app.kubernetes.io/name: dakera-dashboard
         app.kubernetes.io/component: dashboard
-        app.kubernetes.io/version: "0.3.22"
+        app.kubernetes.io/version: "0.3.28"
     spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: dashboard
-          image: ghcr.io/dakera-ai/dakera-dashboard:0.3.22
+          image: ghcr.io/dakera-ai/dakera-dashboard:0.3.28
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

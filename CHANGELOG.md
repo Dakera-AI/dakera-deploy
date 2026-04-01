@@ -4,6 +4,14 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-04-01
+
+### Changed
+
+- Bump k8s dakera server image: `0.8.3` → `0.9.8` (k8s manifests were drifted from docker-compose)
+- Bump k8s dashboard image: `0.3.22` → `0.3.28`
+- Pin k8s mcp image: `latest` → `0.9.1` (reproducible deployments)
+
 ## [0.2.8] - 2026-04-01
 
 ### Changed
