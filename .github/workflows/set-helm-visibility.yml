@@ -4,9 +4,9 @@ name: Set Helm Chart GHCR Visibility
 # Use this when a chart has already been published but the package is private.
 # Triggered manually via workflow_dispatch.
 #
-# NOTE: GITHUB_TOKEN (packages:write) should be able to set org package visibility
-# if the package was created by a workflow in this same repo. If 404 is returned,
-# a PAT with packages:write scope is needed (store as GH_PAT_PACKAGES secret).
+# NOTE: GITHUB_TOKEN cannot change org package visibility via REST API (returns 404).
+# A PAT with write:packages scope is required. Store it as GH_PAT_PACKAGES secret
+# in dakera-deploy repo settings.
 # Manual fix: https://github.com/orgs/dakera-ai/packages/container/charts%2Fdakera/settings
 
 on:
@@ -22,9 +22,10 @@ jobs:
     steps:
       - name: Set GHCR package visibility to public
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT_PACKAGES || secrets.GITHUB_TOKEN }}
         run: |
           echo "Setting charts/dakera visibility to public via gh cli..."
+          set +e
           RESULT=$(gh api \
             --method PATCH \
             -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -32,14 +33,17 @@ jobs:
             --field visibility=public \
             2>&1)
           EXIT=$?
+          set -e
           echo "Exit: $EXIT | Response: $RESULT"
           if [ $EXIT -eq 0 ]; then
             echo "SUCCESS: charts/dakera package visibility set to public"
           else
             echo "WARN: gh api failed (exit $EXIT)"
-            echo "If 404: package needs manual visibility fix at:"
+            echo "GITHUB_TOKEN cannot change org package visibility — needs a PAT."
+            echo "Action required: Founder must set visibility at:"
             echo "  https://github.com/orgs/dakera-ai/packages/container/charts%2Fdakera/settings"
-            echo "Continuing to verify accessibility..."
+            echo "OR add GH_PAT_PACKAGES secret (PAT with write:packages + org) to dakera-deploy."
+            echo "Continuing to verify current accessibility..."
           fi
 
       - name: Set up Helm
