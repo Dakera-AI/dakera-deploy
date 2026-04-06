@@ -4,6 +4,15 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-06
+
+### Changed
+
+- Bump dakera server image: `0.9.12` → `0.9.13` in docker-compose, docker-compose.ha, and k8s/dakera/deployment.yaml
+  - v0.9.13: Security patch — DAK-1596 untrack .mcp.json + add to .gitignore; CVSS-gated cargo-audit + embedding warm-up (DAK-1629)
+- Bump dashboard image: `0.3.28` → `0.3.29` in docker-compose, docker-compose.ha, and k8s/dashboard/deployment.yaml
+  - v0.3.29: KPI metrics panel at /observe/kpis (DAK-1578)
+
 ## [0.3.0] - 2026-04-01
 
 ### Changed
