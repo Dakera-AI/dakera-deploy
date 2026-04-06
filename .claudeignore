@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+dist/
+build/
+target/
+.next/
+.nuxt/
+out/
+
+# Version control
+.git/
+
+# Lock files
+*.lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Test coverage
+coverage/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# System
+.DS_Store
+Thumbs.db
+
+# Minified/compiled assets
+*.min.js
+*.min.css
+*.map
+*.wasm
+
+# Logs
+*.log
+
+# Protobuf generated
+*.pb.go
