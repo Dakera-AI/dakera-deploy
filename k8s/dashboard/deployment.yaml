@@ -26,7 +26,7 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: dashboard
-          image: ghcr.io/dakera-ai/dakera-dashboard:0.3.28
+          image: ghcr.io/dakera-ai/dakera-dashboard:0.3.29
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
