@@ -4,6 +4,13 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-04-07
+
+### Changed
+
+- Bump dakera server image: `0.9.13` → `0.9.14` in docker-compose, docker-compose.ha, docker/.env, and k8s/dakera/deployment.yaml
+  - v0.9.14: CVSS-gated cargo-audit CI (DAK-1629) + embedding engine warm-up at startup (eliminates cold-start p99 outlier)
+
 ## [0.3.1] - 2026-04-06
 
 ### Changed
