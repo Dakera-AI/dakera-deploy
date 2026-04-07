@@ -59,44 +59,46 @@ jobs:
             oci://ghcr.io/dakera-ai/charts
 
       - name: Set GHCR package visibility to public
-        # GHCR packages are private by default on first push.
-        # The GITHUB_TOKEN (packages:write) can set visibility to public.
+        # Requires GH_PAT_PACKAGES (org-owner PAT with write:packages scope).
+        # GITHUB_TOKEN cannot change org package visibility via REST API.
+        # If this step fails, founder must set visibility manually at:
+        #   https://github.com/orgs/dakera-ai/packages/container/charts%2Fdakera/settings
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_PACKAGES || secrets.GITHUB_TOKEN }}
         run: |
-          HTTP=$(curl -s -o /tmp/pkg-vis.json -w "%{http_code}" \
-            -X PATCH \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
+          set +e
+          RESULT=$(gh api \
+            --method PATCH \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/orgs/dakera-ai/packages/container/charts%2Fdakera" \
-            -d '{"visibility":"public"}')
-          echo "GitHub API response (HTTP $HTTP):"
-          cat /tmp/pkg-vis.json
-          if [ "$HTTP" = "200" ]; then
+            "/orgs/dakera-ai/packages/container/charts%2Fdakera" \
+            --field visibility=public \
+            2>&1)
+          EXIT=$?
+          set -e
+          if [ $EXIT -eq 0 ]; then
             echo "✅ charts/dakera package visibility set to public"
           else
-            echo "⚠️  Visibility API returned HTTP $HTTP — package may already be public"
+            echo "⚠️ Visibility change failed (exit $EXIT) — org-owner PAT required"
+            echo "Manual fix: https://github.com/orgs/dakera-ai/packages/container/charts%2Fdakera/settings"
           fi
 
       - name: Verify chart is publicly accessible
+        # Informational — package may be private until founder sets visibility manually.
+        continue-on-error: true
         run: |
           VERSION="${{ steps.chart.outputs.version }}"
           echo "Verifying oci://ghcr.io/dakera-ai/charts/dakera:${VERSION} is publicly accessible..."
           helm registry logout ghcr.io || true
           mkdir -p /tmp/helm-verify
-          for attempt in $(seq 1 5); do
-            if helm pull oci://ghcr.io/dakera-ai/charts/dakera \
-                --version "${VERSION}" \
-                --destination /tmp/helm-verify/ 2>&1; then
-              echo "✅ Chart publicly accessible (attempt $attempt)"
-              break
-            fi
-            if [ "$attempt" -eq 5 ]; then
-              echo "❌ Chart not publicly accessible after 5 attempts — manual visibility check required"
-              exit 1
-            fi
-            echo "⏳ Not yet accessible (attempt $attempt/5), retrying in 15s..."
-            sleep 15
-          done
+          if helm pull oci://ghcr.io/dakera-ai/charts/dakera \
+              --version "${VERSION}" \
+              --destination /tmp/helm-verify/ 2>&1; then
+            echo "✅ Chart publicly accessible"
+          else
+            echo "⚠️ Chart not publicly accessible — awaiting founder visibility action"
+            echo "Manual fix: https://github.com/orgs/dakera-ai/packages/container/charts%2Fdakera/settings"
+          fi
           echo ""
           echo "Install with:"
           echo "  helm install dakera oci://ghcr.io/dakera-ai/charts/dakera \\"
