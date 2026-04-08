@@ -1,0 +1,131 @@
+name: Hetzner Provision Staging Server
+
+# Reusable template for spinning up ephemeral staging environments.
+# Run manually; outputs the new server's IP and ID for follow-up steps.
+# IMPORTANT: Remember to run the "Deprovision" job when done to avoid costs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_name:
+        description: "Server name (e.g. staging-pr-123)"
+        required: true
+      server_type:
+        description: "Hetzner server type (cx22 = 2vCPU/4GB, cx32 = 4vCPU/8GB)"
+        required: false
+        default: "cx22"
+      image:
+        description: "OS image (ubuntu-24.04, ubuntu-22.04, debian-12)"
+        required: false
+        default: "ubuntu-24.04"
+      location:
+        description: "Datacenter location (nbg1, fsn1, hel1)"
+        required: false
+        default: "nbg1"
+
+concurrency:
+  group: hetzner-provision-${{ inputs.server_name }}
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Provision ${{ inputs.server_name }}
+    runs-on: ubuntu-latest
+    outputs:
+      server_id: ${{ steps.create.outputs.server_id }}
+      server_ip: ${{ steps.create.outputs.server_ip }}
+    steps:
+      - name: Check for existing server
+        id: check_existing
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          EXISTING=$(curl -sf \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers?per_page=50" \
+            | jq -r --arg name "${{ inputs.server_name }}" \
+              '.servers[] | select(.name == $name) | .id')
+          if [ -n "$EXISTING" ]; then
+            echo "ERROR: Server '${{ inputs.server_name }}' already exists (id: $EXISTING). Aborting to prevent duplicate."
+            exit 1
+          fi
+          echo "No existing server with that name. Proceeding."
+
+      - name: Create server
+        id: create
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          RESPONSE=$(curl -sf -X POST \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.hetzner.cloud/v1/servers" \
+            -d '{
+              "name": "${{ inputs.server_name }}",
+              "server_type": "${{ inputs.server_type }}",
+              "image": "${{ inputs.image }}",
+              "location": "${{ inputs.location }}",
+              "labels": {
+                "source": "github-actions",
+                "env": "staging",
+                "workflow_run": "${{ github.run_id }}"
+              },
+              "start_after_create": true
+            }')
+          SERVER_ID=$(echo "$RESPONSE" | jq -r '.server.id')
+          if [ -z "$SERVER_ID" ] || [ "$SERVER_ID" = "null" ]; then
+            echo "ERROR: Server creation failed: $RESPONSE"
+            exit 1
+          fi
+          SERVER_IP=$(echo "$RESPONSE" | jq -r '.server.public_net.ipv4.ip')
+          echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
+          echo "server_ip=$SERVER_IP" >> "$GITHUB_OUTPUT"
+          echo "Created server: id=$SERVER_ID ip=$SERVER_IP"
+
+      - name: Wait for server to be running
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          SERVER_ID: ${{ steps.create.outputs.server_id }}
+        run: |
+          for i in $(seq 1 30); do
+            STATUS=$(curl -sf \
+              -H "Authorization: Bearer $HETZNER_TOKEN" \
+              "https://api.hetzner.cloud/v1/servers/$SERVER_ID" \
+              | jq -r '.server.status')
+            echo "Attempt $i/30 — server status: $STATUS"
+            if [ "$STATUS" = "running" ]; then
+              echo "Server is running."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "TIMEOUT: server did not reach running state within 5 minutes."
+          exit 1
+
+      - name: Send Telegram notification
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG="🆕 [Platform] Staging server provisioned\n\nName: ${{ inputs.server_name }}\nIP: ${{ steps.create.outputs.server_ip }}\nType: ${{ inputs.server_type }} / ${{ inputs.image }} @ ${{ inputs.location }}\nID: ${{ steps.create.outputs.server_id }}\n\n⚠️ Remember to deprovision when done to avoid charges."
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"$MSG\"}" > /dev/null
+
+  deprovision:
+    name: Deprovision ${{ inputs.server_name }}
+    runs-on: ubuntu-latest
+    needs: provision
+    # This job is intentionally manual — change 'false' to trigger deprovisioning.
+    # In practice: re-run this workflow with the same server_name after staging is done.
+    if: false
+    steps:
+      - name: Delete server
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          SERVER_ID: ${{ needs.provision.outputs.server_id }}
+        run: |
+          curl -sf -X DELETE \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers/$SERVER_ID"
+          echo "Server $SERVER_ID deleted."
