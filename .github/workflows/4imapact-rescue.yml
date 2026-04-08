@@ -1,5 +1,5 @@
 name: 4imapact SSH Recovery
-on:
+"on":
   workflow_dispatch:
 
 jobs:
@@ -14,49 +14,26 @@ jobs:
         env:
           HETZNER_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
         run: |
-          SERVER_ID=$(curl -sf \
-            -H "Authorization: Bearer $HETZNER_TOKEN" \
-            "https://api.hetzner.cloud/v1/servers?per_page=50" | \
-            jq -r '.servers[] | select(.public_net.ipv4.ip == "178.104.45.161") | .id')
+          SERVER_ID=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" "https://api.hetzner.cloud/v1/servers?per_page=50" | jq -r '.servers[] | select(.public_net.ipv4.ip == "178.104.45.161") | .id')
           [ -z "$SERVER_ID" ] && echo "Server not found" && exit 1
           echo "Server: $SERVER_ID"
-          NEW_PASS=$(curl -sf -X POST \
-            -H "Authorization: Bearer $HETZNER_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/reset_root_password" | \
-            jq -r '.root_password')
-          [ -z "$NEW_PASS" ] || [ "$NEW_PASS" = "null" ] && echo "Reset failed" && exit 1
+          NEW_PASS=$(curl -sf -X POST -H "Authorization: Bearer $HETZNER_TOKEN" -H "Content-Type: application/json" "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/reset_root_password" | jq -r '.root_password')
+          [ -z "$NEW_PASS" ] && echo "Reset failed" && exit 1
           echo "ROOT_PASS=$NEW_PASS" >> $GITHUB_OUTPUT
-          echo "OK"
 
       - name: Wait for propagation
         run: sleep 20
 
-      - name: Inject key and deploy
+      - name: Inject key
         env:
           ROOT_PASS: ${{ steps.hetzner.outputs.ROOT_PASS }}
         run: |
-          PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDQMdjxkfH3U2pjHCaTHxTQkiVZHYsByflgWmmS5X1Zi dakera-deploy@4imapact"
-          SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=20"
-          HOST="178.104.45.161"
-          # Setup authorized_keys
-          sshpass -p "$ROOT_PASS" ssh $SSH_OPTS root@$HOST \
-            "mkdir -p /root/.ssh && chmod 700 /root/.ssh && \
-             touch /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys && \
-             grep -qF 'dakera-deploy@4imapact' /root/.ssh/authorized_keys || \
-             echo '$PUBKEY' >> /root/.ssh/authorized_keys && echo key-ok"
-          # Deploy
-          sshpass -p "$ROOT_PASS" ssh $SSH_OPTS root@$HOST bash << 'SCRIPT'
-            APP_DIR=""
-            for d in /root/4imapact-demo /home/dakera/4imapact-demo /opt/4imapact-demo; do
-              [ -d "$d/.git" ] && APP_DIR="$d" && break
-            done
-            [ -z "$APP_DIR" ] && find / -name server.js 2>/dev/null | grep -v node_modules | head -3 && exit 1
-            echo "App: $APP_DIR"
-            cd "$APP_DIR"
-            git pull origin main
-            npm install --production
-            pm2 restart 4imapact-demo 2>/dev/null || pm2 start server.js --name 4imapact-demo
-            sleep 5
-            curl -sf http://localhost:3004/ && echo "=== DEPLOYED OK ===" || echo "health-check-failed"
-SCRIPT
+          SSHOPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=20"
+          sshpass -p "$ROOT_PASS" ssh $SSHOPTS root@178.104.45.161 "mkdir -p /root/.ssh && chmod 700 /root/.ssh && touch /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys && grep -qF dakera-deploy@4imapact /root/.ssh/authorized_keys || echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDQMdjxkfH3U2pjHCaTHxTQkiVZHYsByflgWmmS5X1Zi dakera-deploy@4imapact' >> /root/.ssh/authorized_keys && echo key-ok"
+
+      - name: Deploy
+        env:
+          ROOT_PASS: ${{ steps.hetzner.outputs.ROOT_PASS }}
+        run: |
+          SSHOPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=20"
+          sshpass -p "$ROOT_PASS" ssh $SSHOPTS root@178.104.45.161 "APP_DIR=; for d in /root/4imapact-demo /home/dakera/4imapact-demo /opt/4imapact-demo; do [ -d "$d/.git" ] && APP_DIR=$d && break; done; [ -z "$APP_DIR" ] && exit 1; echo App=$APP_DIR; cd "$APP_DIR"; git pull origin main; npm install --production; pm2 restart 4imapact-demo 2>/dev/null || pm2 start server.js --name 4imapact-demo; sleep 5; curl -sf http://localhost:3004/ && echo DEPLOYED_OK || echo health-failed"
