@@ -1,0 +1,98 @@
+name: Hetzner Snapshot
+
+on:
+  workflow_call:
+    inputs:
+      reason:
+        description: "Snapshot reason label (e.g. pre-deploy, manual)"
+        required: false
+        type: string
+        default: "manual"
+    outputs:
+      snapshot_id:
+        description: "ID of the created snapshot image"
+        value: ${{ jobs.snapshot.outputs.snapshot_id }}
+      snapshot_name:
+        description: "Name of the created snapshot image"
+        value: ${{ jobs.snapshot.outputs.snapshot_name }}
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Snapshot reason label"
+        required: false
+        default: "manual"
+
+concurrency:
+  group: hetzner-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    name: Create Server Snapshot
+    runs-on: ubuntu-latest
+    outputs:
+      snapshot_id: ${{ steps.create.outputs.snapshot_id }}
+      snapshot_name: ${{ steps.create.outputs.snapshot_name }}
+    steps:
+      - name: Resolve server ID
+        id: resolve
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          SERVER_ID=$(curl -sf \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers?per_page=50" \
+            | jq -r '.servers[] | select(.public_net.ipv4.ip == "178.104.45.161") | .id')
+          if [ -z "$SERVER_ID" ]; then
+            echo "ERROR: server 178.104.45.161 not found in Hetzner account"
+            exit 1
+          fi
+          echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
+          echo "Resolved server ID: $SERVER_ID"
+
+      - name: Create snapshot
+        id: create
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          SERVER_ID: ${{ steps.resolve.outputs.server_id }}
+        run: |
+          LABEL="${{ inputs.reason }}-$(date -u +%Y%m%d-%H%M)"
+          RESPONSE=$(curl -sf -X POST \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/create_image" \
+            -d "{\"description\":\"$LABEL\",\"type\":\"snapshot\",\"labels\":{\"source\":\"github-actions\",\"reason\":\"${{ inputs.reason }}\"}}")
+          ACTION_ID=$(echo "$RESPONSE" | jq -r '.action.id')
+          IMAGE_ID=$(echo "$RESPONSE" | jq -r '.image.id')
+          if [ -z "$ACTION_ID" ] || [ "$ACTION_ID" = "null" ]; then
+            echo "ERROR: snapshot creation failed: $RESPONSE"
+            exit 1
+          fi
+          echo "snapshot_id=$IMAGE_ID" >> "$GITHUB_OUTPUT"
+          echo "snapshot_name=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "action_id=$ACTION_ID" >> "$GITHUB_OUTPUT"
+          echo "Snapshot action $ACTION_ID started (image id: $IMAGE_ID, label: $LABEL)"
+
+      - name: Wait for snapshot completion
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          ACTION_ID: ${{ steps.create.outputs.action_id }}
+        run: |
+          for i in $(seq 1 24); do
+            STATUS=$(curl -sf \
+              -H "Authorization: Bearer $HETZNER_TOKEN" \
+              "https://api.hetzner.cloud/v1/actions/${ACTION_ID}" \
+              | jq -r '.action.status')
+            echo "Attempt $i/24 — action status: $STATUS"
+            if [ "$STATUS" = "success" ]; then
+              echo "Snapshot completed successfully."
+              exit 0
+            fi
+            if [ "$STATUS" = "error" ]; then
+              echo "ERROR: snapshot action failed."
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "TIMEOUT: snapshot did not complete within 4 minutes — action may still be running."
+          exit 1

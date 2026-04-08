@@ -1,0 +1,106 @@
+name: Hetzner Server Health Check
+
+on:
+  schedule:
+    # Every 30 minutes
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: hetzner-health-check
+  cancel-in-progress: true
+
+env:
+  SERVER_IP: "178.104.45.161"
+  HEALTH_URL: "http://178.104.45.161:3300/health"
+  DEMO_URL: "http://178.104.45.161:3004"
+
+jobs:
+  health-check:
+    name: Check Server Health
+    runs-on: ubuntu-latest
+    outputs:
+      healthy: ${{ steps.check.outputs.healthy }}
+      server_status: ${{ steps.hetzner.outputs.server_status }}
+    steps:
+      - name: HTTP health probe
+        id: check
+        run: |
+          HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null || echo "000")
+          DEMO_CODE=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.DEMO_URL }}" 2>/dev/null || echo "000")
+          echo "dakera health endpoint: $HTTP_CODE"
+          echo "4imapact-demo: $DEMO_CODE"
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ]; then
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
+            echo "WARNING: dakera health endpoint returned $HTTP_CODE (demo: $DEMO_CODE)"
+          fi
+
+      - name: Check Hetzner server status
+        id: hetzner
+        if: steps.check.outputs.healthy == 'false'
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          RESPONSE=$(curl -sf \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers?per_page=50")
+          SERVER_INFO=$(echo "$RESPONSE" | jq -r \
+            --arg ip "${{ env.SERVER_IP }}" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | {id,name,status,created}')
+          SERVER_ID=$(echo "$RESPONSE" | jq -r \
+            --arg ip "${{ env.SERVER_IP }}" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | .id')
+          SERVER_STATUS=$(echo "$RESPONSE" | jq -r \
+            --arg ip "${{ env.SERVER_IP }}" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | .status')
+          echo "Server info: $SERVER_INFO"
+          echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
+          echo "server_status=$SERVER_STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Attempt soft reboot via Hetzner API
+        id: reboot
+        if: |
+          steps.check.outputs.healthy == 'false' &&
+          steps.hetzner.outputs.server_status == 'running'
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          SERVER_ID: ${{ steps.hetzner.outputs.server_id }}
+        run: |
+          echo "Server is running but HTTP check failed — triggering soft reboot..."
+          RESPONSE=$(curl -sf -X POST \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/reboot")
+          ACTION_STATUS=$(echo "$RESPONSE" | jq -r '.action.status')
+          echo "Reboot action status: $ACTION_STATUS"
+          echo "reboot_triggered=true" >> "$GITHUB_OUTPUT"
+
+      - name: Send Telegram alert
+        if: steps.check.outputs.healthy == 'false'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          SERVER_STATUS="${{ steps.hetzner.outputs.server_status }}"
+          REBOOT="${{ steps.reboot.outputs.reboot_triggered }}"
+          if [ "$REBOOT" = "true" ]; then
+            MSG="⚠️ [Platform] Server 178.104.45.161 unreachable — soft reboot triggered via Hetzner API.\n\nHetzner status: $SERVER_STATUS\nHealth check: FAILED\nAction: Rebooting — check in ~2 minutes."
+          elif [ -z "$SERVER_STATUS" ]; then
+            MSG="🔴 [Platform] Server 178.104.45.161 unreachable AND Hetzner API lookup failed.\n\nHealth check: FAILED\nNote: Hetzner token may be invalid or server deleted. Manual intervention required."
+          else
+            MSG="🔴 [Platform] Server 178.104.45.161 health check FAILED.\n\nHetzner status: $SERVER_STATUS\nHealth check: FAILED\nNote: Server not in 'running' state — manual intervention required."
+          fi
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"$MSG\"}" > /dev/null
+
+  report-healthy:
+    name: Log Healthy Status
+    runs-on: ubuntu-latest
+    needs: health-check
+    if: needs.health-check.outputs.healthy == 'true'
+    steps:
+      - name: Log healthy
+        run: echo "Server 178.104.45.161 is healthy. All checks passed."
