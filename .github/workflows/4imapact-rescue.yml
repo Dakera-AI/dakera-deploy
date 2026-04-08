@@ -1,0 +1,78 @@
+name: 4imapact SSH Recovery
+
+on:
+  workflow_dispatch:
+
+jobs:
+  recover-and-deploy:
+    name: Recover SSH and deploy
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_PUBKEY: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDQMdjxkfH3U2pjHCaTHxTQkiVZHYsByflgWmmS5X1Zi dakera-deploy@4imapact"
+      TARGET_IP: "178.104.45.161"
+    steps:
+      - name: Install tools
+        run: sudo apt-get install -y -q sshpass
+
+      - name: Reset root password via Hetzner API
+        id: hetzner
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
+        run: |
+          SERVERS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN"             "https://api.hetzner.cloud/v1/servers?per_page=50")
+          SERVER_ID=$(echo "$SERVERS" | python3 -c "
+import json,sys
+for s in json.load(sys.stdin).get('servers',[]):
+    if s['public_net']['ipv4']['ip'] == '$TARGET_IP':
+        print(s['id']); break
+" 2>/dev/null)
+          [ -z "$SERVER_ID" ] && echo "Server not found in Hetzner account" && exit 1
+          echo "Server ID: $SERVER_ID"
+          RESP=$(curl -sf -X POST             -H "Authorization: Bearer $HETZNER_TOKEN"             -H "Content-Type: application/json"             "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/reset_root_password")
+          NEW_PASS=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('root_password',''))" 2>/dev/null)
+          [ -z "$NEW_PASS" ] && echo "Reset failed: $RESP" && exit 1
+          echo "ROOT_PASS=$NEW_PASS" >> $GITHUB_OUTPUT
+          echo "Password reset successful"
+
+      - name: Wait for reset propagation
+        run: sleep 20
+
+      - name: Inject key and deploy
+        env:
+          ROOT_PASS: ${{ steps.hetzner.outputs.ROOT_PASS }}
+        run: |
+          # Write public key to temp file for transfer
+          echo "$DEPLOY_PUBKEY" > /tmp/deploy.pub
+          
+          # Add public key to server
+          sshpass -p "$ROOT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 root@$TARGET_IP             "mkdir -p /root/.ssh && chmod 700 /root/.ssh && touch /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys"
+          
+          sshpass -p "$ROOT_PASS" ssh-copy-id             -o StrictHostKeyChecking=no             -i /tmp/deploy.pub             root@$TARGET_IP 2>&1 ||           sshpass -p "$ROOT_PASS" ssh -o StrictHostKeyChecking=no root@$TARGET_IP             "echo '$DEPLOY_PUBKEY' >> /root/.ssh/authorized_keys && echo 'key added'"
+          
+          echo "Key injected — running deploy"
+          
+          # Run deploy via sshpass (app may also be found as dakera user)
+          sshpass -p "$ROOT_PASS" ssh -o StrictHostKeyChecking=no root@$TARGET_IP '
+            set -e
+            APP_DIR=""
+            for d in /root/4imapact-demo /home/dakera/4imapact-demo /opt/4imapact-demo; do
+              [ -d "$d/.git" ] && APP_DIR="$d" && break
+            done
+            [ -z "$APP_DIR" ] && echo "App dir not found" && exit 1
+            echo "Deploying from: $APP_DIR"
+            cd "$APP_DIR"
+            git pull origin main
+            npm install --production
+            if command -v pm2 &>/dev/null; then
+              pm2 restart 4imapact-demo 2>/dev/null || pm2 start server.js --name 4imapact-demo
+              echo "pm2 restarted"
+            else
+              pkill -f "node server.js" 2>/dev/null || true
+              sleep 1
+              nohup node server.js >> /tmp/4imapact.log 2>&1 &
+              echo "started nohup PID $!"
+            fi
+            sleep 5
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:3004/ 2>/dev/null || echo 000)
+            echo "Health check: HTTP $STATUS"
+          '
