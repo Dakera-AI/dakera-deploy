@@ -4,6 +4,15 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-13
+
+### Changed
+
+- Bump dakera server image: `0.9.15` → `0.10.0` in docker-compose, docker-compose.ha, Helm chart, and k8s/dakera/deployment.yaml
+  - v0.10.0: CE-10 Memory Compression + CE-12 Smart Routing + BENCH-1 LoCoMo benchmark
+- Bump Helm chart version: `0.9.15` → `0.10.0` (Chart.yaml + values.yaml)
+- Align docker-compose.ha.yml image tag (was 0.9.14, now 0.10.0)
+
 ## [0.3.2] - 2026-04-07
 
 ### Changed
