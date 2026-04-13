@@ -2,8 +2,8 @@ apiVersion: v2
 name: dakera
 description: Dakera — AI agent memory platform
 type: application
-version: 0.9.15
-appVersion: "0.9.15"
+version: 0.10.0
+appVersion: "0.10.0"
 keywords:
   - agent-memory
   - ai-memory
