@@ -4,6 +4,14 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-04-13
+
+### Changed
+
+- Bump dakera server image: `0.10.0` → `0.10.1` in docker-compose, docker-compose.ha, Helm chart, and k8s/dakera/deployment.yaml
+  - v0.10.1: bge-large-en-v1.5 embedding (1024-dim) + cross-encoder reranking (DAK-1823)
+- Bump Helm chart version: `0.10.0` → `0.10.1` (Chart.yaml + values.yaml)
+
 ## [0.4.0] - 2026-04-13
 
 ### Changed
