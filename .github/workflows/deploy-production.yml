@@ -1,0 +1,124 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Dakera version tag to deploy (e.g. 0.10.1)"
+        required: true
+      skip_health_check:
+        description: "Skip post-deploy health check"
+        required: false
+        default: "false"
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  SERVER_IP: "178.104.45.161"
+  DEPLOY_USER: "dakera"
+  HEALTH_URL: "http://178.104.45.161:3300/health"
+  REGISTRY: "ghcr.io/dakera-ai/dakera"
+
+jobs:
+  deploy:
+    name: Deploy v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Docker image exists
+        run: |
+          echo "Checking ghcr.io/dakera-ai/dakera:${{ inputs.version }}..."
+          docker manifest inspect ghcr.io/dakera-ai/dakera:${{ inputs.version }} > /dev/null 2>&1 || {
+            echo "❌ Image ghcr.io/dakera-ai/dakera:${{ inputs.version }} not found in registry"
+            exit 1
+          }
+          echo "✅ Image exists"
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy via SSH
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            ${{ env.DEPLOY_USER }}@${{ env.SERVER_IP }} << 'DEPLOY_SCRIPT'
+          set -euo pipefail
+          echo "=== Deploying Dakera v${{ inputs.version }} ==="
+
+          # Pull new image
+          docker pull ghcr.io/dakera-ai/dakera:${{ inputs.version }}
+
+          # Find and update the running dakera container
+          CONTAINER=$(docker ps --filter "name=dakera" --format "{{.Names}}" | head -1)
+          if [ -z "$CONTAINER" ]; then
+            echo "WARNING: No running dakera container found"
+            # Try docker-compose if available
+            if [ -f /opt/dakera/docker-compose.yml ]; then
+              cd /opt/dakera
+              DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:${{ inputs.version }} docker compose up -d
+            else
+              echo "ERROR: No docker-compose.yml found at /opt/dakera/"
+              exit 1
+            fi
+          else
+            # Use docker-compose in the service directory
+            COMPOSE_DIR=$(docker inspect "$CONTAINER" --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' 2>/dev/null || echo "")
+            if [ -n "$COMPOSE_DIR" ] && [ -d "$COMPOSE_DIR" ]; then
+              cd "$COMPOSE_DIR"
+              DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:${{ inputs.version }} docker compose up -d
+            else
+              echo "Stopping old container and starting new one..."
+              # Get the current container's config
+              PORTS=$(docker port "$CONTAINER" 2>/dev/null || echo "")
+              docker stop "$CONTAINER"
+              docker rm "$CONTAINER"
+              docker run -d --name dakera \
+                --env-file /opt/dakera/.env \
+                -p 3300:3000 \
+                --restart unless-stopped \
+                ghcr.io/dakera-ai/dakera:${{ inputs.version }}
+            fi
+          fi
+
+          echo "=== Deploy complete ==="
+          DEPLOY_SCRIPT
+
+      - name: Wait for service startup
+        if: inputs.skip_health_check != 'true'
+        run: sleep 15
+
+      - name: Health check
+        if: inputs.skip_health_check != 'true'
+        run: |
+          for i in $(seq 1 12); do
+            RESPONSE=$(curl -sf --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null || echo '{"error":"unreachable"}')
+            VERSION=$(echo "$RESPONSE" | jq -r '.version // "unknown"')
+            STATUS=$(echo "$RESPONSE" | jq -r '.status // "unknown"')
+            echo "Attempt $i/12 — status=$STATUS version=$VERSION"
+            if [ "$VERSION" = "${{ inputs.version }}" ] && [ "$STATUS" = "healthy" ]; then
+              echo "✅ Deployed and healthy: v${{ inputs.version }}"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "❌ Health check failed after 2 minutes"
+          exit 1
+
+      - name: Send Telegram notification
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            MSG="✅ [Platform] Deployed dakera v${{ inputs.version }} to production\n\nServer: ${{ env.SERVER_IP }}\nHealth: ✅ healthy"
+          else
+            MSG="❌ [Platform] Deploy dakera v${{ inputs.version }} FAILED\n\nServer: ${{ env.SERVER_IP }}\nCheck: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${MSG}\"}" > /dev/null
