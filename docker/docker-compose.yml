@@ -50,7 +50,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 8G
           cpus: "2.0"
         reservations:
           memory: 512M
