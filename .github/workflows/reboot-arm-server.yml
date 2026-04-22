@@ -1,0 +1,65 @@
+name: Emergency Reboot ARM Runner Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_ip:
+        description: 'ARM server IP to reboot'
+        required: false
+        default: '168.119.60.30'
+
+jobs:
+  reboot:
+    name: Reboot ARM server via Hetzner API
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find ARM server and reboot
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          TARGET_IP: ${{ github.event.inputs.server_ip || '168.119.60.30' }}
+        run: |
+          set -e
+          echo "Finding server with IP: $TARGET_IP"
+          RESPONSE=$(curl -sf \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers?per_page=50")
+          
+          SERVER_ID=$(echo "$RESPONSE" | jq -r \
+            --arg ip "$TARGET_IP" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | .id')
+          SERVER_NAME=$(echo "$RESPONSE" | jq -r \
+            --arg ip "$TARGET_IP" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | .name')
+          SERVER_STATUS=$(echo "$RESPONSE" | jq -r \
+            --arg ip "$TARGET_IP" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | .status')
+          
+          echo "Server: $SERVER_NAME (ID: $SERVER_ID) Status: $SERVER_STATUS"
+          
+          if [ -z "$SERVER_ID" ]; then
+            echo "ERROR: No server found with IP $TARGET_IP"
+            echo "All servers:"
+            echo "$RESPONSE" | jq -r '.servers[] | "\(.id) \(.name) \(.public_net.ipv4.ip) \(.status)"'
+            exit 1
+          fi
+          
+          echo "Triggering soft reboot on server $SERVER_ID..."
+          REBOOT_RESP=$(curl -sf -X POST \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/reboot")
+          
+          ACTION_ID=$(echo "$REBOOT_RESP" | jq -r '.action.id')
+          ACTION_STATUS=$(echo "$REBOOT_RESP" | jq -r '.action.status')
+          echo "Reboot action ID: $ACTION_ID  Status: $ACTION_STATUS"
+          echo "ARM server reboot initiated. Runners will be back in ~2 minutes."
+
+      - name: Notify Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"⚙️ [Platform] ARM server 168.119.60.30 reboot triggered via Hetzner API (emergency OOM recovery). Runners will reconnect in ~2min.\"}"
