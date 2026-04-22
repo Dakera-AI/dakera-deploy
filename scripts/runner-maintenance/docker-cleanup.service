@@ -1,0 +1,10 @@
+[Unit]
+Description=Docker disk cleanup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/docker-cleanup.sh
+StandardOutput=journal
+StandardError=journal
