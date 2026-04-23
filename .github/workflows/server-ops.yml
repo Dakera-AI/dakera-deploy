@@ -1,0 +1,173 @@
+name: Server Ops
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform"
+        required: true
+        type: choice
+        options:
+          - sync-auth-key
+          - deploy-version
+          - inspect
+      version:
+        description: "Version to deploy (for deploy-version action, e.g. 0.11.27)"
+        required: false
+        type: string
+
+concurrency:
+  group: server-ops
+  cancel-in-progress: false
+
+env:
+  SERVER_IP: "178.104.45.161"
+  DEPLOY_USER: "dakera"
+
+jobs:
+  server-ops:
+    name: "${{ inputs.action }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Inspect server state
+        if: inputs.action == 'inspect'
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            ${{ env.DEPLOY_USER }}@${{ env.SERVER_IP }} << 'INSPECT'
+          echo "=== Docker containers ==="
+          docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}" 2>/dev/null || echo "No docker access"
+          echo ""
+          echo "=== Health checks ==="
+          curl -sf http://localhost:3300/health 2>/dev/null && echo "" || echo "Port 3300: unreachable"
+          curl -sf http://localhost:3500/health 2>/dev/null && echo "" || echo "Port 3500: unreachable"
+          curl -sf http://localhost:3000/health 2>/dev/null && echo "" || echo "Port 3000: unreachable"
+          echo ""
+          echo "=== Docker compose files ==="
+          find /home/dakera /opt/dakera -name "docker-compose*.yml" -type f 2>/dev/null || echo "None found"
+          echo ""
+          echo "=== .env files (keys redacted) ==="
+          for f in /home/dakera/ops/repos/dakera-deploy/docker/.env /opt/dakera/.env; do
+            if [ -f "$f" ]; then
+              echo "--- $f ---"
+              sed 's/\(.*KEY.*=\).*/\1[REDACTED]/' "$f" | sed 's/\(.*PASSWORD.*=\).*/\1[REDACTED]/'
+            fi
+          done
+          INSPECT
+
+      - name: Sync auth key
+        if: inputs.action == 'sync-auth-key'
+        env:
+          NEW_KEY: ${{ secrets.DAKERA_ROOT_API_KEY }}
+        run: |
+          if [ -z "$NEW_KEY" ]; then
+            echo "❌ DAKERA_ROOT_API_KEY secret not set in dakera-deploy repo"
+            exit 1
+          fi
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            ${{ env.DEPLOY_USER }}@${{ env.SERVER_IP }} << SYNC_AUTH
+          set -euo pipefail
+          ENV_FILE="/home/dakera/ops/repos/dakera-deploy/docker/.env"
+          if [ ! -f "\$ENV_FILE" ]; then
+            echo "❌ .env not found at \$ENV_FILE"
+            exit 1
+          fi
+          echo "Updating DAKERA_ROOT_API_KEY in \$ENV_FILE..."
+          if grep -q '^DAKERA_ROOT_API_KEY=' "\$ENV_FILE"; then
+            sed -i "s|^DAKERA_ROOT_API_KEY=.*|DAKERA_ROOT_API_KEY=${NEW_KEY}|" "\$ENV_FILE"
+          else
+            echo "DAKERA_ROOT_API_KEY=${NEW_KEY}" >> "\$ENV_FILE"
+          fi
+          echo "Restarting dakera containers..."
+          cd /home/dakera/ops/repos/dakera-deploy/docker
+          docker compose --profile dashboard up -d --remove-orphans
+          sleep 10
+          echo "Health check..."
+          curl -sf http://localhost:3300/health || echo "Port 3300: unhealthy"
+          echo ""
+          echo "✅ Auth key synced and containers restarted"
+          SYNC_AUTH
+
+      - name: Deploy version
+        if: inputs.action == 'deploy-version'
+        env:
+          NEW_KEY: ${{ secrets.DAKERA_ROOT_API_KEY }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            echo "❌ Version is required for deploy-version action"
+            exit 1
+          fi
+          echo "Checking ghcr.io/dakera-ai/dakera:${VERSION}..."
+          docker manifest inspect ghcr.io/dakera-ai/dakera:${VERSION} > /dev/null 2>&1 || {
+            echo "❌ Image ghcr.io/dakera-ai/dakera:${VERSION} not found in registry"
+            exit 1
+          }
+          echo "✅ Image exists"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            ${{ env.DEPLOY_USER }}@${{ env.SERVER_IP }} << DEPLOY
+          set -euo pipefail
+          VERSION="${{ inputs.version }}"
+          ENV_FILE="/home/dakera/ops/repos/dakera-deploy/docker/.env"
+          export DAKERA_IMAGE="ghcr.io/dakera-ai/dakera:\${VERSION}"
+
+          cd /home/dakera/ops/repos/dakera-deploy/docker
+          git -C /home/dakera/ops/repos/dakera-deploy checkout main
+          git -C /home/dakera/ops/repos/dakera-deploy pull
+
+          # Update image in .env
+          if grep -q '^DAKERA_IMAGE=' "\$ENV_FILE"; then
+            sed -i "s|^DAKERA_IMAGE=.*|DAKERA_IMAGE=\${DAKERA_IMAGE}|" "\$ENV_FILE"
+          else
+            echo "DAKERA_IMAGE=\${DAKERA_IMAGE}" >> "\$ENV_FILE"
+          fi
+
+          # Also sync API key if set
+          if [ -n "${NEW_KEY}" ]; then
+            if grep -q '^DAKERA_ROOT_API_KEY=' "\$ENV_FILE"; then
+              sed -i "s|^DAKERA_ROOT_API_KEY=.*|DAKERA_ROOT_API_KEY=${NEW_KEY}|" "\$ENV_FILE"
+            else
+              echo "DAKERA_ROOT_API_KEY=${NEW_KEY}" >> "\$ENV_FILE"
+            fi
+          fi
+
+          docker compose pull
+          docker compose --profile dashboard up -d --remove-orphans
+
+          echo "Waiting for startup..."
+          sleep 15
+          for i in \$(seq 1 12); do
+            RESPONSE=\$(curl -sf --max-time 10 "http://localhost:3300/health" 2>/dev/null || echo '{"error":"unreachable"}')
+            VER=\$(echo "\$RESPONSE" | jq -r '.version // "unknown"')
+            STATUS=\$(echo "\$RESPONSE" | jq -r '.status // "unknown"')
+            echo "Attempt \$i/12 — status=\$STATUS version=\$VER"
+            if [ "\$VER" = "\${VERSION}" ] && [ "\$STATUS" = "healthy" ]; then
+              echo "✅ Deployed and healthy: v\${VERSION}"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "❌ Health check failed after 2 minutes"
+          exit 1
+          DEPLOY
+
+      - name: Send Telegram notification
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            MSG="✅ [Platform] Server ops: ${{ inputs.action }} completed\nServer: ${{ env.SERVER_IP }}"
+          else
+            MSG="❌ [Platform] Server ops: ${{ inputs.action }} FAILED\nServer: ${{ env.SERVER_IP }}\nCheck: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${MSG}\"}" > /dev/null 2>&1 || true
