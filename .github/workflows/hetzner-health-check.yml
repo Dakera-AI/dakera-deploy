@@ -26,8 +26,15 @@ jobs:
       - name: HTTP health probe
         id: check
         run: |
-          HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null || echo "000")
-          DEMO_CODE=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.DEMO_URL }}" 2>/dev/null || echo "000")
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null)
+          [ -z "$HTTP_CODE" ] && HTTP_CODE="000"
+          if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
+            echo "Direct port 3300 returned $HTTP_CODE — trying HTTPS via Caddy (port 443)..."
+            HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.SERVER_IP }}/health" 2>/dev/null)
+            [ -z "$HTTP_CODE" ] && HTTP_CODE="000"
+          fi
+          DEMO_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.DEMO_URL }}" 2>/dev/null)
+          [ -z "$DEMO_CODE" ] && DEMO_CODE="000"
           echo "dakera health endpoint: $HTTP_CODE"
           echo "4imapact-demo: $DEMO_CODE"
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ]; then
@@ -82,7 +89,12 @@ jobs:
         id: recheck
         if: steps.restart.outputs.restart_attempted == 'true'
         run: |
-          HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null || echo "000")
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null)
+          [ -z "$HTTP_CODE" ] && HTTP_CODE="000"
+          if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
+            HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.SERVER_IP }}/health" 2>/dev/null)
+            [ -z "$HTTP_CODE" ] && HTTP_CODE="000"
+          fi
           echo "Post-restart health check: $HTTP_CODE"
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ]; then
             echo "recovered=true" >> "$GITHUB_OUTPUT"
