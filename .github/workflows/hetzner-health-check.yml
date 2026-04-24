@@ -2,7 +2,6 @@ name: Hetzner Server Health Check
 
 on:
   schedule:
-    # Every 30 minutes
     - cron: "*/30 * * * *"
   workflow_dispatch:
 
@@ -14,14 +13,15 @@ env:
   SERVER_IP: "178.104.45.161"
   HEALTH_URL: "http://178.104.45.161:3300/health"
   DEMO_URL: "http://178.104.45.161:3004"
+  DEPLOY_USER: "dakera"
+  COMPOSE_DIR: "/home/dakera/ops/repos/dakera-deploy/docker"
 
 jobs:
   health-check:
     name: Check Server Health
     runs-on: ubuntu-latest
     outputs:
-      healthy: ${{ steps.check.outputs.healthy }}
-      server_status: ${{ steps.hetzner.outputs.server_status }}
+      healthy: ${{ steps.final-status.outputs.healthy }}
     steps:
       - name: HTTP health probe
         id: check
@@ -37,38 +37,116 @@ jobs:
             echo "WARNING: dakera health endpoint returned $HTTP_CODE (demo: $DEMO_CODE)"
           fi
 
+      - name: Setup SSH
+        if: steps.check.outputs.healthy == 'false'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Restart Docker containers via SSH
+        id: restart
+        if: steps.check.outputs.healthy == 'false'
+        continue-on-error: true
+        run: |
+          echo "Health check failed — attempting container restart before reboot..."
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 \
+            ${{ env.DEPLOY_USER }}@${{ env.SERVER_IP }} << 'RESTART'
+          set -euo pipefail
+
+          # Ensure Docker is enabled on boot so containers survive reboots
+          sudo systemctl enable docker 2>/dev/null || true
+          sudo systemctl start docker 2>/dev/null || true
+
+          # Ensure ops SSH key is in authorized_keys
+          OPS_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+69Mv++aOAjMyHWmmtYXp6O31t1jwQXFt9OHzqIoN2 ops@dakera.ai"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+          grep -qF "$OPS_KEY" ~/.ssh/authorized_keys 2>/dev/null || echo "$OPS_KEY" >> ~/.ssh/authorized_keys
+
+          # Restart all containers including dashboard
+          cd /home/dakera/ops/repos/dakera-deploy/docker
+          docker compose --profile dashboard up -d --remove-orphans
+          echo "Container restart triggered"
+          RESTART
+
+          echo "restart_attempted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for containers to start
+        if: steps.restart.outputs.restart_attempted == 'true'
+        run: sleep 60
+
+      - name: Re-check health after container restart
+        id: recheck
+        if: steps.restart.outputs.restart_attempted == 'true'
+        run: |
+          HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null || echo "000")
+          echo "Post-restart health check: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ]; then
+            echo "recovered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "recovered=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check Hetzner server status
         id: hetzner
-        if: steps.check.outputs.healthy == 'false'
+        if: |
+          steps.check.outputs.healthy == 'false' &&
+          steps.recheck.outputs.recovered != 'true'
         env:
           HETZNER_TOKEN: ${{ secrets.HETZNER }}
         run: |
           RESPONSE=$(curl -sf \
             -H "Authorization: Bearer $HETZNER_TOKEN" \
             "https://api.hetzner.cloud/v1/servers?per_page=50")
-          SERVER_INFO=$(echo "$RESPONSE" | jq -r \
-            --arg ip "${{ env.SERVER_IP }}" \
-            '.servers[] | select(.public_net.ipv4.ip == $ip) | {id,name,status,created}')
           SERVER_ID=$(echo "$RESPONSE" | jq -r \
             --arg ip "${{ env.SERVER_IP }}" \
             '.servers[] | select(.public_net.ipv4.ip == $ip) | .id')
           SERVER_STATUS=$(echo "$RESPONSE" | jq -r \
             --arg ip "${{ env.SERVER_IP }}" \
             '.servers[] | select(.public_net.ipv4.ip == $ip) | .status')
-          echo "Server info: $SERVER_INFO"
+          echo "Server ID: $SERVER_ID, Status: $SERVER_STATUS"
           echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
           echo "server_status=$SERVER_STATUS" >> "$GITHUB_OUTPUT"
 
-      - name: Attempt soft reboot via Hetzner API
-        id: reboot
+      - name: Check reboot cooldown
+        id: cooldown
         if: |
           steps.check.outputs.healthy == 'false' &&
+          steps.recheck.outputs.recovered != 'true' &&
           steps.hetzner.outputs.server_status == 'running'
         env:
           HETZNER_TOKEN: ${{ secrets.HETZNER }}
           SERVER_ID: ${{ steps.hetzner.outputs.server_id }}
         run: |
-          echo "Server is running but HTTP check failed — triggering soft reboot..."
+          ACTIONS=$(curl -sf \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions?sort=started:desc&per_page=5")
+          CUTOFF=$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%S+00:00)
+          RECENT=$(echo "$ACTIONS" | jq \
+            --arg cutoff "$CUTOFF" \
+            '[.actions[] | select(.command == "reboot_server" and .started >= $cutoff)] | length')
+          if [ "$RECENT" -gt "0" ]; then
+            echo "cooldown_active=true" >> "$GITHUB_OUTPUT"
+            echo "Reboot triggered in last 30min — cooldown active"
+          else
+            echo "cooldown_active=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Attempt soft reboot via Hetzner API
+        id: reboot
+        if: |
+          steps.check.outputs.healthy == 'false' &&
+          steps.recheck.outputs.recovered != 'true' &&
+          steps.hetzner.outputs.server_status == 'running' &&
+          steps.cooldown.outputs.cooldown_active != 'true'
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          SERVER_ID: ${{ steps.hetzner.outputs.server_id }}
+        run: |
+          echo "Container restart failed and no recent reboot — triggering soft reboot..."
           RESPONSE=$(curl -sf -X POST \
             -H "Authorization: Bearer $HETZNER_TOKEN" \
             -H "Content-Type: application/json" \
@@ -77,20 +155,37 @@ jobs:
           echo "Reboot action status: $ACTION_STATUS"
           echo "reboot_triggered=true" >> "$GITHUB_OUTPUT"
 
+      - name: Determine final status
+        id: final-status
+        if: always()
+        run: |
+          if [ "${{ steps.check.outputs.healthy }}" = "true" ] || [ "${{ steps.recheck.outputs.recovered }}" = "true" ]; then
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Send Telegram alert
         if: steps.check.outputs.healthy == 'false'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          SERVER_STATUS="${{ steps.hetzner.outputs.server_status }}"
+          RECOVERED="${{ steps.recheck.outputs.recovered }}"
           REBOOT="${{ steps.reboot.outputs.reboot_triggered }}"
-          if [ "$REBOOT" = "true" ]; then
-            MSG="⚠️ [Platform] Server 178.104.45.161 unreachable — soft reboot triggered via Hetzner API.\n\nHetzner status: $SERVER_STATUS\nHealth check: FAILED\nAction: Rebooting — check in ~2 minutes."
+          COOLDOWN="${{ steps.cooldown.outputs.cooldown_active }}"
+          SERVER_STATUS="${{ steps.hetzner.outputs.server_status }}"
+
+          if [ "$RECOVERED" = "true" ]; then
+            MSG="✅ [Platform] Server ${{ env.SERVER_IP }} recovered after container restart.\n\nHealth: ✅ restored\nAction: docker compose restart (no reboot needed)"
+          elif [ "$COOLDOWN" = "true" ]; then
+            MSG="⚠️ [Platform] Server ${{ env.SERVER_IP }} still unhealthy.\n\nHealth: ❌ FAILED\nContainer restart: ❌ did not help\nReboot: ⏳ SKIPPED (cooldown — reboot <30min ago)\nAction: Manual intervention may be needed."
+          elif [ "$REBOOT" = "true" ]; then
+            MSG="⚠️ [Platform] Server ${{ env.SERVER_IP }} unreachable — soft reboot triggered.\n\nHealth: ❌ FAILED\nContainer restart: ❌ did not help\nReboot: ✅ triggered\nCheck in ~2 minutes."
           elif [ -z "$SERVER_STATUS" ]; then
-            MSG="🔴 [Platform] Server 178.104.45.161 unreachable AND Hetzner API lookup failed.\n\nHealth check: FAILED\nNote: Hetzner token may be invalid or server deleted. Manual intervention required."
+            MSG="🔴 [Platform] Server ${{ env.SERVER_IP }} unreachable AND Hetzner API lookup failed.\n\nNote: Hetzner token may be invalid or server deleted."
           else
-            MSG="🔴 [Platform] Server 178.104.45.161 health check FAILED.\n\nHetzner status: $SERVER_STATUS\nHealth check: FAILED\nNote: Server not in 'running' state — manual intervention required."
+            MSG="🔴 [Platform] Server ${{ env.SERVER_IP }} health check FAILED.\n\nHetzner status: $SERVER_STATUS\nNote: Server not in 'running' state — manual intervention required."
           fi
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
