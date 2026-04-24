@@ -79,7 +79,7 @@ x-dakera-env: &dakera-env
   DAKERA_MAX_BODY_SIZE: "524288000"
   # Auth
   DAKERA_AUTH_ENABLED: "${DAKERA_AUTH_ENABLED:-false}"
-  DAKERA_ROOT_API_KEY: "${DAKERA_ROOT_API_KEY:-dk_dev_root_key_change_in_production}"
+  DAKERA_ROOT_API_KEY: "${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.ha.example)}"
   # Logging
   RUST_LOG: "${RUST_LOG:-info,dakera=debug}"
 
