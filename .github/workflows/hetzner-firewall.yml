@@ -1,0 +1,153 @@
+name: Hetzner Firewall Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform"
+        required: true
+        type: choice
+        options:
+          - add-docker-ports
+          - list-rules
+
+concurrency:
+  group: hetzner-firewall
+  cancel-in-progress: false
+
+env:
+  SERVER_IP: "178.104.45.161"
+
+jobs:
+  firewall:
+    name: "${{ inputs.action }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: List current firewall rules
+        if: inputs.action == 'list-rules' || inputs.action == 'add-docker-ports'
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          SERVERS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers?per_page=50")
+          SERVER_ID=$(echo "$SERVERS" | jq -r \
+            --arg ip "${{ env.SERVER_IP }}" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | .id')
+          echo "Server ID: $SERVER_ID"
+          echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
+
+          FIREWALLS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/firewalls?per_page=50")
+          echo "$FIREWALLS" | jq '.firewalls[] | {id, name, rules: [.rules[] | {direction, protocol, port, source_ips}]}'
+
+          FW_ID=$(echo "$FIREWALLS" | jq -r \
+            --argjson sid "$SERVER_ID" \
+            '[.firewalls[] | select(.applied_to[]? | .server?.id == $sid)] | .[0].id // empty')
+          if [ -n "$FW_ID" ]; then
+            echo "Firewall $FW_ID is applied to server $SERVER_ID"
+            echo "firewall_id=$FW_ID" >> "$GITHUB_OUTPUT"
+          else
+            echo "No firewall applied to server $SERVER_ID"
+            echo "firewall_id=" >> "$GITHUB_OUTPUT"
+          fi
+        id: discover
+
+      - name: Add Docker-mapped ports to firewall
+        if: inputs.action == 'add-docker-ports'
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          FW_ID="${{ steps.discover.outputs.firewall_id }}"
+          SERVER_ID="${{ steps.discover.outputs.server_id }}"
+
+          if [ -z "$FW_ID" ]; then
+            echo "No firewall found on server — creating one..."
+            RESULT=$(curl -sf -X POST \
+              -H "Authorization: Bearer $HETZNER_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.hetzner.cloud/v1/firewalls" \
+              -d '{
+                "name": "dakera-production",
+                "rules": [
+                  {"direction":"in","protocol":"tcp","port":"22","source_ips":["0.0.0.0/0","::/0"],"description":"SSH"},
+                  {"direction":"in","protocol":"tcp","port":"443","source_ips":["0.0.0.0/0","::/0"],"description":"HTTPS"},
+                  {"direction":"in","protocol":"tcp","port":"80","source_ips":["0.0.0.0/0","::/0"],"description":"HTTP"},
+                  {"direction":"in","protocol":"tcp","port":"3100","source_ips":["0.0.0.0/0","::/0"],"description":"Paperclip API"},
+                  {"direction":"in","protocol":"tcp","port":"3300","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera API"},
+                  {"direction":"in","protocol":"tcp","port":"3002","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera Dashboard"},
+                  {"direction":"in","protocol":"tcp","port":"50051","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera gRPC"},
+                  {"direction":"in","protocol":"tcp","port":"8443","source_ips":["0.0.0.0/0","::/0"],"description":"Caddy reverse proxy"}
+                ],
+                "apply_to": [{"type":"server","server":{"id":'"$SERVER_ID"'}}]
+              }')
+            echo "$RESULT" | jq '{id: .firewall.id, name: .firewall.name, rules_count: (.firewall.rules | length)}'
+            echo "✅ Firewall created and applied"
+          else
+            echo "Firewall $FW_ID exists — fetching current rules..."
+            CURRENT=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+              "https://api.hetzner.cloud/v1/firewalls/$FW_ID")
+            EXISTING_RULES=$(echo "$CURRENT" | jq '.firewall.rules')
+            echo "Current rules: $(echo "$EXISTING_RULES" | jq length)"
+
+            NEW_PORTS='[
+              {"direction":"in","protocol":"tcp","port":"3300","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera API"},
+              {"direction":"in","protocol":"tcp","port":"3002","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera Dashboard"},
+              {"direction":"in","protocol":"tcp","port":"50051","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera gRPC"}
+            ]'
+
+            MERGED=$(echo "$EXISTING_RULES" | jq --argjson new "$NEW_PORTS" '
+              . + [$new[] | select(
+                . as $rule | any(input_line_number < 0; false) or true
+              )] | unique_by(.port + .protocol + .direction)
+            ')
+            if [ "$(echo "$MERGED" | jq length)" = "$(echo "$EXISTING_RULES" | jq length)" ]; then
+              echo "All ports already present in firewall — checking individually..."
+              for PORT in 3300 3002 50051; do
+                HAS=$(echo "$EXISTING_RULES" | jq --arg p "$PORT" '[.[] | select(.port == $p and .direction == "in")] | length')
+                if [ "$HAS" = "0" ]; then
+                  echo "Port $PORT missing — will add"
+                else
+                  echo "Port $PORT already present"
+                fi
+              done
+            fi
+
+            FINAL_RULES=$(echo "$EXISTING_RULES" | jq --argjson new "$NEW_PORTS" '
+              [.[] | del(.description)] + [$new[] | del(.description)] | unique_by(.port + .protocol + .direction)
+            ')
+
+            echo "Setting $(echo "$FINAL_RULES" | jq length) rules on firewall $FW_ID..."
+            RESULT=$(curl -sf -X POST \
+              -H "Authorization: Bearer $HETZNER_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.hetzner.cloud/v1/firewalls/$FW_ID/actions/set_rules" \
+              -d "{\"rules\": $FINAL_RULES}")
+            echo "$RESULT" | jq '.actions[] | {id, status, command}'
+            echo "✅ Firewall rules updated"
+          fi
+
+      - name: Verify ports are open
+        if: inputs.action == 'add-docker-ports'
+        run: |
+          echo "Waiting 10s for firewall rules to propagate..."
+          sleep 10
+          for PORT in 3300 3002 50051; do
+            HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 5 \
+              "http://${{ env.SERVER_IP }}:${PORT}/health" 2>/dev/null || true)
+            echo "Port $PORT: HTTP $HTTP_CODE"
+          done
+
+      - name: Send Telegram notification
+        if: always() && inputs.action == 'add-docker-ports'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            MSG="✅ [CTO] Hetzner Cloud Firewall updated\n\nPorts opened: 3300 (API), 3002 (Dashboard), 50051 (gRPC)\nServer: ${{ env.SERVER_IP }}\nDAK-2292"
+          else
+            MSG="❌ [CTO] Hetzner Firewall update FAILED\n\nCheck: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${MSG}\"}" > /dev/null 2>&1 || true
