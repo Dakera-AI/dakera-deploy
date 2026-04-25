@@ -4,6 +4,17 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-04-25
+
+### Changed
+
+- Bump dakera server image: `0.11.30` → `0.11.34` in docker-compose, Helm chart, k8s deployment, and values.yaml
+  - v0.11.31: parallel S3/Minio reads (DAK-2432)
+  - v0.11.32: parallel S3 reads fix
+  - v0.11.33: HNSW cache invalidation + session-aware recall (DAK-2434) — 82.4% benchmark recall
+  - v0.11.34: rustls-webpki RUSTSEC-2026-0104 security patch
+- Bump Helm chart version: `0.11.30` → `0.11.34` (Chart.yaml + values.yaml)
+
 ## [0.4.1] - 2026-04-13
 
 ### Changed
