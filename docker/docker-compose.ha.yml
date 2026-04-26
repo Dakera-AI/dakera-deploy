@@ -35,7 +35,7 @@
 name: dakera-ha
 
 x-dakera-common: &dakera-common
-  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.10.1}
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.11.35}
   restart: unless-stopped
   networks:
     - dakera-ha-net
@@ -77,6 +77,7 @@ x-dakera-env: &dakera-env
   DAKERA_TIER_CHECK_INTERVAL_SECS: "300"
   # Request limits
   DAKERA_MAX_BODY_SIZE: "524288000"
+  DAKERA_REQUEST_TIMEOUT: "${DAKERA_REQUEST_TIMEOUT:-120}"
   # Auth
   DAKERA_AUTH_ENABLED: "${DAKERA_AUTH_ENABLED:-false}"
   DAKERA_ROOT_API_KEY: "${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.ha.example)}"
