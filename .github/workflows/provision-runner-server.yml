@@ -1,0 +1,224 @@
+name: Provision Dedicated Runner Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_name:
+        description: "Server name"
+        required: false
+        default: "hetzner-runner-x64"
+      server_type:
+        description: "Hetzner server type (cx32=4vCPU/8GB, cx42=8vCPU/16GB)"
+        required: false
+        default: "cx32"
+      location:
+        description: "Datacenter (nbg1, fsn1)"
+        required: false
+        default: "nbg1"
+
+concurrency:
+  group: provision-runner
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Provision runner server
+    runs-on: ubuntu-latest
+    outputs:
+      server_id: ${{ steps.create.outputs.server_id }}
+      server_ip: ${{ steps.create.outputs.server_ip }}
+    steps:
+      - name: Check for existing server
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          EXISTING=$(curl -sf \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers?per_page=50" \
+            | jq -r --arg name "${{ inputs.server_name }}" \
+              '.servers[] | select(.name == $name) | .id')
+          if [ -n "$EXISTING" ]; then
+            echo "Server '${{ inputs.server_name }}' already exists (id: $EXISTING). Aborting."
+            exit 1
+          fi
+
+      - name: Register SSH key
+        id: ssh_key
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          KEY_NAME="ops-dakera-ai"
+          EXISTING_KEY=$(curl -sf \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/ssh_keys" \
+            | jq -r --arg name "$KEY_NAME" '.ssh_keys[] | select(.name == $name) | .id')
+          if [ -n "$EXISTING_KEY" ]; then
+            echo "SSH key '$KEY_NAME' already registered (id: $EXISTING_KEY)"
+            echo "key_id=$EXISTING_KEY" >> "$GITHUB_OUTPUT"
+          else
+            RESP=$(curl -sf -X POST \
+              -H "Authorization: Bearer $HETZNER_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.hetzner.cloud/v1/ssh_keys" \
+              -d "{
+                \"name\": \"$KEY_NAME\",
+                \"public_key\": \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+69Mv++aOAjMyHWmmtYXp6O31t1jwQXFt9OHzqIoN2 ops@dakera.ai\"
+              }")
+            KEY_ID=$(echo "$RESP" | jq -r '.ssh_key.id')
+            echo "Registered SSH key: id=$KEY_ID"
+            echo "key_id=$KEY_ID" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create server with cloud-init
+        id: create
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          SSH_KEY_ID: ${{ steps.ssh_key.outputs.key_id }}
+        run: |
+          CLOUD_INIT=$(cat <<'CLOUDINIT'
+          #cloud-config
+          package_update: true
+          packages:
+            - build-essential
+            - cmake
+            - pkg-config
+            - libssl-dev
+            - gcc
+            - g++
+            - docker.io
+            - jq
+            - git
+            - curl
+            - ca-certificates
+          runcmd:
+            - systemctl enable docker
+            - systemctl start docker
+            - useradd -m -s /bin/bash -G docker dakera
+            - mkdir -p /home/dakera/.ssh
+            - cp /root/.ssh/authorized_keys /home/dakera/.ssh/authorized_keys
+            - chown -R dakera:dakera /home/dakera/.ssh
+            - chmod 700 /home/dakera/.ssh
+            - chmod 600 /home/dakera/.ssh/authorized_keys
+            - echo "dakera ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dakera
+            - su - dakera -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0"
+            - echo 'export PATH="/home/dakera/.cargo/bin:$PATH"' >> /home/dakera/.bashrc
+            - |
+              cat > /etc/systemd/system/docker-prune.timer <<EOF
+              [Unit]
+              Description=Weekly Docker prune
+              [Timer]
+              OnCalendar=weekly
+              Persistent=true
+              [Install]
+              WantedBy=timers.target
+              EOF
+            - |
+              cat > /etc/systemd/system/docker-prune.service <<EOF
+              [Unit]
+              Description=Docker system prune
+              [Service]
+              Type=oneshot
+              ExecStart=/usr/bin/docker system prune -af --volumes
+              EOF
+            - systemctl enable docker-prune.timer
+            - systemctl start docker-prune.timer
+          CLOUDINIT
+
+          RESPONSE=$(curl -sf -X POST \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.hetzner.cloud/v1/servers" \
+            -d "{
+              \"name\": \"${{ inputs.server_name }}\",
+              \"server_type\": \"${{ inputs.server_type }}\",
+              \"image\": \"ubuntu-24.04\",
+              \"location\": \"${{ inputs.location }}\",
+              \"ssh_keys\": [$SSH_KEY_ID],
+              \"labels\": {
+                \"role\": \"ci-runner\",
+                \"arch\": \"x86_64\",
+                \"source\": \"github-actions\"
+              },
+              \"user_data\": $(echo "$CLOUD_INIT" | jq -Rs .),
+              \"start_after_create\": true
+            }")
+
+          SERVER_ID=$(echo "$RESPONSE" | jq -r '.server.id')
+          if [ -z "$SERVER_ID" ] || [ "$SERVER_ID" = "null" ]; then
+            echo "ERROR: Server creation failed: $RESPONSE"
+            exit 1
+          fi
+          SERVER_IP=$(echo "$RESPONSE" | jq -r '.server.public_net.ipv4.ip')
+          echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
+          echo "server_ip=$SERVER_IP" >> "$GITHUB_OUTPUT"
+          echo "Created server: id=$SERVER_ID ip=$SERVER_IP"
+
+      - name: Wait for server to be running
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          SERVER_ID: ${{ steps.create.outputs.server_id }}
+        run: |
+          for i in $(seq 1 30); do
+            STATUS=$(curl -sf \
+              -H "Authorization: Bearer $HETZNER_TOKEN" \
+              "https://api.hetzner.cloud/v1/servers/$SERVER_ID" \
+              | jq -r '.server.status')
+            echo "Attempt $i/30 — status: $STATUS"
+            if [ "$STATUS" = "running" ]; then
+              echo "Server is running."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "TIMEOUT waiting for server."
+          exit 1
+
+      - name: Wait for cloud-init to complete
+        env:
+          SERVER_IP: ${{ steps.create.outputs.server_ip }}
+        run: |
+          echo "Waiting 60s for cloud-init to start..."
+          sleep 60
+          for i in $(seq 1 30); do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@$SERVER_IP 'cloud-init status' 2>/dev/null | grep -q 'done'; then
+              echo "Cloud-init completed."
+              exit 0
+            fi
+            echo "Attempt $i/30 — cloud-init still running..."
+            sleep 20
+          done
+          echo "WARNING: Cloud-init may not have finished. Check manually."
+
+      - name: Send Telegram notification
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SERVER_IP: ${{ steps.create.outputs.server_ip }}
+          SERVER_ID: ${{ steps.create.outputs.server_id }}
+        run: |
+          MSG="🖥️ [Platform] Runner server provisioned
+
+Name: ${{ inputs.server_name }}
+IP: $SERVER_IP
+Type: ${{ inputs.server_type }} @ ${{ inputs.location }}
+ID: $SERVER_ID
+OS: Ubuntu 24.04 + Rust 1.85 + Docker
+
+Next: SSH in and register GH Actions runners."
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"$MSG\"}" > /dev/null
+
+      - name: Output summary
+        run: |
+          echo "## Runner Server Provisioned" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Name | ${{ inputs.server_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| IP | ${{ steps.create.outputs.server_ip }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ID | ${{ steps.create.outputs.server_id }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Type | ${{ inputs.server_type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Location | ${{ inputs.location }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "SSH: \`ssh dakera@${{ steps.create.outputs.server_ip }}\`" >> $GITHUB_STEP_SUMMARY
