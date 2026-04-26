@@ -13,26 +13,29 @@ jobs:
     name: Server action via Hetzner API
     runs-on: ubuntu-latest
     steps:
-      - name: Ensure SSH key registered
+      - name: Find SSH key in Hetzner
         id: ssh_key
         env:
           HETZNER_TOKEN: ${{ secrets.HETZNER }}
         run: |
-          KEY_NAME="ops-dakera-ai"
-          PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+69Mv++aOAjMyHWmmtYXp6O31t1jwQXFt9OHzqIoN2 ops@dakera.ai"
-          EXISTING_KEY=$(curl -sf \
+          PUB_KEY_DATA="AAAAC3NzaC1lZDI1NTE5AAAAIO+69Mv++aOAjMyHWmmtYXp6O31t1jwQXFt9OHzqIoN2"
+          ALL_KEYS=$(curl -sf \
             -H "Authorization: Bearer $HETZNER_TOKEN" \
-            "https://api.hetzner.cloud/v1/ssh_keys" \
-            | jq -r --arg name "$KEY_NAME" '.ssh_keys[] | select(.name == $name) | .id')
-          if [ -n "$EXISTING_KEY" ]; then
-            echo "SSH key '$KEY_NAME' already registered (id: $EXISTING_KEY)"
-            echo "key_id=$EXISTING_KEY" >> "$GITHUB_OUTPUT"
+            "https://api.hetzner.cloud/v1/ssh_keys")
+          KEY_ID=$(echo "$ALL_KEYS" | jq -r --arg pk "$PUB_KEY_DATA" \
+            '.ssh_keys[] | select(.public_key | contains($pk)) | .id')
+          KEY_NAME=$(echo "$ALL_KEYS" | jq -r --arg pk "$PUB_KEY_DATA" \
+            '.ssh_keys[] | select(.public_key | contains($pk)) | .name')
+          if [ -n "$KEY_ID" ]; then
+            echo "Found SSH key '$KEY_NAME' (id: $KEY_ID)"
+            echo "key_id=$KEY_ID" >> "$GITHUB_OUTPUT"
           else
+            echo "SSH key not found. Registering..."
             HTTP_CODE=$(curl -s -o /tmp/ssh_resp.json -w "%{http_code}" -X POST \
               -H "Authorization: Bearer $HETZNER_TOKEN" \
               -H "Content-Type: application/json" \
               "https://api.hetzner.cloud/v1/ssh_keys" \
-              -d "{\"name\": \"$KEY_NAME\", \"public_key\": \"$PUB_KEY\"}")
+              -d "{\"name\": \"ops-dakera-ai\", \"public_key\": \"ssh-ed25519 ${PUB_KEY_DATA} ops@dakera.ai\"}")
             if [ "$HTTP_CODE" -ge 400 ]; then
               echo "ERROR registering SSH key ($HTTP_CODE): $(cat /tmp/ssh_resp.json)"
               exit 1
