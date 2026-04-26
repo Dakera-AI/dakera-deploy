@@ -19,7 +19,7 @@ jobs:
     name: Validate Docker Configs
     runs-on: [self-hosted, linux, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Validate docker-compose.yml
         env:
@@ -39,7 +39,7 @@ jobs:
     name: Kustomize Validate
     runs-on: [self-hosted, linux, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up kubectl (includes kustomize)
         uses: azure/setup-kubectl@v4
@@ -56,7 +56,7 @@ jobs:
     name: Helm Lint + Template
     runs-on: [self-hosted, linux, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
@@ -90,7 +90,7 @@ jobs:
     name: Helm Deployment Test (kind)
     runs-on: [self-hosted, linux, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Create kind cluster
         uses: helm/kind-action@v1.10.0
