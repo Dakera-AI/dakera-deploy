@@ -4,16 +4,46 @@ on:
   workflow_dispatch:
     inputs:
       server_ip:
-        description: 'ARM server IP to reboot'
+        description: 'Server IP to reboot (or rebuild if runner server)'
         required: false
         default: '168.119.60.30'
 
 jobs:
-  reboot:
-    name: Reboot ARM server via Hetzner API
+  server-action:
+    name: Server action via Hetzner API
     runs-on: ubuntu-latest
     steps:
-      - name: Find ARM server and reboot
+      - name: Ensure SSH key registered
+        id: ssh_key
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          KEY_NAME="ops-dakera-ai"
+          PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+69Mv++aOAjMyHWmmtYXp6O31t1jwQXFt9OHzqIoN2 ops@dakera.ai"
+          EXISTING_KEY=$(curl -sf \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/ssh_keys" \
+            | jq -r --arg name "$KEY_NAME" '.ssh_keys[] | select(.name == $name) | .id')
+          if [ -n "$EXISTING_KEY" ]; then
+            echo "SSH key '$KEY_NAME' already registered (id: $EXISTING_KEY)"
+            echo "key_id=$EXISTING_KEY" >> "$GITHUB_OUTPUT"
+          else
+            HTTP_CODE=$(curl -s -o /tmp/ssh_resp.json -w "%{http_code}" -X POST \
+              -H "Authorization: Bearer $HETZNER_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.hetzner.cloud/v1/ssh_keys" \
+              -d "{\"name\": \"$KEY_NAME\", \"public_key\": \"$PUB_KEY\"}")
+            if [ "$HTTP_CODE" -ge 400 ]; then
+              echo "ERROR registering SSH key ($HTTP_CODE): $(cat /tmp/ssh_resp.json)"
+              exit 1
+            fi
+            KEY_ID=$(cat /tmp/ssh_resp.json | jq -r '.ssh_key.id')
+            echo "Registered SSH key: id=$KEY_ID"
+            echo "key_id=$KEY_ID" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Find server
+        id: find
         env:
           HETZNER_TOKEN: ${{ secrets.HETZNER }}
           TARGET_IP: ${{ github.event.inputs.server_ip || '168.119.60.30' }}
@@ -23,7 +53,7 @@ jobs:
           RESPONSE=$(curl -sf \
             -H "Authorization: Bearer $HETZNER_TOKEN" \
             "https://api.hetzner.cloud/v1/servers?per_page=50")
-          
+
           SERVER_ID=$(echo "$RESPONSE" | jq -r \
             --arg ip "$TARGET_IP" \
             '.servers[] | select(.public_net.ipv4.ip == $ip) | .id')
@@ -33,33 +63,85 @@ jobs:
           SERVER_STATUS=$(echo "$RESPONSE" | jq -r \
             --arg ip "$TARGET_IP" \
             '.servers[] | select(.public_net.ipv4.ip == $ip) | .status')
-          
+
           echo "Server: $SERVER_NAME (ID: $SERVER_ID) Status: $SERVER_STATUS"
-          
-          if [ -z "$SERVER_ID" ]; then
+          echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
+          echo "server_name=$SERVER_NAME" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$SERVER_ID" ] || [ "$SERVER_ID" = "null" ]; then
             echo "ERROR: No server found with IP $TARGET_IP"
             echo "All servers:"
             echo "$RESPONSE" | jq -r '.servers[] | "\(.id) \(.name) \(.public_net.ipv4.ip) \(.status)"'
             exit 1
           fi
-          
+
+      - name: Rebuild server with SSH key (runner servers only)
+        if: contains(steps.find.outputs.server_name, 'runner')
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          SERVER_ID: ${{ steps.find.outputs.server_id }}
+          SSH_KEY_ID: ${{ steps.ssh_key.outputs.key_id }}
+        run: |
+          echo "Runner server detected — rebuilding with SSH key injection..."
+          HTTP_CODE=$(curl -s -o /tmp/rebuild_resp.json -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/rebuild" \
+            -d "{
+              \"image\": \"ubuntu-24.04\",
+              \"ssh_keys\": [$SSH_KEY_ID]
+            }")
+          echo "Rebuild HTTP status: $HTTP_CODE"
+          cat /tmp/rebuild_resp.json | jq .
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "ERROR: Rebuild failed"
+            exit 1
+          fi
+          echo "Rebuild initiated. Waiting for server to come back..."
+          sleep 30
+          for i in $(seq 1 20); do
+            STATUS=$(curl -sf \
+              -H "Authorization: Bearer $HETZNER_TOKEN" \
+              "https://api.hetzner.cloud/v1/servers/$SERVER_ID" \
+              | jq -r '.server.status')
+            echo "Attempt $i/20 — status: $STATUS"
+            if [ "$STATUS" = "running" ]; then
+              echo "Server rebuilt and running."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "WARNING: Server may still be rebuilding."
+
+      - name: Reboot server (non-runner servers)
+        if: "!contains(steps.find.outputs.server_name, 'runner')"
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          SERVER_ID: ${{ steps.find.outputs.server_id }}
+        run: |
           echo "Triggering soft reboot on server $SERVER_ID..."
           REBOOT_RESP=$(curl -sf -X POST \
             -H "Authorization: Bearer $HETZNER_TOKEN" \
             -H "Content-Type: application/json" \
             "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/reboot")
-          
           ACTION_ID=$(echo "$REBOOT_RESP" | jq -r '.action.id')
           ACTION_STATUS=$(echo "$REBOOT_RESP" | jq -r '.action.status')
           echo "Reboot action ID: $ACTION_ID  Status: $ACTION_STATUS"
-          echo "ARM server reboot initiated. Runners will be back in ~2 minutes."
+          echo "Server reboot initiated."
 
       - name: Notify Telegram
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SERVER_NAME: ${{ steps.find.outputs.server_name }}
+          TARGET_IP: ${{ github.event.inputs.server_ip || '168.119.60.30' }}
         run: |
+          if [[ "$SERVER_NAME" == *runner* ]]; then
+            MSG="🖥️ [Platform] Runner server $TARGET_IP rebuilt with SSH key (fresh Ubuntu 24.04). Ready for runner setup."
+          else
+            MSG="⚙️ [Platform] Server $TARGET_IP ($SERVER_NAME) reboot triggered via Hetzner API."
+          fi
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"⚙️ [Platform] ARM server 168.119.60.30 reboot triggered via Hetzner API (emergency OOM recovery). Runners will reconnect in ~2min.\"}"
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"$MSG\"}" > /dev/null 2>&1 || true
