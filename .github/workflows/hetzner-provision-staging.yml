@@ -11,9 +11,9 @@ on:
         description: "Server name (e.g. staging-pr-123)"
         required: true
       server_type:
-        description: "Hetzner server type (cx22 = 2vCPU/4GB, cx32 = 4vCPU/8GB)"
+        description: "Hetzner server type (cpx32 = 4vCPU/8GB, cpx42 = 8vCPU/16GB)"
         required: false
-        default: "cx22"
+        default: "cpx32"
       image:
         description: "OS image (ubuntu-24.04, ubuntu-22.04, debian-12)"
         required: false
@@ -22,6 +22,10 @@ on:
         description: "Datacenter location (nbg1, fsn1, hel1)"
         required: false
         default: "nbg1"
+      replace_existing:
+        description: "Delete existing server with same name before creating"
+        required: false
+        default: "false"
 
 concurrency:
   group: hetzner-provision-${{ inputs.server_name }}
@@ -35,8 +39,7 @@ jobs:
       server_id: ${{ steps.create.outputs.server_id }}
       server_ip: ${{ steps.create.outputs.server_ip }}
     steps:
-      - name: Check for existing server
-        id: check_existing
+      - name: Handle existing server
         env:
           HETZNER_TOKEN: ${{ secrets.HETZNER }}
         run: |
@@ -46,32 +49,72 @@ jobs:
             | jq -r --arg name "${{ inputs.server_name }}" \
               '.servers[] | select(.name == $name) | .id')
           if [ -n "$EXISTING" ]; then
-            echo "ERROR: Server '${{ inputs.server_name }}' already exists (id: $EXISTING). Aborting to prevent duplicate."
-            exit 1
+            if [ "${{ inputs.replace_existing }}" = "true" ]; then
+              echo "Deleting existing server '${{ inputs.server_name }}' (id: $EXISTING)..."
+              curl -sf -X DELETE \
+                -H "Authorization: Bearer $HETZNER_TOKEN" \
+                "https://api.hetzner.cloud/v1/servers/$EXISTING"
+              echo "Deleted. Waiting 10s for cleanup..."
+              sleep 10
+            else
+              echo "ERROR: Server '${{ inputs.server_name }}' already exists (id: $EXISTING). Set replace_existing=true to delete first."
+              exit 1
+            fi
           fi
-          echo "No existing server with that name. Proceeding."
+          echo "Proceeding with server creation."
+
+      - name: Ensure SSH key registered
+        id: ssh_key
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          KEY_NAME="ops-dakera-ai"
+          PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+69Mv++aOAjMyHWmmtYXp6O31t1jwQXFt9OHzqIoN2 ops@dakera.ai"
+          EXISTING_KEY=$(curl -sf \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/ssh_keys" \
+            | jq -r --arg name "$KEY_NAME" '.ssh_keys[] | select(.name == $name) | .id')
+          if [ -n "$EXISTING_KEY" ]; then
+            echo "SSH key '$KEY_NAME' already registered (id: $EXISTING_KEY)"
+            echo "key_id=$EXISTING_KEY" >> "$GITHUB_OUTPUT"
+          else
+            RESP=$(curl -s -o /tmp/ssh_resp.json -w "%{http_code}" -X POST \
+              -H "Authorization: Bearer $HETZNER_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.hetzner.cloud/v1/ssh_keys" \
+              -d "{\"name\": \"$KEY_NAME\", \"public_key\": \"$PUB_KEY\"}")
+            if [ "$RESP" -ge 400 ]; then
+              echo "ERROR registering SSH key: $(cat /tmp/ssh_resp.json)"
+              exit 1
+            fi
+            KEY_ID=$(cat /tmp/ssh_resp.json | jq -r '.ssh_key.id')
+            echo "Registered SSH key: id=$KEY_ID"
+            echo "key_id=$KEY_ID" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create server
         id: create
         env:
           HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          SSH_KEY_ID: ${{ steps.ssh_key.outputs.key_id }}
         run: |
           HTTP_CODE=$(curl -s -o /tmp/hetzner_resp.json -w "%{http_code}" -X POST \
             -H "Authorization: Bearer $HETZNER_TOKEN" \
             -H "Content-Type: application/json" \
             "https://api.hetzner.cloud/v1/servers" \
-            -d '{
-              "name": "${{ inputs.server_name }}",
-              "server_type": "${{ inputs.server_type }}",
-              "image": "${{ inputs.image }}",
-              "location": "${{ inputs.location }}",
-              "labels": {
-                "source": "github-actions",
-                "env": "staging",
-                "workflow_run": "${{ github.run_id }}"
+            -d "{
+              \"name\": \"${{ inputs.server_name }}\",
+              \"server_type\": \"${{ inputs.server_type }}\",
+              \"image\": \"${{ inputs.image }}\",
+              \"location\": \"${{ inputs.location }}\",
+              \"ssh_keys\": [$SSH_KEY_ID],
+              \"labels\": {
+                \"source\": \"github-actions\",
+                \"env\": \"staging\",
+                \"workflow_run\": \"${{ github.run_id }}\"
               },
-              "start_after_create": true
-            }')
+              \"start_after_create\": true
+            }")
           RESPONSE=$(cat /tmp/hetzner_resp.json)
           echo "HTTP status: $HTTP_CODE"
           if [ "$HTTP_CODE" -ge 400 ]; then
@@ -113,7 +156,13 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          MSG="🆕 [Platform] Staging server provisioned\n\nName: ${{ inputs.server_name }}\nIP: ${{ steps.create.outputs.server_ip }}\nType: ${{ inputs.server_type }} / ${{ inputs.image }} @ ${{ inputs.location }}\nID: ${{ steps.create.outputs.server_id }}\n\n⚠️ Remember to deprovision when done to avoid charges."
+          MSG="🖥️ [Platform] Server provisioned
+
+Name: ${{ inputs.server_name }}
+IP: ${{ steps.create.outputs.server_ip }}
+Type: ${{ inputs.server_type }} / ${{ inputs.image }} @ ${{ inputs.location }}
+ID: ${{ steps.create.outputs.server_id }}
+SSH: ssh root@${{ steps.create.outputs.server_ip }}"
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"$MSG\"}" > /dev/null
@@ -122,8 +171,6 @@ jobs:
     name: Deprovision ${{ inputs.server_name }}
     runs-on: ubuntu-latest
     needs: provision
-    # This job is intentionally manual — change 'false' to trigger deprovisioning.
-    # In practice: re-run this workflow with the same server_name after staging is done.
     if: false
     steps:
       - name: Delete server
