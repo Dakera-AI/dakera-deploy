@@ -17,7 +17,7 @@ services:
   # Dakera - AI Agent Memory Platform
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.11.34}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.11.35}
     container_name: dakera
     ports:
       - "${DAKERA_PORT:-3000}:3000"
@@ -42,6 +42,7 @@ services:
       - DAKERA_AUTO_TIER=true
       - DAKERA_TIER_CHECK_INTERVAL_SECS=300
       - DAKERA_MAX_BODY_SIZE=524288000
+      - DAKERA_REQUEST_TIMEOUT=${DAKERA_REQUEST_TIMEOUT:-120}
       - DAKERA_AUTH_ENABLED=${DAKERA_AUTH_ENABLED:-true}
       - DAKERA_ROOT_API_KEY=${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.example)}
     volumes:
