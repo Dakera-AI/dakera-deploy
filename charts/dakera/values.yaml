@@ -9,7 +9,7 @@
 dakera:
   image:
     repository: ghcr.io/dakera-ai/dakera
-    tag: "0.11.37"
+    tag: "0.11.38"
     pullPolicy: IfNotPresent
 
   replicaCount: 1
