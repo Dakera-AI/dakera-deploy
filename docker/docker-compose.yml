@@ -33,7 +33,7 @@ services:
       - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minioadmin}
       - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       - DAKERA_S3_REGION=us-east-1
-      - DAKERA_L1_CACHE_SIZE=1073741824
+      - DAKERA_L1_CACHE_SIZE=536870912
       - DAKERA_L2_CACHE_PATH=/data/rocksdb
       # Tiered storage (L1 hot → L2 warm → L3 cold via S3)
       - DAKERA_TIERED_STORAGE=true
