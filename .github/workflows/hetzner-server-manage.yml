@@ -1,0 +1,122 @@
+name: Hetzner Server Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action: delete-recreate, list-servers"
+        required: true
+        type: choice
+        options:
+          - delete-recreate
+          - list-servers
+      target_server_name:
+        description: "Target server name (for delete-recreate)"
+        required: false
+        default: "hetzner-runner-x64"
+      server_type:
+        description: "Server type for recreation"
+        required: false
+        default: "cpx32"
+
+jobs:
+  manage:
+    name: "${{ inputs.action }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: List all servers
+        if: inputs.action == 'list-servers'
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers?per_page=50" \
+            | jq -r '.servers[] | "\(.id)\t\(.name)\t\(.public_net.ipv4.ip)\t\(.server_type.name)\t\(.status)\t\(.datacenter.location.name)"'
+
+      - name: Find SSH key
+        if: inputs.action == 'delete-recreate'
+        id: ssh_key
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          PUB_KEY_DATA="AAAAC3NzaC1lZDI1NTE5AAAAIO+69Mv++aOAjMyHWmmtYXp6O31t1jwQXFt9OHzqIoN2"
+          ALL_KEYS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/ssh_keys")
+          KEY_ID=$(echo "$ALL_KEYS" | jq -r --arg pk "$PUB_KEY_DATA" \
+            '.ssh_keys[] | select(.public_key | contains($pk)) | .id')
+          echo "SSH key ID: $KEY_ID"
+          echo "key_id=$KEY_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Delete and recreate
+        if: inputs.action == 'delete-recreate'
+        id: recreate
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          SSH_KEY_ID: ${{ steps.ssh_key.outputs.key_id }}
+        run: |
+          TARGET="${{ inputs.target_server_name }}"
+          SERVERS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers?per_page=50")
+
+          OLD_ID=$(echo "$SERVERS" | jq -r --arg n "$TARGET" '.servers[] | select(.name == $n) | .id')
+          LOCATION=$(echo "$SERVERS" | jq -r --arg n "$TARGET" '.servers[] | select(.name == $n) | .datacenter.location.name')
+
+          if [ -n "$OLD_ID" ] && [ "$OLD_ID" != "null" ]; then
+            echo "Deleting server $TARGET (id: $OLD_ID)..."
+            curl -sf -X DELETE -H "Authorization: Bearer $HETZNER_TOKEN" \
+              "https://api.hetzner.cloud/v1/servers/$OLD_ID"
+            sleep 10
+            echo "Deleted."
+          else
+            echo "No existing server named $TARGET."
+            LOCATION="nbg1"
+          fi
+
+          echo "Creating $TARGET (${{ inputs.server_type }}) at ${LOCATION} with SSH key ${SSH_KEY_ID}..."
+          HTTP_CODE=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.hetzner.cloud/v1/servers" \
+            -d "{
+              \"name\": \"$TARGET\",
+              \"server_type\": \"${{ inputs.server_type }}\",
+              \"image\": \"ubuntu-24.04\",
+              \"location\": \"${LOCATION}\",
+              \"ssh_keys\": [${SSH_KEY_ID}],
+              \"labels\": {\"role\":\"ci-runner\",\"arch\":\"x86_64\"},
+              \"start_after_create\": true
+            }")
+          echo "HTTP: $HTTP_CODE"
+          cat /tmp/resp.json | jq .
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            exit 1
+          fi
+          NEW_IP=$(cat /tmp/resp.json | jq -r '.server.public_net.ipv4.ip')
+          NEW_ID=$(cat /tmp/resp.json | jq -r '.server.id')
+          echo "new_ip=$NEW_IP" >> "$GITHUB_OUTPUT"
+          echo "new_id=$NEW_ID" >> "$GITHUB_OUTPUT"
+          echo "Created: id=$NEW_ID ip=$NEW_IP"
+
+          for i in $(seq 1 20); do
+            sleep 10
+            S=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+              "https://api.hetzner.cloud/v1/servers/$NEW_ID" | jq -r '.server.status')
+            echo "[$i] status: $S"
+            [ "$S" = "running" ] && break
+          done
+
+      - name: Notify Telegram
+        if: inputs.action == 'delete-recreate'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          NEW_IP="${{ steps.recreate.outputs.new_ip }}"
+          MSG="🖥️ [CTO] Runner server recreated
+Name: ${{ inputs.target_server_name }}
+IP: ${NEW_IP}
+Type: ${{ inputs.server_type }}
+SSH: ssh root@${NEW_IP}"
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"$MSG\"}" > /dev/null 2>&1 || true
