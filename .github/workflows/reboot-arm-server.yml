@@ -78,43 +78,76 @@ jobs:
             exit 1
           fi
 
-      - name: Rebuild server with SSH key (runner servers only)
+      - name: Delete and recreate runner server with SSH key
+        id: recreate
         if: contains(steps.find.outputs.server_name, 'runner')
         env:
           HETZNER_TOKEN: ${{ secrets.HETZNER }}
           SERVER_ID: ${{ steps.find.outputs.server_id }}
           SSH_KEY_ID: ${{ steps.ssh_key.outputs.key_id }}
+          SERVER_NAME: ${{ steps.find.outputs.server_name }}
         run: |
-          echo "Runner server detected — rebuilding with SSH key injection..."
-          HTTP_CODE=$(curl -s -o /tmp/rebuild_resp.json -w "%{http_code}" -X POST \
+          echo "Runner server detected — deleting and recreating with SSH key..."
+          # Get server details for recreation
+          SERVER_INFO=$(curl -sf \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers/$SERVER_ID")
+          SERVER_TYPE=$(echo "$SERVER_INFO" | jq -r '.server.server_type.name')
+          LOCATION=$(echo "$SERVER_INFO" | jq -r '.server.datacenter.location.name')
+          echo "Current: type=$SERVER_TYPE location=$LOCATION"
+
+          # Delete
+          echo "Deleting server $SERVER_ID..."
+          curl -sf -X DELETE \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers/$SERVER_ID"
+          echo "Deleted. Waiting 10s..."
+          sleep 10
+
+          # Recreate with SSH key
+          echo "Creating new server with SSH key $SSH_KEY_ID..."
+          HTTP_CODE=$(curl -s -o /tmp/create_resp.json -w "%{http_code}" -X POST \
             -H "Authorization: Bearer $HETZNER_TOKEN" \
             -H "Content-Type: application/json" \
-            "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/rebuild" \
+            "https://api.hetzner.cloud/v1/servers" \
             -d "{
+              \"name\": \"$SERVER_NAME\",
+              \"server_type\": \"$SERVER_TYPE\",
               \"image\": \"ubuntu-24.04\",
-              \"ssh_keys\": [$SSH_KEY_ID]
+              \"location\": \"$LOCATION\",
+              \"ssh_keys\": [$SSH_KEY_ID],
+              \"labels\": {
+                \"role\": \"ci-runner\",
+                \"arch\": \"x86_64\",
+                \"source\": \"github-actions\"
+              },
+              \"start_after_create\": true
             }")
-          echo "Rebuild HTTP status: $HTTP_CODE"
-          cat /tmp/rebuild_resp.json | jq .
+          echo "Create HTTP status: $HTTP_CODE"
           if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "ERROR: Rebuild failed"
+            echo "ERROR: $(cat /tmp/create_resp.json)"
             exit 1
           fi
-          echo "Rebuild initiated. Waiting for server to come back..."
-          sleep 30
+          NEW_ID=$(cat /tmp/create_resp.json | jq -r '.server.id')
+          NEW_IP=$(cat /tmp/create_resp.json | jq -r '.server.public_net.ipv4.ip')
+          echo "New server: id=$NEW_ID ip=$NEW_IP"
+          echo "new_ip=$NEW_IP" >> "$GITHUB_OUTPUT"
+          echo "new_id=$NEW_ID" >> "$GITHUB_OUTPUT"
+
+          # Wait for running
           for i in $(seq 1 20); do
             STATUS=$(curl -sf \
               -H "Authorization: Bearer $HETZNER_TOKEN" \
-              "https://api.hetzner.cloud/v1/servers/$SERVER_ID" \
+              "https://api.hetzner.cloud/v1/servers/$NEW_ID" \
               | jq -r '.server.status')
             echo "Attempt $i/20 — status: $STATUS"
             if [ "$STATUS" = "running" ]; then
-              echo "Server rebuilt and running."
+              echo "Server running at $NEW_IP"
               exit 0
             fi
-            sleep 15
+            sleep 10
           done
-          echo "WARNING: Server may still be rebuilding."
+          echo "WARNING: Server may still be starting."
 
       - name: Reboot server (non-runner servers)
         if: "!contains(steps.find.outputs.server_name, 'runner')"
@@ -140,8 +173,12 @@ jobs:
           SERVER_NAME: ${{ steps.find.outputs.server_name }}
           TARGET_IP: ${{ github.event.inputs.server_ip || '168.119.60.30' }}
         run: |
+          NEW_IP="${{ steps.recreate.outputs.new_ip }}"
           if [[ "$SERVER_NAME" == *runner* ]]; then
-            MSG="🖥️ [Platform] Runner server $TARGET_IP rebuilt with SSH key (fresh Ubuntu 24.04). Ready for runner setup."
+            MSG="🖥️ [Platform] Runner server recreated with SSH key (fresh Ubuntu 24.04).
+New IP: ${NEW_IP:-unknown}
+SSH: ssh root@${NEW_IP:-unknown}
+Ready for runner setup."
           else
             MSG="⚙️ [Platform] Server $TARGET_IP ($SERVER_NAME) reboot triggered via Hetzner API."
           fi
