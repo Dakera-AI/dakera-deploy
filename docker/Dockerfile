@@ -14,7 +14,7 @@
 # ============================================================================
 # Build Stage
 # ============================================================================
-FROM rust:1.92-bookworm AS builder
+FROM rust:1.95-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
