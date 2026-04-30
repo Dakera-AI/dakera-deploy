@@ -88,16 +88,16 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 2G
           cpus: "1.0"
         reservations:
-          memory: 256M
+          memory: 512M
           cpus: "0.25"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
     restart: unless-stopped
     networks:
       - dakera-net
