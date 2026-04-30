@@ -77,6 +77,14 @@ jobs:
           fi
           echo "key_id=$EXISTING_ID" >> "$GITHUB_OUTPUT"
 
+      - name: Debug available server types
+        if: steps.check.outputs.server_exists != 'true'
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          echo "Available server types in ${{ inputs.location }}:"
+          hcloud server-type list -o columns=name,cores,memory,disk 2>&1 | head -30
+
       - name: Create server
         id: create
         if: steps.check.outputs.server_exists != 'true'
