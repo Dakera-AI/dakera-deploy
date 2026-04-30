@@ -1,0 +1,123 @@
+name: Provision Staging Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_name:
+        description: "Server name"
+        required: true
+        default: "staging-dakera-paperclip"
+      server_type:
+        description: "Hetzner server type (cx32=4vCPU/8GB, cpx32=ARM)"
+        required: false
+        default: "cx32"
+      image:
+        description: "OS image"
+        required: false
+        default: "ubuntu-22.04"
+      location:
+        description: "Datacenter (nbg1, fsn1, hel1)"
+        required: false
+        default: "fsn1"
+
+concurrency:
+  group: provision-staging-${{ inputs.server_name }}
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Provision ${{ inputs.server_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure SSH key registered
+        id: ssh_key
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          KEY_NAME="ops-dakera-ai"
+          PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+69Mv++aOAjMyHWmmtYXp6O31t1jwQXFt9OHzqIoN2 ops@dakera.ai"
+          EXISTING_KEY=$(curl -sf \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/ssh_keys" \
+            | jq -r --arg name "$KEY_NAME" '.ssh_keys[] | select(.name == $name) | .id')
+          if [ -n "$EXISTING_KEY" ]; then
+            echo "SSH key already registered: id=$EXISTING_KEY"
+            echo "key_id=$EXISTING_KEY" >> "$GITHUB_OUTPUT"
+          else
+            RESP=$(curl -sf -X POST \
+              -H "Authorization: Bearer $HETZNER_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.hetzner.cloud/v1/ssh_keys" \
+              -d "{\"name\": \"$KEY_NAME\", \"public_key\": \"$PUB_KEY\"}")
+            KEY_ID=$(echo "$RESP" | jq -r '.ssh_key.id')
+            echo "Registered SSH key: id=$KEY_ID"
+            echo "key_id=$KEY_ID" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create server
+        id: create
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          SSH_KEY_ID: ${{ steps.ssh_key.outputs.key_id }}
+        run: |
+          # Check if server already exists
+          EXISTING=$(curl -sf \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers?name=${{ inputs.server_name }}" \
+            | jq -r '.servers[0].id // empty')
+          if [ -n "$EXISTING" ]; then
+            SERVER_IP=$(curl -sf \
+              -H "Authorization: Bearer $HETZNER_TOKEN" \
+              "https://api.hetzner.cloud/v1/servers/$EXISTING" \
+              | jq -r '.server.public_net.ipv4.ip')
+            echo "Server already exists: id=$EXISTING ip=$SERVER_IP"
+            echo "server_id=$EXISTING" >> "$GITHUB_OUTPUT"
+            echo "server_ip=$SERVER_IP" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          HTTP_CODE=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $HETZNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.hetzner.cloud/v1/servers" \
+            -d "{
+              \"name\": \"${{ inputs.server_name }}\",
+              \"server_type\": \"${{ inputs.server_type }}\",
+              \"image\": \"${{ inputs.image }}\",
+              \"location\": \"${{ inputs.location }}\",
+              \"ssh_keys\": [$SSH_KEY_ID],
+              \"labels\": {\"env\": \"staging\", \"purpose\": \"dakera-paperclip-test\"}
+            }")
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "ERROR: $(cat /tmp/resp.json)"
+            exit 1
+          fi
+          SERVER_ID=$(jq -r '.server.id' /tmp/resp.json)
+          SERVER_IP=$(jq -r '.server.public_net.ipv4.ip' /tmp/resp.json)
+          echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
+          echo "server_ip=$SERVER_IP" >> "$GITHUB_OUTPUT"
+          echo "Created: id=$SERVER_ID ip=$SERVER_IP"
+
+      - name: Wait for SSH ready
+        env:
+          SERVER_IP: ${{ steps.create.outputs.server_ip }}
+        run: |
+          for i in $(seq 1 24); do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@$SERVER_IP "echo ok" 2>/dev/null; then
+              echo "SSH ready on $SERVER_IP"
+              exit 0
+            fi
+            echo "Attempt $i/24 — waiting..."
+            sleep 10
+          done
+          echo "WARNING: SSH not ready yet (server may need more time)"
+
+      - name: Notify Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SERVER_IP: ${{ steps.create.outputs.server_ip }}
+          SERVER_ID: ${{ steps.create.outputs.server_id }}
+        run: |
+          MSG="⚙️ [Platform] Staging server provisioned (DAK-2795)%0A%0AName: ${{ inputs.server_name }}%0AIP: $SERVER_IP%0AType: ${{ inputs.server_type }} / ${{ inputs.image }} @ ${{ inputs.location }}%0AID: $SERVER_ID%0ASSH: ssh root@$SERVER_IP%0A%0ANext: run Ansible bootstrap on shopylive-app inventory"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${MSG}" >/dev/null
