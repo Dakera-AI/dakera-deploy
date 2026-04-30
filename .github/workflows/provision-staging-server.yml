@@ -8,15 +8,15 @@ on:
         required: true
         default: "staging-dakera-paperclip"
       server_type:
-        description: "Hetzner server type (cx32=4vCPU/8GB, cpx32=ARM)"
+        description: "Hetzner server type (cx31=4vCPU/8GB x86, cx32=newer equivalent)"
         required: false
-        default: "cx32"
+        default: "cx31"
       image:
         description: "OS image"
         required: false
         default: "ubuntu-22.04"
       location:
-        description: "Datacenter (nbg1, fsn1, hel1)"
+        description: "Datacenter (nbg1=Nuremberg, fsn1=Falkenstein, hel1=Helsinki)"
         required: false
         default: "fsn1"
 
@@ -28,96 +28,125 @@ jobs:
   provision:
     name: Provision ${{ inputs.server_name }}
     runs-on: ubuntu-latest
+
     steps:
-      - name: Ensure SSH key registered
-        id: ssh_key
+      - name: Install hcloud CLI
+        run: |
+          curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin hcloud
+          hcloud version
+
+      - name: Check if server already exists
+        id: check
         env:
-          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+          HCLOUD_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          EXISTING=$(hcloud server describe "${{ inputs.server_name }}" --output format="{{ .ID }}" 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            EXISTING_IP=$(hcloud server describe "${{ inputs.server_name }}" --output format="{{ .PublicNet.IPv4.IP }}")
+            echo "Server already exists: id=$EXISTING ip=$EXISTING_IP"
+            echo "server_exists=true" >> "$GITHUB_OUTPUT"
+            echo "server_id=$EXISTING" >> "$GITHUB_OUTPUT"
+            echo "server_ip=$EXISTING_IP" >> "$GITHUB_OUTPUT"
+          else
+            echo "server_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure ops SSH key registered
+        id: ssh_key
+        if: steps.check.outputs.server_exists != 'true'
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HETZNER }}
         run: |
           KEY_NAME="ops-dakera-ai"
           PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+69Mv++aOAjMyHWmmtYXp6O31t1jwQXFt9OHzqIoN2 ops@dakera.ai"
-          EXISTING_KEY=$(curl -sf \
-            -H "Authorization: Bearer $HETZNER_TOKEN" \
-            "https://api.hetzner.cloud/v1/ssh_keys" \
-            | jq -r --arg name "$KEY_NAME" '.ssh_keys[] | select(.name == $name) | .id')
+          # Check if key exists
+          EXISTING_KEY=$(hcloud ssh-key describe "$KEY_NAME" --output format="{{ .ID }}" 2>/dev/null || echo "")
           if [ -n "$EXISTING_KEY" ]; then
             echo "SSH key already registered: id=$EXISTING_KEY"
-            echo "key_id=$EXISTING_KEY" >> "$GITHUB_OUTPUT"
           else
-            RESP=$(curl -sf -X POST \
-              -H "Authorization: Bearer $HETZNER_TOKEN" \
-              -H "Content-Type: application/json" \
-              "https://api.hetzner.cloud/v1/ssh_keys" \
-              -d "{\"name\": \"$KEY_NAME\", \"public_key\": \"$PUB_KEY\"}")
-            KEY_ID=$(echo "$RESP" | jq -r '.ssh_key.id')
-            echo "Registered SSH key: id=$KEY_ID"
-            echo "key_id=$KEY_ID" >> "$GITHUB_OUTPUT"
+            hcloud ssh-key create --name "$KEY_NAME" --public-key "$PUB_KEY"
+            echo "SSH key registered: $KEY_NAME"
           fi
 
       - name: Create server
         id: create
+        if: steps.check.outputs.server_exists != 'true'
         env:
-          HETZNER_TOKEN: ${{ secrets.HETZNER }}
-          SSH_KEY_ID: ${{ steps.ssh_key.outputs.key_id }}
+          HCLOUD_TOKEN: ${{ secrets.HETZNER }}
         run: |
-          # Check if server already exists
-          EXISTING=$(curl -sf \
-            -H "Authorization: Bearer $HETZNER_TOKEN" \
-            "https://api.hetzner.cloud/v1/servers?name=${{ inputs.server_name }}" \
-            | jq -r '.servers[0].id // empty')
-          if [ -n "$EXISTING" ]; then
-            SERVER_IP=$(curl -sf \
-              -H "Authorization: Bearer $HETZNER_TOKEN" \
-              "https://api.hetzner.cloud/v1/servers/$EXISTING" \
-              | jq -r '.server.public_net.ipv4.ip')
-            echo "Server already exists: id=$EXISTING ip=$SERVER_IP"
-            echo "server_id=$EXISTING" >> "$GITHUB_OUTPUT"
-            echo "server_ip=$SERVER_IP" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          HTTP_CODE=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X POST \
-            -H "Authorization: Bearer $HETZNER_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://api.hetzner.cloud/v1/servers" \
-            -d "{
-              \"name\": \"${{ inputs.server_name }}\",
-              \"server_type\": \"${{ inputs.server_type }}\",
-              \"image\": \"${{ inputs.image }}\",
-              \"location\": \"${{ inputs.location }}\",
-              \"ssh_keys\": [$SSH_KEY_ID],
-              \"labels\": {\"env\": \"staging\", \"purpose\": \"dakera-paperclip-test\"}
-            }")
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "ERROR: $(cat /tmp/resp.json)"
-            exit 1
-          fi
-          SERVER_ID=$(jq -r '.server.id' /tmp/resp.json)
-          SERVER_IP=$(jq -r '.server.public_net.ipv4.ip' /tmp/resp.json)
+          echo "Creating server: ${{ inputs.server_name }} (${{ inputs.server_type }} @ ${{ inputs.location }})"
+          hcloud server create \
+            --name "${{ inputs.server_name }}" \
+            --type "${{ inputs.server_type }}" \
+            --image "${{ inputs.image }}" \
+            --location "${{ inputs.location }}" \
+            --ssh-key "ops-dakera-ai" \
+            --label "env=staging" \
+            --label "purpose=dakera-paperclip-test" \
+            --label "dak-issue=DAK-2795"
+          SERVER_ID=$(hcloud server describe "${{ inputs.server_name }}" --output format="{{ .ID }}")
+          SERVER_IP=$(hcloud server describe "${{ inputs.server_name }}" --output format="{{ .PublicNet.IPv4.IP }}")
           echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
           echo "server_ip=$SERVER_IP" >> "$GITHUB_OUTPUT"
           echo "Created: id=$SERVER_ID ip=$SERVER_IP"
 
+      - name: Resolve server details
+        id: server
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          if [ "${{ steps.check.outputs.server_exists }}" = "true" ]; then
+            echo "server_id=${{ steps.check.outputs.server_id }}" >> "$GITHUB_OUTPUT"
+            echo "server_ip=${{ steps.check.outputs.server_ip }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "server_id=${{ steps.create.outputs.server_id }}" >> "$GITHUB_OUTPUT"
+            echo "server_ip=${{ steps.create.outputs.server_ip }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Wait for SSH ready
         env:
-          SERVER_IP: ${{ steps.create.outputs.server_ip }}
+          HCLOUD_TOKEN: ${{ secrets.HETZNER }}
+          SERVER_IP: ${{ steps.server.outputs.server_ip }}
         run: |
-          for i in $(seq 1 24); do
-            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@$SERVER_IP "echo ok" 2>/dev/null; then
-              echo "SSH ready on $SERVER_IP"
+          echo "Waiting for SSH on $SERVER_IP..."
+          for i in $(seq 1 30); do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+              -i /dev/null -o BatchMode=yes \
+              root@$SERVER_IP "echo ok" 2>/dev/null; then
+              echo "SSH ready"
               exit 0
             fi
-            echo "Attempt $i/24 — waiting..."
+            echo "Attempt $i/30..."
             sleep 10
           done
-          echo "WARNING: SSH not ready yet (server may need more time)"
+          echo "WARNING: SSH not responding yet — server may need more time"
+
+      - name: Show connection info
+        env:
+          SERVER_IP: ${{ steps.server.outputs.server_ip }}
+          SERVER_ID: ${{ steps.server.outputs.server_id }}
+        run: |
+          echo ""
+          echo "============================================"
+          echo "Server ready!"
+          echo "  Name: ${{ inputs.server_name }}"
+          echo "  ID:   $SERVER_ID"
+          echo "  IP:   $SERVER_IP"
+          echo "  SSH:  ssh root@$SERVER_IP"
+          echo "============================================"
+          echo ""
+          echo "Next: update hosts.yml and run Ansible bootstrap:"
+          echo "  sed -i 's/REPLACE_WITH_SERVER_IP/$SERVER_IP/' ansible/inventories/shopylive-app/hosts.yml"
+          echo "  export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt"
+          echo "  make bootstrap CLIENT=shopylive-app"
 
       - name: Notify Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          SERVER_IP: ${{ steps.create.outputs.server_ip }}
-          SERVER_ID: ${{ steps.create.outputs.server_id }}
+          SERVER_IP: ${{ steps.server.outputs.server_ip }}
+          SERVER_ID: ${{ steps.server.outputs.server_id }}
         run: |
-          MSG="⚙️ [Platform] Staging server provisioned (DAK-2795)%0A%0AName: ${{ inputs.server_name }}%0AIP: $SERVER_IP%0AType: ${{ inputs.server_type }} / ${{ inputs.image }} @ ${{ inputs.location }}%0AID: $SERVER_ID%0ASSH: ssh root@$SERVER_IP%0A%0ANext: run Ansible bootstrap on shopylive-app inventory"
-          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${MSG}" >/dev/null
+          MSG="⚙️ [Platform] Staging server ready (DAK-2795)%0A%0AName: ${{ inputs.server_name }}%0AType: ${{ inputs.server_type }} / ${{ inputs.image }} @ ${{ inputs.location }}%0AID: $SERVER_ID%0AIP: $SERVER_IP%0ASSH: ssh root@$SERVER_IP%0A%0ANext: Ansible bootstrap running — deploying Dakera + Paperclip for shopylive."
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${MSG}" >/dev/null || true
