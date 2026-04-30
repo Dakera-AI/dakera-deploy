@@ -60,14 +60,22 @@ jobs:
         run: |
           KEY_NAME="ops-dakera-ai"
           PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+69Mv++aOAjMyHWmmtYXp6O31t1jwQXFt9OHzqIoN2 ops@dakera.ai"
-          # Check if key exists
-          EXISTING_KEY=$(hcloud ssh-key describe "$KEY_NAME" --output format="{{ .ID }}" 2>/dev/null || echo "")
-          if [ -n "$EXISTING_KEY" ]; then
-            echo "SSH key already registered: id=$EXISTING_KEY"
+          # Compute fingerprint and find key by fingerprint (handles different names)
+          FINGERPRINT=$(ssh-keygen -lf /dev/stdin <<< "$PUB_KEY" | awk '{print $2}')
+          echo "Looking for key with fingerprint: $FINGERPRINT"
+          EXISTING_ID=$(hcloud ssh-key list -o json | \
+            python3 -c "import sys,json; keys=json.load(sys.stdin); \
+            match=[k['id'] for k in keys if k['fingerprint']=='$FINGERPRINT']; \
+            print(match[0] if match else '')")
+          if [ -n "$EXISTING_ID" ]; then
+            EXISTING_NAME=$(hcloud ssh-key describe "$EXISTING_ID" --output format="{{ .Name }}")
+            echo "SSH key found: id=$EXISTING_ID name=$EXISTING_NAME"
           else
             hcloud ssh-key create --name "$KEY_NAME" --public-key "$PUB_KEY"
-            echo "SSH key registered: $KEY_NAME"
+            EXISTING_ID=$(hcloud ssh-key describe "$KEY_NAME" --output format="{{ .ID }}")
+            echo "SSH key registered: id=$EXISTING_ID name=$KEY_NAME"
           fi
+          echo "key_id=$EXISTING_ID" >> "$GITHUB_OUTPUT"
 
       - name: Create server
         id: create
@@ -75,13 +83,14 @@ jobs:
         env:
           HCLOUD_TOKEN: ${{ secrets.HETZNER }}
         run: |
-          echo "Creating server: ${{ inputs.server_name }} (${{ inputs.server_type }} @ ${{ inputs.location }})"
+          KEY_ID="${{ steps.ssh_key.outputs.key_id }}"
+          echo "Creating server: ${{ inputs.server_name }} (${{ inputs.server_type }} @ ${{ inputs.location }}) ssh-key-id=$KEY_ID"
           hcloud server create \
             --name "${{ inputs.server_name }}" \
             --type "${{ inputs.server_type }}" \
             --image "${{ inputs.image }}" \
             --location "${{ inputs.location }}" \
-            --ssh-key "ops-dakera-ai" \
+            --ssh-key "$KEY_ID" \
             --label "env=staging" \
             --label "purpose=dakera-paperclip-test" \
             --label "dak-issue=DAK-2795"
