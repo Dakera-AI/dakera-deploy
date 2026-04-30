@@ -8,9 +8,9 @@ on:
         required: true
         default: "staging-dakera-paperclip"
       server_type:
-        description: "Hetzner server type (cpx31=4vCPU/8GB AMD, cpx41=8vCPU/16GB AMD)"
+        description: "Hetzner server type (cpx32=4vCPU/8GB AMD, cx33=4vCPU/8GB Intel)"
         required: false
-        default: "cpx31"
+        default: "cpx32"
       image:
         description: "OS image"
         required: false
@@ -76,14 +76,6 @@ jobs:
             echo "SSH key registered: id=$EXISTING_ID name=$KEY_NAME"
           fi
           echo "key_id=$EXISTING_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Debug available server types
-        if: steps.check.outputs.server_exists != 'true'
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HETZNER }}
-        run: |
-          echo "Available server types in ${{ inputs.location }}:"
-          hcloud server-type list -o columns=name,cores,memory,disk 2>&1 | head -30
 
       - name: Create server
         id: create
