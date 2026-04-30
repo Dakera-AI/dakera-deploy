@@ -157,13 +157,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          MSG="🖥️ [Platform] Server provisioned
-
-Name: ${{ inputs.server_name }}
-IP: ${{ steps.create.outputs.server_ip }}
-Type: ${{ inputs.server_type }} / ${{ inputs.image }} @ ${{ inputs.location }}
-ID: ${{ steps.create.outputs.server_id }}
-SSH: ssh root@${{ steps.create.outputs.server_ip }}"
+          MSG="🖥️ [Platform] Server provisioned"$'\n\n'"Name: ${{ inputs.server_name }}"$'\n'"IP: ${{ steps.create.outputs.server_ip }}"$'\n'"Type: ${{ inputs.server_type }} / ${{ inputs.image }} @ ${{ inputs.location }}"$'\n'"ID: ${{ steps.create.outputs.server_id }}"$'\n'"SSH: ssh root@${{ steps.create.outputs.server_ip }}"
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"$MSG\"}" > /dev/null

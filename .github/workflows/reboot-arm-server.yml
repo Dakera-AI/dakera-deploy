@@ -175,10 +175,7 @@ jobs:
         run: |
           NEW_IP="${{ steps.recreate.outputs.new_ip }}"
           if [[ "$SERVER_NAME" == *runner* ]]; then
-            MSG="🖥️ [Platform] Runner server recreated with SSH key (fresh Ubuntu 24.04).
-New IP: ${NEW_IP:-unknown}
-SSH: ssh root@${NEW_IP:-unknown}
-Ready for runner setup."
+            MSG="🖥️ [Platform] Runner server recreated with SSH key (fresh Ubuntu 24.04)."$'\n'"New IP: ${NEW_IP:-unknown}"$'\n'"SSH: ssh root@${NEW_IP:-unknown}"$'\n'"Ready for runner setup."
           else
             MSG="⚙️ [Platform] Server $TARGET_IP ($SERVER_NAME) reboot triggered via Hetzner API."
           fi
