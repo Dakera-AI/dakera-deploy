@@ -44,7 +44,7 @@ x-dakera-common: &dakera-common
     - "50051"
     - "7946"
   healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+    test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
     interval: 10s
     timeout: 5s
     retries: 5
