@@ -76,7 +76,8 @@ jobs:
                   {"direction":"in","protocol":"tcp","port":"3300","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera API"},
                   {"direction":"in","protocol":"tcp","port":"3002","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera Dashboard"},
                   {"direction":"in","protocol":"tcp","port":"50051","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera gRPC"},
-                  {"direction":"in","protocol":"tcp","port":"8443","source_ips":["0.0.0.0/0","::/0"],"description":"Caddy reverse proxy"}
+                  {"direction":"in","protocol":"tcp","port":"8443","source_ips":["0.0.0.0/0","::/0"],"description":"Caddy reverse proxy"},
+                  {"direction":"in","protocol":"tcp","port":"3005","source_ips":["0.0.0.0/0","::/0"],"description":"Paperclip UI (Caddy TLS)"}
                 ],
                 "apply_to": [{"type":"server","server":{"id":'"$SERVER_ID"'}}]
               }')
@@ -92,7 +93,8 @@ jobs:
             NEW_PORTS='[
               {"direction":"in","protocol":"tcp","port":"3300","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera API"},
               {"direction":"in","protocol":"tcp","port":"3002","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera Dashboard"},
-              {"direction":"in","protocol":"tcp","port":"50051","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera gRPC"}
+              {"direction":"in","protocol":"tcp","port":"50051","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera gRPC"},
+              {"direction":"in","protocol":"tcp","port":"3005","source_ips":["0.0.0.0/0","::/0"],"description":"Paperclip UI (Caddy TLS)"}
             ]'
 
             MERGED=$(echo "$EXISTING_RULES" | jq --argjson new "$NEW_PORTS" '
@@ -102,7 +104,7 @@ jobs:
             ')
             if [ "$(echo "$MERGED" | jq length)" = "$(echo "$EXISTING_RULES" | jq length)" ]; then
               echo "All ports already present in firewall — checking individually..."
-              for PORT in 3300 3002 50051; do
+              for PORT in 3300 3002 50051 3005; do
                 HAS=$(echo "$EXISTING_RULES" | jq --arg p "$PORT" '[.[] | select(.port == $p and .direction == "in")] | length')
                 if [ "$HAS" = "0" ]; then
                   echo "Port $PORT missing — will add"
