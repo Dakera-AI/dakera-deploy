@@ -1,4 +1,5 @@
 name: Hetzner Provision Staging Server
+# Trigger: workflow_dispatch (manual). See inputs below.
 
 # Reusable template for spinning up ephemeral staging environments.
 # Run manually; outputs the new server's IP and ID for follow-up steps.
