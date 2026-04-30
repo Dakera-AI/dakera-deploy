@@ -60,8 +60,8 @@ jobs:
         run: |
           KEY_NAME="ops-dakera-ai"
           PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+69Mv++aOAjMyHWmmtYXp6O31t1jwQXFt9OHzqIoN2 ops@dakera.ai"
-          # Compute fingerprint and find key by fingerprint (handles different names)
-          FINGERPRINT=$(ssh-keygen -lf /dev/stdin <<< "$PUB_KEY" | awk '{print $2}')
+          # Compute MD5 fingerprint (Hetzner stores MD5, not SHA256)
+          FINGERPRINT=$(ssh-keygen -E md5 -lf /dev/stdin <<< "$PUB_KEY" | awk '{print $2}' | sed 's/MD5://')
           echo "Looking for key with fingerprint: $FINGERPRINT"
           EXISTING_ID=$(hcloud ssh-key list -o json | \
             python3 -c "import sys,json; keys=json.load(sys.stdin); \
