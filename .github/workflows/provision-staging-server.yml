@@ -8,9 +8,9 @@ on:
         required: true
         default: "staging-dakera-paperclip"
       server_type:
-        description: "Hetzner server type (cx32=4vCPU/8GB, cpx32=4vCPU/8GB AMD)"
+        description: "Hetzner server type (cpx31=4vCPU/8GB AMD, cpx41=8vCPU/16GB AMD)"
         required: false
-        default: "cx32"
+        default: "cpx31"
       image:
         description: "OS image"
         required: false
