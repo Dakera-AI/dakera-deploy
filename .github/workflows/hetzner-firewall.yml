@@ -91,10 +91,16 @@ jobs:
             echo "Current rules: $(echo "$EXISTING_RULES" | jq length)"
 
             NEW_PORTS='[
+              {"direction":"in","protocol":"tcp","port":"22","source_ips":["0.0.0.0/0","::/0"],"description":"SSH"},
+              {"direction":"in","protocol":"tcp","port":"80","source_ips":["0.0.0.0/0","::/0"],"description":"HTTP (ACME)"},
+              {"direction":"in","protocol":"tcp","port":"443","source_ips":["0.0.0.0/0","::/0"],"description":"HTTPS"},
               {"direction":"in","protocol":"tcp","port":"3300","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera API"},
               {"direction":"in","protocol":"tcp","port":"3002","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera Dashboard"},
               {"direction":"in","protocol":"tcp","port":"50051","source_ips":["0.0.0.0/0","::/0"],"description":"Dakera gRPC"},
-              {"direction":"in","protocol":"tcp","port":"3005","source_ips":["0.0.0.0/0","::/0"],"description":"Paperclip UI (Caddy TLS)"}
+              {"direction":"in","protocol":"tcp","port":"3005","source_ips":["0.0.0.0/0","::/0"],"description":"Paperclip UI (Caddy TLS)"},
+              {"direction":"in","protocol":"tcp","port":"8443","source_ips":["0.0.0.0/0","::/0"],"description":"Dashboard (Caddy)"},
+              {"direction":"in","protocol":"tcp","port":"3004","source_ips":["0.0.0.0/0","::/0"],"description":"Paperclip API (Caddy TLS)"},
+              {"direction":"in","protocol":"tcp","port":"3044","source_ips":["0.0.0.0/0","::/0"],"description":"Paperclip API"}
             ]'
 
             MERGED=$(echo "$EXISTING_RULES" | jq --argjson new "$NEW_PORTS" '
@@ -104,7 +110,7 @@ jobs:
             ')
             if [ "$(echo "$MERGED" | jq length)" = "$(echo "$EXISTING_RULES" | jq length)" ]; then
               echo "All ports already present in firewall — checking individually..."
-              for PORT in 3300 3002 50051 3005; do
+              for PORT in 22 80 443 3300 3002 50051 3005 8443 3004 3044; do
                 HAS=$(echo "$EXISTING_RULES" | jq --arg p "$PORT" '[.[] | select(.port == $p and .direction == "in")] | length')
                 if [ "$HAS" = "0" ]; then
                   echo "Port $PORT missing — will add"
