@@ -16,9 +16,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SERVER_IP: "168.119.60.30"
-  DEPLOY_USER: "root"
-  HEALTH_URL: "http://168.119.60.30:3300/health"
+  SERVER_IP: "178.104.45.161"
+  DEPLOY_USER: "dakera"
+  HEALTH_URL: "http://178.104.45.161:3300/health"
   REGISTRY: "ghcr.io/dakera-ai/dakera"
 
 jobs:
@@ -52,62 +52,36 @@ jobs:
           # Pull new image
           docker pull ghcr.io/dakera-ai/dakera:${{ inputs.version }}
 
-          # Find the running dakera container (may be named dakera or dakera-bench)
-          CONTAINER=$(docker ps --filter "name=dakera" --format "{{.Names}}" | grep -v minio | head -1)
+          # Find and update the running dakera container
+          CONTAINER=$(docker ps --filter "name=dakera" --format "{{.Names}}" | head -1)
           if [ -z "$CONTAINER" ]; then
-            echo "WARNING: No running dakera container found — starting fresh"
-            docker run -d --name dakera-bench \
-              -p 3300:3300 \
-              -p 50051:50051 \
-              -v dakera-bench-data:/app/data \
-              -v dakera-bench-models:/app/models \
-              -e DAKERA_HOST=0.0.0.0 \
-              -e DAKERA_PORT=3300 \
-              -e DAKERA_STORAGE=filesystem \
-              -e DAKERA_STORAGE_PATH=/app/data/vectors \
-              -e DAKERA_ROCKSDB_PATH=/app/data/rocksdb \
-              -e DAKERA_L1_CACHE_SIZE=536870912 \
-              -e DAKERA_L2_CACHE_PATH=/app/data/rocksdb \
-              -e DAKERA_AUTH_ENABLED=true \
-              -e DAKERA_ROOT_API_KEY="${DAKERA_ROOT_API_KEY:-dk_bench_root_v0_11_28}" \
-              -e RUST_LOG=info \
-              -e HF_HOME=/app/models \
-              -e RUST_BACKTRACE=1 \
-              --restart unless-stopped \
-              --health-cmd='curl -f http://localhost:3300/health || exit 1' \
-              --health-interval=10s \
-              --health-timeout=5s \
-              --health-retries=5 \
-              --health-start-period=30s \
-              ghcr.io/dakera-ai/dakera:${{ inputs.version }}
+            echo "WARNING: No running dakera container found"
+            # Try docker-compose if available
+            if [ -f /opt/dakera/docker-compose.yml ]; then
+              cd /opt/dakera
+              DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:${{ inputs.version }} docker compose up -d
+            else
+              echo "ERROR: No docker-compose.yml found at /opt/dakera/"
+              exit 1
+            fi
           else
-            echo "Replacing container: $CONTAINER"
-            docker stop "$CONTAINER"
-            docker rm "$CONTAINER"
-            docker run -d --name "$CONTAINER" \
-              -p 3300:3300 \
-              -p 50051:50051 \
-              -v dakera-bench-data:/app/data \
-              -v dakera-bench-models:/app/models \
-              -e DAKERA_HOST=0.0.0.0 \
-              -e DAKERA_PORT=3300 \
-              -e DAKERA_STORAGE=filesystem \
-              -e DAKERA_STORAGE_PATH=/app/data/vectors \
-              -e DAKERA_ROCKSDB_PATH=/app/data/rocksdb \
-              -e DAKERA_L1_CACHE_SIZE=536870912 \
-              -e DAKERA_L2_CACHE_PATH=/app/data/rocksdb \
-              -e DAKERA_AUTH_ENABLED=true \
-              -e DAKERA_ROOT_API_KEY="${DAKERA_ROOT_API_KEY:-dk_bench_root_v0_11_28}" \
-              -e RUST_LOG=info \
-              -e HF_HOME=/app/models \
-              -e RUST_BACKTRACE=1 \
-              --restart unless-stopped \
-              --health-cmd='curl -f http://localhost:3300/health || exit 1' \
-              --health-interval=10s \
-              --health-timeout=5s \
-              --health-retries=5 \
-              --health-start-period=30s \
-              ghcr.io/dakera-ai/dakera:${{ inputs.version }}
+            # Use docker-compose in the service directory
+            COMPOSE_DIR=$(docker inspect "$CONTAINER" --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' 2>/dev/null || echo "")
+            if [ -n "$COMPOSE_DIR" ] && [ -d "$COMPOSE_DIR" ]; then
+              cd "$COMPOSE_DIR"
+              DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:${{ inputs.version }} docker compose up -d
+            else
+              echo "Stopping old container and starting new one..."
+              # Get the current container's config
+              PORTS=$(docker port "$CONTAINER" 2>/dev/null || echo "")
+              docker stop "$CONTAINER"
+              docker rm "$CONTAINER"
+              docker run -d --name dakera \
+                --env-file /opt/dakera/.env \
+                -p 3300:3000 \
+                --restart unless-stopped \
+                ghcr.io/dakera-ai/dakera:${{ inputs.version }}
+            fi
           fi
 
           echo "=== Deploy complete ==="
