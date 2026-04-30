@@ -112,11 +112,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           NEW_IP="${{ steps.recreate.outputs.new_ip }}"
-          MSG="🖥️ [CTO] Runner server recreated
-Name: ${{ inputs.target_server_name }}
-IP: ${NEW_IP}
-Type: ${{ inputs.server_type }}
-SSH: ssh root@${NEW_IP}"
+          MSG="🖥️ [CTO] Runner server recreated"$'\n'"Name: ${{ inputs.target_server_name }}"$'\n'"IP: ${NEW_IP}"$'\n'"Type: ${{ inputs.server_type }}"$'\n'"SSH: ssh root@${NEW_IP}"
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"$MSG\"}" > /dev/null 2>&1 || true

@@ -196,15 +196,7 @@ jobs:
           SERVER_IP: ${{ steps.create.outputs.server_ip }}
           SERVER_ID: ${{ steps.create.outputs.server_id }}
         run: |
-          MSG="🖥️ [Platform] Runner server provisioned
-
-Name: ${{ inputs.server_name }}
-IP: $SERVER_IP
-Type: ${{ inputs.server_type }} @ ${{ inputs.location }}
-ID: $SERVER_ID
-OS: Ubuntu 24.04 + Rust 1.85 + Docker
-
-Next: SSH in and register GH Actions runners."
+          MSG="🖥️ [Platform] Runner server provisioned"$'\n\n'"Name: ${{ inputs.server_name }}"$'\n'"IP: $SERVER_IP"$'\n'"Type: ${{ inputs.server_type }} @ ${{ inputs.location }}"$'\n'"ID: $SERVER_ID"$'\n'"OS: Ubuntu 24.04 + Rust 1.85 + Docker"$'\n\n'"Next: SSH in and register GH Actions runners."
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"$MSG\"}" > /dev/null
