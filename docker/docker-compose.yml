@@ -82,7 +82,7 @@ services:
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
-      - MINIO_API_REQUESTS_MAX=${MINIO_API_REQUESTS_MAX:-1500}
+      - MINIO_API_REQUESTS_MAX=${MINIO_API_REQUESTS_MAX:-6000}
     volumes:
       - minio-data:/data
     deploy:
