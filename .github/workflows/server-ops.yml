@@ -170,6 +170,25 @@ jobs:
             else
               echo "DAKERA_ROOT_API_KEY=${NEW_KEY}" >> "\$ENV_FILE"
             fi
+
+            # Sync to agent credentials so heartbeats pick up the fresh key without restart.
+            # Without this, agent processes whose env was loaded before the deploy get 401s.
+            CREDS="/home/dakera/ops/paperclip/.credentials"
+            if [ -f "\$CREDS" ]; then
+              OLD_CREDS_KEY=\$(grep '^DAKERA_API_KEY=' "\$CREDS" 2>/dev/null | cut -d= -f2- || echo "")
+              if grep -q '^DAKERA_API_KEY=' "\$CREDS"; then
+                sed -i "s|^DAKERA_API_KEY=.*|DAKERA_API_KEY=${NEW_KEY}|" "\$CREDS"
+              else
+                echo "DAKERA_API_KEY=${NEW_KEY}" >> "\$CREDS"
+              fi
+              if [ "\$OLD_CREDS_KEY" != "${NEW_KEY}" ]; then
+                echo "⚠️  API key rotated — .credentials updated. In-flight agent heartbeats may still 401; next heartbeat will start clean."
+              else
+                echo "API key unchanged — .credentials already current"
+              fi
+            else
+              echo "⚠️  Agent credentials file not found at \$CREDS — skipping"
+            fi
           fi
 
           docker compose pull
@@ -201,6 +220,8 @@ jobs:
           if [ "${{ job.status }}" = "success" ]; then
             if [ "${{ inputs.action }}" = "sync-auth-key" ]; then
               MSG="✅ [Platform] API key synced to all consumers\n\n• Server docker/.env\n• Agent .credentials\n• dakera-bench secret\n• Auth validated"
+            elif [ "${{ inputs.action }}" = "deploy-version" ]; then
+              MSG="✅ [Platform] deploy-version v${{ inputs.version }} complete\n\n• Server: ${{ env.SERVER_IP }}\n• docker/.env updated\n• .credentials synced (agents pick up fresh key on next heartbeat)\n• Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             else
               MSG="✅ [Platform] Server ops: ${{ inputs.action }} completed\nServer: ${{ env.SERVER_IP }}"
             fi
