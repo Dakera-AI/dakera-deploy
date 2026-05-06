@@ -196,17 +196,22 @@ jobs:
 
           echo "Waiting for startup..."
           sleep 15
+          DEPLOYED=0
           for i in \$(seq 1 12); do
             RESPONSE=\$(curl -sf --max-time 10 "http://localhost:3300/health" 2>/dev/null || echo '{"error":"unreachable"}')
             VER=\$(echo "\$RESPONSE" | jq -r '.version // "unknown"')
             STATUS=\$(echo "\$RESPONSE" | jq -r '.status // "unknown"')
             echo "Attempt \$i/12 — status=\$STATUS version=\$VER"
             if [ "\$VER" = "\${VERSION}" ] && [ "\$STATUS" = "healthy" ]; then
-              echo "✅ Deployed and healthy: v\${VERSION}"
-              exit 0
+              DEPLOYED=1
+              break
             fi
             sleep 10
           done
+          if [ "\$DEPLOYED" -eq 1 ]; then
+            echo "✅ Deployed and healthy: v\${VERSION}"
+            exit 0
+          fi
           echo "❌ Health check failed after 2 minutes"
           exit 1
           DEPLOY
