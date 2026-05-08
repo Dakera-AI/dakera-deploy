@@ -35,12 +35,30 @@ jobs:
           }
           echo "✅ Image exists"
 
+      - name: Checkout deploy config
+        uses: actions/checkout@v4
+
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync docker-compose.yml to server
+        run: |
+          echo "Syncing docker/docker-compose.yml to server..."
+          # Resolve compose dir via container label; fall back to known install path
+          COMPOSE_DIR=$(ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            ${{ env.DEPLOY_USER }}@${{ env.SERVER_IP }} \
+            "CONTAINER=\$(docker ps --filter 'name=dakera' --format '{{.Names}}' | head -1); \
+             [ -n \"\$CONTAINER\" ] && docker inspect \"\$CONTAINER\" --format '{{ index .Config.Labels \"com.docker.compose.project.working_dir\" }}' 2>/dev/null || true")
+          COMPOSE_DIR="${COMPOSE_DIR:-/home/dakera/ops/repos/dakera-deploy/docker}"
+          echo "Compose dir: $COMPOSE_DIR"
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            docker/docker-compose.yml \
+            "${{ env.DEPLOY_USER }}@${{ env.SERVER_IP }}:$COMPOSE_DIR/docker-compose.yml"
+          echo "✅ docker-compose.yml synced"
 
       - name: Deploy via SSH
         run: |
@@ -59,7 +77,7 @@ jobs:
             # Try docker-compose if available
             if [ -f /opt/dakera/docker-compose.yml ]; then
               cd /opt/dakera
-              DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:${{ inputs.version }} docker compose up -d
+              DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:${{ inputs.version }} docker compose up -d --force-recreate minio minio-setup dakera
             else
               echo "ERROR: No docker-compose.yml found at /opt/dakera/"
               exit 1
@@ -69,7 +87,8 @@ jobs:
             COMPOSE_DIR=$(docker inspect "$CONTAINER" --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' 2>/dev/null || echo "")
             if [ -n "$COMPOSE_DIR" ] && [ -d "$COMPOSE_DIR" ]; then
               cd "$COMPOSE_DIR"
-              DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:${{ inputs.version }} docker compose up -d
+              # Force-recreate minio so new resource limits (cpus/memory) take effect
+              DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:${{ inputs.version }} docker compose up -d --force-recreate minio minio-setup dakera
             else
               echo "Stopping old container and starting new one..."
               # Get the current container's config
