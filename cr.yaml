@@ -1,2 +1,6 @@
 owner: dakera-ai
+git-repo: dakera-deploy
 git-base-url: https://api.github.com/
+pages-branch: gh-pages
+package-path: .cr-release-packages
+skip-existing: true
