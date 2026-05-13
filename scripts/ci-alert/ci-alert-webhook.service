@@ -1,0 +1,26 @@
+[Unit]
+Description=Dakera CI Failure Alerting Webhook (DAK-4572)
+Documentation=https://github.com/Dakera-AI/dakera-deploy/tree/main/scripts/ci-alert
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ci-alert
+EnvironmentFile=/etc/ci-alert/env
+ExecStart=/usr/bin/python3 /opt/ci-alert/ci-alert-webhook.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ci-alert-webhook
+
+# Harden the service while allowing needed write paths
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ci-alert /var/log/ci-alert
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
