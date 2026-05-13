@@ -1,0 +1,6 @@
+# Default — Platform agent owns all deployment config
+* @dakera-ai/platform
+
+# Helm charts — CTO oversight for architecture changes
+/helm/ @dakera-ai/cto
+/charts/ @dakera-ai/cto
