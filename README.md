@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)](https://docs.docker.com/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5)](https://kubernetes.io/)
-[![Helm](https://img.shields.io/badge/Helm-v0.11.38-0F1689)](https://github.com/orgs/dakera-ai/packages/container/package/charts%2Fdakera)
+[![Helm](https://img.shields.io/badge/Helm-v0.11.55-0F1689)](https://github.com/dakera-ai/dakera-helm)
 
 Deployment configurations for Dakera — the AI agent memory platform. Persistent, session-aware, cross-agent memory for your AI agents.
 
@@ -211,10 +211,6 @@ dakera-deploy/
 │   │   └── grafana.yaml
 │   ├── ingress.yaml                 # Nginx ingress (edit hostnames)
 │   └── kustomization.yaml           # kubectl apply -k k8s/
-├── charts/dakera/                   # Helm chart
-│   ├── Chart.yaml
-│   ├── values.yaml                  # All configurable defaults
-│   └── templates/                   # Helm templates
 ├── monitoring/                      # Observability stack
 │   ├── docker-compose.yml           # Standalone monitoring compose
 │   ├── prometheus.yml               # Prometheus scrape configuration
@@ -413,44 +409,30 @@ curl http://localhost:3000/health
 
 ### Option B: Helm
 
-The chart is published to GHCR as an OCI artifact. Helm 3.8+ required.
+The Helm chart has moved to the dedicated **[dakera-helm](https://github.com/dakera-ai/dakera-helm)** repository, which publishes to ArtifactHub and GHCR OCI. Helm 3.8+ required.
 
 ```bash
-# Install from GHCR OCI (recommended)
-helm install dakera oci://ghcr.io/dakera-ai/charts/dakera --version 0.9.9 \
+# Install from GHCR OCI
+helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.11.55 \
   --namespace dakera --create-namespace \
   --set dakera.rootApiKey=$(openssl rand -hex 32) \
   --set minio.rootPassword=$(openssl rand -hex 16)
 
-# With ingress + monitoring enabled
-helm install dakera oci://ghcr.io/dakera-ai/charts/dakera --version 0.9.9 \
+# Install from ArtifactHub index
+helm repo add dakera https://dakera-ai.github.io/dakera-helm
+helm install dakera dakera/dakera \
   --namespace dakera --create-namespace \
   --set dakera.rootApiKey=$(openssl rand -hex 32) \
-  --set minio.rootPassword=$(openssl rand -hex 16) \
-  --set ingress.enabled=true \
-  --set ingress.apiHost=api.dakera.yourdomain.com \
-  --set ingress.dashboardHost=dashboard.dakera.yourdomain.com \
-  --set monitoring.enabled=true
+  --set minio.rootPassword=$(openssl rand -hex 16)
 
 # Upgrade to a new version
-helm upgrade dakera oci://ghcr.io/dakera-ai/charts/dakera --version <new-version> --reuse-values
+helm upgrade dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version <new-version> --reuse-values
 
 # Uninstall
 helm uninstall dakera -n dakera
 ```
 
-<details>
-<summary>Install from local checkout</summary>
-
-```bash
-git clone https://github.com/dakera-ai/dakera-deploy
-helm install dakera ./dakera-deploy/charts/dakera \
-  --namespace dakera --create-namespace \
-  --set dakera.rootApiKey=$(openssl rand -hex 32) \
-  --set minio.rootPassword=$(openssl rand -hex 16)
-```
-
-</details>
+See [dakera-ai/dakera-helm](https://github.com/dakera-ai/dakera-helm) for chart source and full documentation.
 
 ### Resource Summary
 
