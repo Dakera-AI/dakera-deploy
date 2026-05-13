@@ -17,6 +17,9 @@ Required env vars:
   PAPERCLIP_COMPANY_ID  UUID of the Dakera company
   PAPERCLIP_API_KEY     Bearer token for agent-authenticated calls
   GITHUB_WEBHOOK_SECRET HMAC secret set in the GitHub org webhook config
+  CI_AGENT_IDS          JSON object mapping repo name -> assignee agent UUID
+                        e.g. '{"dakera":"<uuid>","dakera-py":"<uuid>"}'
+                        Store this as a GitHub Secret or in /etc/ci-alert/env.
 
 Optional:
   CI_ALERT_PORT     listening port (default: 8765)
@@ -46,18 +49,9 @@ PORT = int(os.environ.get("CI_ALERT_PORT", "8765"))
 CACHE_FILE = os.environ.get("CI_CACHE_FILE", "/var/lib/ci-alert/cache.json")
 COOLDOWN_SECS = int(os.environ.get("COOLDOWN_DAYS", "7")) * 86400
 
-# Repo name -> assignee agent UUID
-REPO_OWNER = {
-    "dakera":          "76c16e17-0a79-416b-8d37-c8f912d99312",  # CTO
-    "dakera-bench":    "76c16e17-0a79-416b-8d37-c8f912d99312",  # CTO
-    "dakera-mcp":      "76c16e17-0a79-416b-8d37-c8f912d99312",  # CTO
-    "dakera-cli":      "8854bc33-d856-4ac5-b462-2da1f79c785a",  # QA
-    "dakera-py":       "2b03a819-473d-4ab8-8db7-2cefc9b818f9",  # SDK Lead
-    "dakera-js":       "2b03a819-473d-4ab8-8db7-2cefc9b818f9",  # SDK Lead
-    "dakera-rs":       "2b03a819-473d-4ab8-8db7-2cefc9b818f9",  # SDK Lead
-    "dakera-go":       "2b03a819-473d-4ab8-8db7-2cefc9b818f9",  # SDK Lead
-    "dakera-deploy":   "01347741-1538-434f-89ef-6bcb95b480a6",  # Platform
-}
+# Repo name -> assignee agent UUID — loaded from CI_AGENT_IDS env var at startup.
+# Never hardcode UUIDs here; store them in /etc/ci-alert/env or a GitHub Secret.
+REPO_OWNER: dict = {}
 
 WATCHED_BRANCHES = {"main", "master"}
 
@@ -75,14 +69,30 @@ _cache_lock = threading.Lock()
 # ── Validation ─────────────────────────────────────────────────────────────────
 
 def _check_env():
-    missing = [k for k in ("PAPERCLIP_API_URL", "PAPERCLIP_COMPANY_ID", "PAPERCLIP_API_KEY")
+    missing = [k for k in ("PAPERCLIP_API_URL", "PAPERCLIP_COMPANY_ID", "PAPERCLIP_API_KEY", "CI_AGENT_IDS")
                if not os.environ.get(k)]
     if missing:
         log.error("Missing required env vars: %s", ", ".join(missing))
         sys.exit(1)
     if not GITHUB_WEBHOOK_SECRET:
         log.warning("GITHUB_WEBHOOK_SECRET not set -- webhook signature verification disabled")
+    _load_agent_ids()
     os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+
+
+def _load_agent_ids():
+    """Populate REPO_OWNER from the CI_AGENT_IDS JSON env var."""
+    raw = os.environ.get("CI_AGENT_IDS", "")
+    try:
+        mapping = json.loads(raw)
+    except json.JSONDecodeError as e:
+        log.error("CI_AGENT_IDS is not valid JSON: %s", e)
+        sys.exit(1)
+    if not isinstance(mapping, dict) or not mapping:
+        log.error("CI_AGENT_IDS must be a non-empty JSON object")
+        sys.exit(1)
+    REPO_OWNER.update(mapping)
+    log.info("Loaded %d repo->agent mappings from CI_AGENT_IDS", len(REPO_OWNER))
 
 
 # ── HMAC verification ──────────────────────────────────────────────────────────
