@@ -36,7 +36,7 @@ jobs:
           DEMO_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.DEMO_URL }}" 2>/dev/null) || true
           [ -z "$DEMO_CODE" ] && DEMO_CODE="000"
           echo "dakera health endpoint: $HTTP_CODE"
-          echo "4imapact-demo: $DEMO_CODE"
+          echo "demo-endpoint: $DEMO_CODE"
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ]; then
             echo "healthy=true" >> "$GITHUB_OUTPUT"
           else
