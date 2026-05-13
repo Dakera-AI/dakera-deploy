@@ -1,10 +1,11 @@
 # Dakera Deployment
 
-[![Server](https://img.shields.io/badge/dakera-v0.11.53-blue)](https://github.com/dakera-ai/dakera/releases/tag/v0.11.53)
+[![CI](https://github.com/Dakera-AI/dakera-deploy/actions/workflows/ci.yml/badge.svg)](https://github.com/Dakera-AI/dakera-deploy/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Dakera-AI/dakera-deploy)](https://github.com/Dakera-AI/dakera-deploy/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)](https://docs.docker.com/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5)](https://kubernetes.io/)
-[![Helm](https://img.shields.io/badge/Helm-v0.11.55-0F1689)](https://github.com/dakera-ai/dakera-helm)
+[![Helm](https://img.shields.io/github/v/release/Dakera-AI/dakera-helm?label=Helm&color=0F1689)](https://github.com/dakera-ai/dakera-helm)
 
 Deployment configurations for Dakera — the AI agent memory platform. Persistent, session-aware, cross-agent memory for your AI agents.
 
@@ -471,16 +472,14 @@ See [CONFIGURATION.md](https://github.com/dakera-ai/dakera-docs/blob/main/CONFIG
 
 | Repository | Description |
 |------------|-------------|
-| [dakera](https://github.com/dakera-ai/dakera) | Core AI agent memory engine (Rust) |
+| [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) | MCP Server for AI agent memory (83 tools) |
+| [dakera-cli](https://github.com/dakera-ai/dakera-cli) | Command-line interface |
 | [dakera-py](https://github.com/dakera-ai/dakera-py) | Python SDK |
 | [dakera-js](https://github.com/dakera-ai/dakera-js) | TypeScript/JavaScript SDK |
 | [dakera-go](https://github.com/dakera-ai/dakera-go) | Go SDK |
 | [dakera-rs](https://github.com/dakera-ai/dakera-rs) | Rust SDK |
-| [dakera-cli](https://github.com/dakera-ai/dakera-cli) | Command-line interface |
-| [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) | MCP Server for AI agent memory |
-| [dakera-dashboard](https://github.com/dakera-ai/dakera-dashboard) | Admin dashboard (Leptos/WASM) |
-| [dakera-docs](https://github.com/dakera-ai/dakera-docs) | Documentation |
-| [dakera-cortex](https://github.com/dakera-ai/dakera-cortex) | Flagship demo with AI agents |
+| [dakera-helm](https://github.com/dakera-ai/dakera-helm) | Helm chart |
+| [dakera-bench](https://github.com/dakera-ai/dakera-bench) | Benchmarks |
 
 ## License
 
