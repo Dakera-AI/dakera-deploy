@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SERVER_IP: "178.104.45.161"
+  SERVER_IP: ${{ secrets.SERVER_IP_PROD }}
 
 jobs:
   firewall:

@@ -26,6 +26,9 @@ concurrency:
   group: hetzner-snapshot
   cancel-in-progress: false
 
+env:
+  SERVER_IP: ${{ secrets.SERVER_IP_PROD }}
+
 jobs:
   snapshot:
     name: Create Server Snapshot
@@ -42,9 +45,9 @@ jobs:
           SERVER_ID=$(curl -sf \
             -H "Authorization: Bearer $HETZNER_TOKEN" \
             "https://api.hetzner.cloud/v1/servers?per_page=50" \
-            | jq -r '.servers[] | select(.public_net.ipv4.ip == "178.104.45.161") | .id')
+            | jq -r --arg ip "$SERVER_IP" '.servers[] | select(.public_net.ipv4.ip == $ip) | .id')
           if [ -z "$SERVER_ID" ]; then
-            echo "ERROR: server 178.104.45.161 not found in Hetzner account"
+            echo "ERROR: server $SERVER_IP not found in Hetzner account"
             exit 1
           fi
           echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
