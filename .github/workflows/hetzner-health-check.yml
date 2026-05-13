@@ -10,9 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SERVER_IP: "178.104.45.161"
-  HEALTH_URL: "http://178.104.45.161:3300/health"
-  DEMO_URL: "http://178.104.45.161:3004"
+  SERVER_IP: ${{ secrets.SERVER_IP_PROD }}
+  HEALTH_URL: "http://${{ secrets.SERVER_IP_PROD }}:3300/health"
+  DEMO_URL: "http://${{ secrets.SERVER_IP_PROD }}:3004"
   DEPLOY_USER: "dakera"
   COMPOSE_DIR: "/home/dakera/ops/repos/dakera-deploy/docker"
 
@@ -210,4 +210,4 @@ jobs:
     if: needs.health-check.outputs.healthy == 'true'
     steps:
       - name: Log healthy
-        run: echo "Server 178.104.45.161 is healthy. All checks passed."
+        run: echo "Server ${{ env.SERVER_IP }} is healthy. All checks passed."
