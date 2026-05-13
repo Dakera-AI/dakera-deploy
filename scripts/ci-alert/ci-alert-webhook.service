@@ -16,10 +16,10 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=ci-alert-webhook
 
-# Harden the service
+# Harden the service while allowing needed write paths
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/var/log/ci-alert
+ReadWritePaths=/var/lib/ci-alert /var/log/ci-alert
 PrivateTmp=true
 
 [Install]
