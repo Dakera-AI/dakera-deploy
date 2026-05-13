@@ -92,8 +92,7 @@ jobs:
             --location "${{ inputs.location }}" \
             --ssh-key "$KEY_ID" \
             --label "env=staging" \
-            --label "purpose=dakera-paperclip-test" \
-            --label "dak-issue=DAK-2795"
+            --label "purpose=dakera-paperclip"
           SERVER_ID=$(hcloud server describe "${{ inputs.server_name }}" --output format="{{ .ID }}")
           SERVER_IP=$(hcloud server describe "${{ inputs.server_name }}" --output format="{{ .PublicNet.IPv4.IP }}")
           echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
@@ -146,9 +145,9 @@ jobs:
           echo "============================================"
           echo ""
           echo "Next: update hosts.yml and run Ansible bootstrap:"
-          echo "  sed -i 's/REPLACE_WITH_SERVER_IP/$SERVER_IP/' ansible/inventories/shopylive-app/hosts.yml"
+          echo "  sed -i 's/REPLACE_WITH_SERVER_IP/$SERVER_IP/' ansible/inventories/<client>/hosts.yml"
           echo "  export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt"
-          echo "  make bootstrap CLIENT=shopylive-app"
+          echo "  make bootstrap CLIENT=<client>"
 
       - name: Notify Telegram
         env:
@@ -157,5 +156,5 @@ jobs:
           SERVER_IP: ${{ steps.server.outputs.server_ip }}
           SERVER_ID: ${{ steps.server.outputs.server_id }}
         run: |
-          MSG="⚙️ [Platform] Staging server ready (DAK-2795)%0A%0AName: ${{ inputs.server_name }}%0AType: ${{ inputs.server_type }} / ${{ inputs.image }} @ ${{ inputs.location }}%0AID: $SERVER_ID%0AIP: $SERVER_IP%0ASSH: ssh root@$SERVER_IP%0A%0ANext: Ansible bootstrap running — deploying Dakera + Paperclip for shopylive."
+          MSG="⚙️ [Platform] Staging server ready%0A%0AName: ${{ inputs.server_name }}%0AType: ${{ inputs.server_type }} / ${{ inputs.image }} @ ${{ inputs.location }}%0AID: $SERVER_ID%0AIP: $SERVER_IP%0ASSH: ssh root@$SERVER_IP%0A%0ANext: Run Ansible bootstrap to deploy Dakera + Paperclip."
           curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${MSG}" >/dev/null || true

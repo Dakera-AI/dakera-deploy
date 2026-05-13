@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       server_ip:
-        description: 'Server IP to reboot (or rebuild if runner server)'
+        description: 'Server IP to reboot (or rebuild if runner server). Defaults to ARM_RUNNER_IP secret if omitted.'
         required: false
-        default: '168.119.60.30'
 
 jobs:
   server-action:
@@ -49,7 +48,7 @@ jobs:
         id: find
         env:
           HETZNER_TOKEN: ${{ secrets.HETZNER }}
-          TARGET_IP: ${{ github.event.inputs.server_ip || '168.119.60.30' }}
+          TARGET_IP: ${{ github.event.inputs.server_ip || secrets.ARM_RUNNER_IP }}
         run: |
           set -e
           echo "Finding server with IP: $TARGET_IP"
@@ -171,7 +170,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SERVER_NAME: ${{ steps.find.outputs.server_name }}
-          TARGET_IP: ${{ github.event.inputs.server_ip || '168.119.60.30' }}
+          TARGET_IP: ${{ github.event.inputs.server_ip || secrets.ARM_RUNNER_IP }}
         run: |
           NEW_IP="${{ steps.recreate.outputs.new_ip }}"
           if [[ "$SERVER_NAME" == *runner* ]]; then
