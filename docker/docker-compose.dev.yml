@@ -1,8 +1,6 @@
 # Dakera Development Docker Compose
 # Lightweight setup for local development and testing
 
-version: "3.8"
-
 services:
   # ==========================================================================
   # MinIO - S3-Compatible Object Storage (Development)
