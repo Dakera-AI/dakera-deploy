@@ -518,6 +518,18 @@ See [dakera.ai](https://dakera.ai) for the full authentication and configuration
 | [dakera-helm](https://github.com/dakera-ai/dakera-helm) | Helm chart |
 | [dakera-bench](https://github.com/dakera-ai/dakera-bench) | Benchmarks |
 
+### Framework Integrations
+
+| Package | Framework | Install |
+|---------|-----------|---------|
+| [langchain-dakera](https://github.com/dakera-ai/dakera-langchain) | LangChain (Python) | `pip install langchain-dakera` |
+| [@dakera-ai/langchain](https://github.com/dakera-ai/dakera-langchain-js) | LangChain.js | `npm install @dakera-ai/langchain` |
+| [crewai-dakera](https://github.com/dakera-ai/dakera-crewai) | CrewAI | `pip install crewai-dakera` |
+| [autogen-dakera](https://github.com/dakera-ai/dakera-autogen) | AutoGen | `pip install autogen-dakera` |
+| [llamaindex-dakera](https://github.com/dakera-ai/dakera-llamaindex) | LlamaIndex | `pip install llamaindex-dakera` |
+
+See the [integration guides on dakera.ai](https://dakera.ai/integrations/) for setup walkthroughs.
+
 ## License
 
 Copyright 2026 Dakera AI. See [LICENSE](LICENSE) for details.
