@@ -108,8 +108,8 @@ Production-grade single-node deployment with MinIO, caching, and health checks.
 > **Version pinning**: The default image tags are pinned to the latest stable release.
 > To run a specific version, set `DAKERA_IMAGE` and `DASHBOARD_IMAGE` in your `.env`:
 > ```bash
-> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.9.9
-> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.3.28
+> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.55
+> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.3.29
 > ```
 > Pinning to explicit versions prevents unexpected upgrades in production.
 
@@ -139,11 +139,11 @@ cd docker
 docker compose -f docker-compose.ha.yml up -d
 ```
 
-- REST API (load balanced): http://localhost:3000
-- gRPC API (load balanced): localhost:50051
+- REST API (load balanced): http://localhost:3100
+- gRPC API (load balanced): localhost:50151
 - Traefik Dashboard: http://localhost:8080
-- MinIO Console: http://localhost:9001
-- Cluster status: http://localhost:3000/admin/cluster/status
+- MinIO Console: http://localhost:9101
+- Cluster status: http://localhost:3100/admin/cluster/status
 
 ### Monitoring (Prometheus + Grafana)
 
@@ -173,6 +173,15 @@ Pre-configured dashboards include request rates, latency percentiles, cache hit 
 ### Kubernetes
 
 Production deployment via kubectl or Helm. See [Kubernetes Deployment](#kubernetes-deployment) below.
+
+## Deployment Guides
+
+Step-by-step guides in the [`examples/`](examples/) directory:
+
+- **[Quickstart](examples/quickstart.md)** — Store and recall your first memory in 5 minutes
+- **[Environment Variables](examples/environment-variables.md)** — Complete reference for all configuration options
+- **[Production Checklist](examples/production-checklist.md)** — Security, storage, HA, and monitoring checklist
+- **[Backup & Restore](examples/backup-restore.md)** — MinIO backup procedures and disaster recovery
 
 ## Directory Structure
 
@@ -223,6 +232,11 @@ dakera-deploy/
 │               ├── dashboards.yml   # Dashboard auto-provisioning config
 │               └── json/
 │                   └── dakera-overview.json  # Overview + decay dashboards
+├── examples/                        # Deployment guides and references
+│   ├── quickstart.md                # Zero-to-running tutorial
+│   ├── environment-variables.md     # Complete env var reference
+│   ├── production-checklist.md      # Pre-production checklist
+│   └── backup-restore.md           # Backup and restore procedures
 ├── LICENSE
 ├── CHANGELOG.md
 └── README.md
@@ -270,12 +284,36 @@ dakera-deploy/
 | `DAKERA_GOSSIP_BIND` | `0.0.0.0:7946` | Gossip bind address |
 | `DAKERA_API_ADVERTISE` | - | Advertised API URL for the node |
 
+### Tiered Storage
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_TIERED_STORAGE` | `false` | Enable L1→L2→L3 tiered storage |
+| `DAKERA_HOT_TO_WARM_SECS` | `3600` | Seconds before hot data moves to warm (RocksDB) |
+| `DAKERA_WARM_TO_COLD_SECS` | `86400` | Seconds before warm data moves to cold (S3) |
+| `DAKERA_AUTO_TIER` | `false` | Automatic tier promotion/demotion |
+| `DAKERA_TIER_CHECK_INTERVAL_SECS` | `300` | Interval for tier check sweep |
+
+### Request Limits
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_MAX_BODY_SIZE` | `524288000` | Max request body size in bytes (500MB) |
+| `DAKERA_REQUEST_TIMEOUT` | `120` | Request timeout in seconds |
+
+### Redis (HA Mode)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_CACHE_REDIS_URL` | - | Redis URL for distributed cache |
+| `DAKERA_REDIS_URL` | - | Redis URL for rate-limit counters and SSE fan-out |
+
 ### Authentication
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DAKERA_AUTH_ENABLED` | `false` | Enable API authentication |
-| `DAKERA_ROOT_API_KEY` | - | Root API key (change in production) |
+| `DAKERA_ROOT_API_KEY` | - | Root API key (**required** in production compose) |
 
 ## HA Architecture
 
@@ -317,7 +355,7 @@ dakera-deploy/
                     │
               ┌─────▼──────┐    ┌────────────┐
               │ Prometheus  │───▶│  Grafana   │
-              │   :9090     │    │   :3001    │
+              │   :9190     │    │   :3203    │
               └─────────────┘    └────────────┘
 ```
 
@@ -466,14 +504,13 @@ Before deploying to a production or internet-facing environment:
 | Network isolation | Do **not** expose MinIO ports (9000, 9001) publicly |
 | TLS termination | Use a reverse proxy (nginx, Traefik, Caddy) with HTTPS |
 
-See [CONFIGURATION.md](https://github.com/dakera-ai/dakera-docs/blob/main/CONFIGURATION.md) for the full authentication reference.
+See [dakera.ai](https://dakera.ai) for the full authentication and configuration reference.
 
 ## Related Repositories
 
 | Repository | Description |
 |------------|-------------|
 | [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) | MCP Server for AI agent memory (83 tools) |
-| [dakera-cli](https://github.com/dakera-ai/dakera-cli) | Command-line interface |
 | [dakera-py](https://github.com/dakera-ai/dakera-py) | Python SDK |
 | [dakera-js](https://github.com/dakera-ai/dakera-js) | TypeScript/JavaScript SDK |
 | [dakera-go](https://github.com/dakera-ai/dakera-go) | Go SDK |
