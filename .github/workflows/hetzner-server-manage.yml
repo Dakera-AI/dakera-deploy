@@ -19,6 +19,8 @@ on:
         required: false
         default: "cpx32"
 
+permissions: {}
+
 jobs:
   manage:
     name: "${{ inputs.action }}"

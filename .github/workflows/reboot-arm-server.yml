@@ -7,6 +7,8 @@ on:
         description: 'Server IP to reboot (or rebuild if runner server). Defaults to ARM_RUNNER_IP secret if omitted.'
         required: false
 
+permissions: {}
+
 jobs:
   server-action:
     name: Server action via Hetzner API
