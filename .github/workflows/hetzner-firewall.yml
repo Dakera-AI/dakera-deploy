@@ -11,6 +11,8 @@ on:
           - add-docker-ports
           - list-rules
 
+permissions: {}
+
 concurrency:
   group: hetzner-firewall
   cancel-in-progress: false
