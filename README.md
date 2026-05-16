@@ -410,7 +410,8 @@ curl http://localhost:3000/health
 
 ### Option B: Helm
 
-The Helm chart has moved to the dedicated **[dakera-helm](https://github.com/dakera-ai/dakera-helm)** repository, which publishes to ArtifactHub and GHCR OCI. Helm 3.8+ required.
+The Helm chart has moved to the dedicated **[dakera-helm](https://github.com/dakera-ai/dakera-helm)
+[![dakera.ai](https://img.shields.io/badge/dakera.ai-website-22c55e?style=flat-square)](https://dakera.ai) [![Docs](https://img.shields.io/badge/docs-dakera.ai%2Fdocs-3b82f6?style=flat-square)](https://dakera.ai/docs)** repository, which publishes to ArtifactHub and GHCR OCI. Helm 3.8+ required.
 
 ```bash
 # Install from GHCR OCI
@@ -484,3 +485,13 @@ See [CONFIGURATION.md](https://github.com/dakera-ai/dakera-docs/blob/main/CONFIG
 ## License
 
 Copyright 2026 Dakera AI. See [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+**[dakera.ai](https://dakera.ai)** · [Documentation](https://dakera.ai/docs) · [Request Early Access](https://dakera.ai#cta)
+
+<sub>The memory engine for AI agents. Self-hosted. Built in Rust. Zero dependencies.</sub>
+
+</div>
