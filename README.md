@@ -1,15 +1,40 @@
-# Dakera Deployment
+<p align="center">
+  <a href="https://dakera.ai">
+    <img src="assets/logo.png" alt="Dakera AI" width="120" />
+  </a>
+</p>
 
-[![CI](https://github.com/Dakera-AI/dakera-deploy/actions/workflows/ci.yml/badge.svg)](https://github.com/Dakera-AI/dakera-deploy/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/Dakera-AI/dakera-deploy)](https://github.com/Dakera-AI/dakera-deploy/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)](https://docs.docker.com/)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5)](https://kubernetes.io/)
-[![Helm](https://img.shields.io/github/v/release/Dakera-AI/dakera-helm?label=Helm&color=0F1689)](https://github.com/dakera-ai/dakera-helm)
+<h1 align="center">Dakera Deployment</h1>
 
-Deployment configurations for Dakera — the AI agent memory platform. Persistent, session-aware, cross-agent memory for your AI agents.
+<p align="center">
+  <strong>Deploy AI agent memory anywhere — Docker, Kubernetes, or Helm.</strong><br>
+  Production-ready infrastructure for the Dakera memory platform.
+</p>
 
-This repository contains Docker configurations, high-availability clustering, load balancing, and monitoring setup for running Dakera in development and production environments.
+<p align="center">
+  <a href="https://dakera.ai"><img src="https://img.shields.io/badge/dakera.ai-website-22c55e?style=for-the-badge" alt="Website" /></a>
+  <a href="https://dakera.ai/docs"><img src="https://img.shields.io/badge/docs-dakera.ai%2Fdocs-3b82f6?style=for-the-badge" alt="Docs" /></a>
+  <a href="https://dakera.ai/benchmark"><img src="https://img.shields.io/badge/benchmark-87.6%25_LoCoMo-D4A843?style=for-the-badge" alt="Benchmark" /></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Dakera-AI/dakera-deploy/actions/workflows/ci.yml"><img src="https://github.com/Dakera-AI/dakera-deploy/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/Dakera-AI/dakera-deploy/releases"><img src="https://img.shields.io/github/v/release/Dakera-AI/dakera-deploy" alt="Release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="https://docs.docker.com/"><img src="https://img.shields.io/badge/Docker-Ready-2496ED" alt="Docker" /></a>
+  <a href="https://kubernetes.io/"><img src="https://img.shields.io/badge/Kubernetes-Ready-326CE5" alt="Kubernetes" /></a>
+  <a href="https://github.com/dakera-ai/dakera-helm"><img src="https://img.shields.io/github/v/release/Dakera-AI/dakera-helm?label=Helm&color=0F1689" alt="Helm" /></a>
+</p>
+
+---
+
+## Why Dakera?
+
+Dakera is the **agent-native memory platform** — purpose-built for AI agents that need persistent, session-aware, cross-agent memory. A single self-hosted Rust binary gives you vector search, hybrid retrieval (BM25 + HNSW), knowledge graphs, session management, and built-in embeddings. No external dependencies. Your data stays on your infrastructure.
+
+**87.6% on the [LoCoMo benchmark](https://dakera.ai/benchmark)** — 1,540 questions testing long-conversation memory across temporal reasoning, multi-hop retrieval, and event ordering. This is the highest score for a self-hosted memory system.
+
+---
 
 ## Zero to Running in 5 Minutes
 
@@ -108,8 +133,8 @@ Production-grade single-node deployment with MinIO, caching, and health checks.
 > **Version pinning**: The default image tags are pinned to the latest stable release.
 > To run a specific version, set `DAKERA_IMAGE` and `DASHBOARD_IMAGE` in your `.env`:
 > ```bash
-> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.9.9
-> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.3.28
+> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.54
+> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.3.29
 > ```
 > Pinning to explicit versions prevents unexpected upgrades in production.
 
@@ -466,12 +491,13 @@ Before deploying to a production or internet-facing environment:
 | Network isolation | Do **not** expose MinIO ports (9000, 9001) publicly |
 | TLS termination | Use a reverse proxy (nginx, Traefik, Caddy) with HTTPS |
 
-See [CONFIGURATION.md](https://github.com/dakera-ai/dakera-docs/blob/main/CONFIGURATION.md) for the full authentication reference.
+See the [Configuration Reference](https://dakera.ai/docs) for the full authentication and security documentation.
 
 ## Related Repositories
 
 | Repository | Description |
 |------------|-------------|
+| [dakera-docs](https://github.com/dakera-ai/dakera-docs) | Full documentation |
 | [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) | MCP Server for AI agent memory (83 tools) |
 | [dakera-cli](https://github.com/dakera-ai/dakera-cli) | Command-line interface |
 | [dakera-py](https://github.com/dakera-ai/dakera-py) | Python SDK |
@@ -479,8 +505,11 @@ See [CONFIGURATION.md](https://github.com/dakera-ai/dakera-docs/blob/main/CONFIG
 | [dakera-go](https://github.com/dakera-ai/dakera-go) | Go SDK |
 | [dakera-rs](https://github.com/dakera-ai/dakera-rs) | Rust SDK |
 | [dakera-helm](https://github.com/dakera-ai/dakera-helm) | Helm chart |
-| [dakera-bench](https://github.com/dakera-ai/dakera-bench) | Benchmarks |
 
-## License
+---
 
-Copyright 2026 Dakera AI. See [LICENSE](LICENSE) for details.
+<p align="center">
+  <a href="https://dakera.ai">dakera.ai</a> · <a href="https://dakera.ai/docs">Documentation</a> · <a href="https://dakera.ai/benchmark">Benchmarks</a>
+  <br><br>
+  Copyright 2026 Dakera AI · <a href="LICENSE">MIT License</a>
+</p>
