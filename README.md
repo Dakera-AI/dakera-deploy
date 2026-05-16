@@ -1,4 +1,7 @@
+[![Docs](https://img.shields.io/badge/docs-dakera.ai-D4A843)](https://dakera.ai/docs)
 # Dakera Deployment
+
+
 
 [![CI](https://github.com/Dakera-AI/dakera-deploy/actions/workflows/ci.yml/badge.svg)](https://github.com/Dakera-AI/dakera-deploy/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Dakera-AI/dakera-deploy)](https://github.com/Dakera-AI/dakera-deploy/releases)
@@ -6,6 +9,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)](https://docs.docker.com/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5)](https://kubernetes.io/)
 [![Helm](https://img.shields.io/github/v/release/Dakera-AI/dakera-helm?label=Helm&color=0F1689)](https://github.com/dakera-ai/dakera-helm)
+[![Docs](https://img.shields.io/badge/docs-dakera.ai-D4A843)](https://dakera.ai/docs)
 
 Deployment configurations for Dakera — the AI agent memory platform. Persistent, session-aware, cross-agent memory for your AI agents.
 
