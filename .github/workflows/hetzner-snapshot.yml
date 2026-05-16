@@ -22,6 +22,8 @@ on:
         required: false
         default: "manual"
 
+permissions: {}
+
 concurrency:
   group: hetzner-snapshot
   cancel-in-progress: false
