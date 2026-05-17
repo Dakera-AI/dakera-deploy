@@ -49,7 +49,7 @@ Have a feature idea? Use the [Feature Request](https://github.com/Dakera-AI/dake
 
 ## Security Vulnerabilities
 
-**Do not open public issues for security vulnerabilities.** See [SECURITY.md](.github/SECURITY.md) for responsible disclosure instructions — email security@dakera.ai.
+**Do not open public issues for security vulnerabilities.** See [SECURITY.md](.github/SECURITY.md) for responsible disclosure instructions — report via [GitHub Security Advisories](https://github.com/dakera-ai/dakera-deploy/security/advisories/new).
 
 ## License
 

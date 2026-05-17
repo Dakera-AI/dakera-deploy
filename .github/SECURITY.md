@@ -8,9 +8,9 @@ If you discover a security vulnerability in this project, please report it respo
 
 ### How to Report
 
-Email: security@dakera.ai
+Please report security vulnerabilities via [GitHub Security Advisories](https://github.com/dakera-ai/dakera-deploy/security/advisories/new).
 
-Please include:
+Include:
 - Description of the vulnerability
 - Steps to reproduce
 - Potential impact
@@ -40,4 +40,4 @@ This policy covers security vulnerabilities in the Dakera deployment tooling, in
 - Network and service exposure settings
 
 For vulnerabilities in the Dakera server itself, see the [dakera](https://github.com/dakera-ai/dakera) repository.
-For the hosted Dakera service, use the same email address above.
+For the hosted Dakera service, use the same reporting channel above.
