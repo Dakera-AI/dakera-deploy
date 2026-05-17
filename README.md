@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://dakera.ai"><img src="https://img.shields.io/badge/dakera.ai-website-22c55e?style=for-the-badge" alt="Website" /></a>
   <a href="https://dakera.ai/docs"><img src="https://img.shields.io/badge/docs-dakera.ai%2Fdocs-3b82f6?style=for-the-badge" alt="Docs" /></a>
-  <a href="https://dakera.ai/benchmark"><img src="https://img.shields.io/badge/benchmark-87.6%25_LoCoMo-D4A843?style=for-the-badge" alt="Benchmark" /></a>
+  <a href="https://dakera.ai/benchmark"><img src="https://img.shields.io/badge/benchmark-87.8%25_LoCoMo-D4A843?style=for-the-badge" alt="Benchmark" /></a>
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@
 
 Dakera is the **agent-native memory platform** — purpose-built for AI agents that need persistent, session-aware, cross-agent memory. A single self-hosted Rust binary gives you vector search, hybrid retrieval (BM25 + HNSW), knowledge graphs, session management, and built-in embeddings. No external dependencies. Your data stays on your infrastructure.
 
-**87.6% on the [LoCoMo benchmark](https://dakera.ai/benchmark)** — 1,540 questions testing long-conversation memory across temporal reasoning, multi-hop retrieval, and event ordering. This is the highest score for a self-hosted memory system.
+**87.8% on the [LoCoMo benchmark](https://dakera.ai/benchmark)** — 1,540 questions testing long-conversation memory across temporal reasoning, multi-hop retrieval, and event ordering. This is the highest score for a self-hosted memory system.
 
 ---
 
