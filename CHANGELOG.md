@@ -4,6 +4,37 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-14
+
+### Security
+
+- **HA compose**: Remove `mc anonymous set download` from MinIO setup — HA stack still had the SA-2026-001 anonymous bucket vulnerability that was fixed in the default compose
+- **HA compose**: Replace hardcoded `dk_dev_root_key_change_in_production` fallback in dashboard with required env var (`DAKERA_ROOT_API_KEY` is now required, matching the default compose behavior)
+
+### Changed
+
+- Bump dakera server image: `0.11.48` → `0.11.55` in docker-compose, docker-compose.ha, and k8s deployment
+  - v0.11.49–v0.11.55: CE-111 through CE-117 recall improvements, ML classifier tuning, temporal inference, smart scoring weights
+- Bump k8s dakera deployment: align version labels (`0.11.40` → `0.11.55`) and image tag (`0.11.42` → `0.11.55`)
+- Fix docker-compose.local.yml: replace `build` context (required dakera source) with pre-built GHCR image — the "Zero to Running in 5 Minutes" quickstart now works without cloning the server repo
+- Remove deprecated `version: "3.8"` from docker-compose.dev.yml
+
+### Added
+
+- `examples/` directory with deployment guides:
+  - `quickstart.md` — store and recall first memory in 5 minutes
+  - `environment-variables.md` — complete env var reference including tiered storage, Redis, request limits, and HA port overrides
+  - `production-checklist.md` — security, storage, HA, and monitoring checklist
+  - `backup-restore.md` — MinIO backup procedures and disaster recovery
+
+### Fixed
+
+- README: HA section listed wrong ports (3000/50051/9001) — corrected to actual HA defaults (3100/50151/9101)
+- README: HA architecture diagram showed wrong Prometheus (:9090) and Grafana (:3001) ports — corrected to :9190/:3203
+- README: Remove private repo link (`dakera-cli`) from Related Repositories
+- README: Add missing environment variable sections (tiered storage, request limits, Redis)
+- README: Update version pinning example from v0.9.9 to v0.11.55
+
 ## [0.4.2] - 2026-04-25
 
 ### Changed

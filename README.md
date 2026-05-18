@@ -1,15 +1,40 @@
-# Dakera Deployment
+<p align="center">
+  <a href="https://dakera.ai">
+    <img src="assets/logo.png" alt="Dakera AI" width="120" />
+  </a>
+</p>
 
-[![CI](https://github.com/Dakera-AI/dakera-deploy/actions/workflows/ci.yml/badge.svg)](https://github.com/Dakera-AI/dakera-deploy/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/Dakera-AI/dakera-deploy)](https://github.com/Dakera-AI/dakera-deploy/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)](https://docs.docker.com/)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5)](https://kubernetes.io/)
-[![Helm](https://img.shields.io/github/v/release/Dakera-AI/dakera-helm?label=Helm&color=0F1689)](https://github.com/dakera-ai/dakera-helm)
+<h1 align="center">Dakera Deployment</h1>
 
-Deployment configurations for Dakera — the AI agent memory platform. Persistent, session-aware, cross-agent memory for your AI agents.
+<p align="center">
+  <strong>Deploy AI agent memory anywhere — Docker, Kubernetes, or Helm.</strong><br>
+  Production-ready infrastructure for the Dakera memory platform.
+</p>
 
-This repository contains Docker configurations, high-availability clustering, load balancing, and monitoring setup for running Dakera in development and production environments.
+<p align="center">
+  <a href="https://dakera.ai"><img src="https://img.shields.io/badge/dakera.ai-website-22c55e?style=for-the-badge" alt="Website" /></a>
+  <a href="https://dakera.ai/docs"><img src="https://img.shields.io/badge/docs-dakera.ai%2Fdocs-3b82f6?style=for-the-badge" alt="Docs" /></a>
+  <a href="https://dakera.ai/benchmark"><img src="https://img.shields.io/badge/benchmark-87.8%25_LoCoMo-D4A843?style=for-the-badge" alt="Benchmark" /></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Dakera-AI/dakera-deploy/actions/workflows/ci.yml"><img src="https://github.com/Dakera-AI/dakera-deploy/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/Dakera-AI/dakera-deploy/releases"><img src="https://img.shields.io/github/v/release/Dakera-AI/dakera-deploy" alt="Release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="https://docs.docker.com/"><img src="https://img.shields.io/badge/Docker-Ready-2496ED" alt="Docker" /></a>
+  <a href="https://kubernetes.io/"><img src="https://img.shields.io/badge/Kubernetes-Ready-326CE5" alt="Kubernetes" /></a>
+  <a href="https://github.com/dakera-ai/dakera-helm"><img src="https://img.shields.io/github/v/release/Dakera-AI/dakera-helm?label=Helm&color=0F1689" alt="Helm" /></a>
+</p>
+
+---
+
+## Why Dakera?
+
+Dakera is the **agent-native memory platform** — purpose-built for AI agents that need persistent, session-aware, cross-agent memory. A single self-hosted Rust binary gives you vector search, hybrid retrieval (BM25 + HNSW), knowledge graphs, session management, and built-in embeddings. No external dependencies. Your data stays on your infrastructure.
+
+**87.8% on the [LoCoMo benchmark](https://dakera.ai/benchmark)** — 1,540 questions testing long-conversation memory across temporal reasoning, multi-hop retrieval, and event ordering. This is the highest score for a self-hosted memory system.
+
+---
 
 ## Zero to Running in 5 Minutes
 
@@ -108,8 +133,8 @@ Production-grade single-node deployment with MinIO, caching, and health checks.
 > **Version pinning**: The default image tags are pinned to the latest stable release.
 > To run a specific version, set `DAKERA_IMAGE` and `DASHBOARD_IMAGE` in your `.env`:
 > ```bash
-> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.9.9
-> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.3.28
+> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.55
+> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.3.29
 > ```
 > Pinning to explicit versions prevents unexpected upgrades in production.
 
@@ -139,11 +164,11 @@ cd docker
 docker compose -f docker-compose.ha.yml up -d
 ```
 
-- REST API (load balanced): http://localhost:3000
-- gRPC API (load balanced): localhost:50051
+- REST API (load balanced): http://localhost:3100
+- gRPC API (load balanced): localhost:50151
 - Traefik Dashboard: http://localhost:8080
-- MinIO Console: http://localhost:9001
-- Cluster status: http://localhost:3000/admin/cluster/status
+- MinIO Console: http://localhost:9101
+- Cluster status: http://localhost:3100/admin/cluster/status
 
 ### Monitoring (Prometheus + Grafana)
 
@@ -173,6 +198,15 @@ Pre-configured dashboards include request rates, latency percentiles, cache hit 
 ### Kubernetes
 
 Production deployment via kubectl or Helm. See [Kubernetes Deployment](#kubernetes-deployment) below.
+
+## Deployment Guides
+
+Step-by-step guides in the [`examples/`](examples/) directory:
+
+- **[Quickstart](examples/quickstart.md)** — Store and recall your first memory in 5 minutes
+- **[Environment Variables](examples/environment-variables.md)** — Complete reference for all configuration options
+- **[Production Checklist](examples/production-checklist.md)** — Security, storage, HA, and monitoring checklist
+- **[Backup & Restore](examples/backup-restore.md)** — MinIO backup procedures and disaster recovery
 
 ## Directory Structure
 
@@ -223,6 +257,11 @@ dakera-deploy/
 │               ├── dashboards.yml   # Dashboard auto-provisioning config
 │               └── json/
 │                   └── dakera-overview.json  # Overview + decay dashboards
+├── examples/                        # Deployment guides and references
+│   ├── quickstart.md                # Zero-to-running tutorial
+│   ├── environment-variables.md     # Complete env var reference
+│   ├── production-checklist.md      # Pre-production checklist
+│   └── backup-restore.md           # Backup and restore procedures
 ├── LICENSE
 ├── CHANGELOG.md
 └── README.md
@@ -270,12 +309,36 @@ dakera-deploy/
 | `DAKERA_GOSSIP_BIND` | `0.0.0.0:7946` | Gossip bind address |
 | `DAKERA_API_ADVERTISE` | - | Advertised API URL for the node |
 
+### Tiered Storage
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_TIERED_STORAGE` | `false` | Enable L1→L2→L3 tiered storage |
+| `DAKERA_HOT_TO_WARM_SECS` | `3600` | Seconds before hot data moves to warm (RocksDB) |
+| `DAKERA_WARM_TO_COLD_SECS` | `86400` | Seconds before warm data moves to cold (S3) |
+| `DAKERA_AUTO_TIER` | `false` | Automatic tier promotion/demotion |
+| `DAKERA_TIER_CHECK_INTERVAL_SECS` | `300` | Interval for tier check sweep |
+
+### Request Limits
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_MAX_BODY_SIZE` | `524288000` | Max request body size in bytes (500MB) |
+| `DAKERA_REQUEST_TIMEOUT` | `120` | Request timeout in seconds |
+
+### Redis (HA Mode)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_CACHE_REDIS_URL` | - | Redis URL for distributed cache |
+| `DAKERA_REDIS_URL` | - | Redis URL for rate-limit counters and SSE fan-out |
+
 ### Authentication
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DAKERA_AUTH_ENABLED` | `false` | Enable API authentication |
-| `DAKERA_ROOT_API_KEY` | - | Root API key (change in production) |
+| `DAKERA_ROOT_API_KEY` | - | Root API key (**required** in production compose) |
 
 ## HA Architecture
 
@@ -317,7 +380,7 @@ dakera-deploy/
                     │
               ┌─────▼──────┐    ┌────────────┐
               │ Prometheus  │───▶│  Grafana   │
-              │   :9090     │    │   :3001    │
+              │   :9190     │    │   :3203    │
               └─────────────┘    └────────────┘
 ```
 
@@ -466,12 +529,13 @@ Before deploying to a production or internet-facing environment:
 | Network isolation | Do **not** expose MinIO ports (9000, 9001) publicly |
 | TLS termination | Use a reverse proxy (nginx, Traefik, Caddy) with HTTPS |
 
-See [CONFIGURATION.md](https://github.com/dakera-ai/dakera-docs/blob/main/CONFIGURATION.md) for the full authentication reference.
+See the [Configuration Reference](https://dakera.ai/docs) for the full authentication and security documentation.
 
 ## Related Repositories
 
 | Repository | Description |
 |------------|-------------|
+| [dakera-docs](https://github.com/dakera-ai/dakera-docs) | Full documentation |
 | [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) | MCP Server for AI agent memory (14 core tools, 86+ via profiles) |
 | [dakera-cli](https://github.com/dakera-ai/dakera-cli) | Command-line interface |
 | [dakera-py](https://github.com/dakera-ai/dakera-py) | Python SDK |
@@ -479,8 +543,23 @@ See [CONFIGURATION.md](https://github.com/dakera-ai/dakera-docs/blob/main/CONFIG
 | [dakera-go](https://github.com/dakera-ai/dakera-go) | Go SDK |
 | [dakera-rs](https://github.com/dakera-ai/dakera-rs) | Rust SDK |
 | [dakera-helm](https://github.com/dakera-ai/dakera-helm) | Helm chart |
-| [dakera-bench](https://github.com/dakera-ai/dakera-bench) | Benchmarks |
 
-## License
+### Framework Integrations
 
-Copyright 2026 Dakera AI. See [LICENSE](LICENSE) for details.
+| Package | Framework | Install |
+|---------|-----------|---------|
+| [langchain-dakera](https://github.com/dakera-ai/dakera-langchain) | LangChain (Python) | `pip install langchain-dakera` |
+| [@dakera-ai/langchain](https://github.com/dakera-ai/dakera-langchain-js) | LangChain.js | `npm install @dakera-ai/langchain` |
+| [crewai-dakera](https://github.com/dakera-ai/dakera-crewai) | CrewAI | `pip install crewai-dakera` |
+| [autogen-dakera](https://github.com/dakera-ai/dakera-autogen) | AutoGen | `pip install autogen-dakera` |
+| [llamaindex-dakera](https://github.com/dakera-ai/dakera-llamaindex) | LlamaIndex | `pip install llamaindex-dakera` |
+
+See the [integration guides on dakera.ai](https://dakera.ai/integrations/) for setup walkthroughs.
+
+---
+
+<p align="center">
+  <a href="https://dakera.ai">dakera.ai</a> · <a href="https://dakera.ai/docs">Documentation</a> · <a href="https://dakera.ai/benchmark">Benchmarks</a>
+  <br><br>
+  Copyright 2026 Dakera AI · <a href="LICENSE">MIT License</a>
+</p>

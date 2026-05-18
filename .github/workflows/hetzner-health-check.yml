@@ -5,6 +5,8 @@ on:
     - cron: "*/30 * * * *"
   workflow_dispatch:
 
+permissions: {}
+
 concurrency:
   group: hetzner-health-check
   cancel-in-progress: true

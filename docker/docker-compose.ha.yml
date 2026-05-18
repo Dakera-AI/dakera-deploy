@@ -35,7 +35,7 @@
 name: dakera-ha
 
 x-dakera-common: &dakera-common
-  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.11.48}
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.11.55}
   restart: unless-stopped
   networks:
     - dakera-ha-net
@@ -252,7 +252,6 @@ services:
       /bin/sh -c "
       mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin};
       mc mb myminio/dakera --ignore-existing;
-      mc anonymous set download myminio/dakera;
       echo 'Dakera bucket ready';
       exit 0;
       "
@@ -269,7 +268,7 @@ services:
       - "${HA_DASHBOARD_PORT:-3202}:3000"
     environment:
       - DAKERA_API_UPSTREAM=http://dakera-traefik:3000
-      - DAKERA_API_KEY=${DAKERA_ROOT_API_KEY:-dk_dev_root_key_change_in_production}
+      - DAKERA_API_KEY=${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.ha.example)}
     depends_on:
       dakera-1:
         condition: service_healthy
