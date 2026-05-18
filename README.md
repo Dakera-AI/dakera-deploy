@@ -472,7 +472,7 @@ See [CONFIGURATION.md](https://github.com/dakera-ai/dakera-docs/blob/main/CONFIG
 
 | Repository | Description |
 |------------|-------------|
-| [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) | MCP Server for AI agent memory (83 tools) |
+| [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) | MCP Server for AI agent memory (14 core tools, 86+ via profiles) |
 | [dakera-cli](https://github.com/dakera-ai/dakera-cli) | Command-line interface |
 | [dakera-py](https://github.com/dakera-ai/dakera-py) | Python SDK |
 | [dakera-js](https://github.com/dakera-ai/dakera-js) | TypeScript/JavaScript SDK |
