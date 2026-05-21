@@ -199,6 +199,25 @@ Pre-configured dashboards include request rates, latency percentiles, cache hit 
 
 Production deployment via kubectl or Helm. See [Kubernetes Deployment](#kubernetes-deployment) below.
 
+## Client Tools
+
+Once Dakera is running, connect with the official CLI and MCP server:
+
+```bash
+# dk CLI — inspect memory, run queries, manage namespaces
+brew install dakera-ai/tap/dk            # macOS
+# or: curl -fsSL https://dakera-ai.github.io/apt-repo/install.sh | sh   # Linux
+dk store --namespace myagent "User prefers concise replies"
+dk recall --namespace myagent "communication style"
+
+# dakera-mcp — expose Dakera tools to AI agents via Model Context Protocol
+npx @dakera-ai/dakera-mcp               # zero-install, latest version
+# or: brew install dakera-ai/tap/dakera-mcp
+# Add to Claude Desktop: { "mcpServers": { "dakera": { "command": "npx", "args": ["@dakera-ai/dakera-mcp"] } } }
+```
+
+See [dakera-cli](https://github.com/dakera-ai/dakera-cli) and [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) for full documentation.
+
 ## Deployment Guides
 
 Step-by-step guides in the [`examples/`](examples/) directory:
@@ -339,6 +358,13 @@ dakera-deploy/
 |----------|---------|-------------|
 | `DAKERA_AUTH_ENABLED` | `false` | Enable API authentication |
 | `DAKERA_ROOT_API_KEY` | - | Root API key (**required** in production compose) |
+| `DAKERA_ENCRYPTION_KEY` | - | AES-256-GCM key for at-rest memory encryption (32-byte hex) |
+
+### gRPC
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_GRPC_ENABLED` | `true` | Enable the gRPC endpoint |
 
 ## HA Architecture
 
@@ -349,8 +375,8 @@ dakera-deploy/
                                        │
                               ┌────────▼────────┐
                               │   Traefik LB    │
-                              │  :3000 (HTTP)   │
-                              │  :50051 (gRPC)  │
+                              │  :3100 (HTTP)   │
+                              │  :50151 (gRPC)  │
                               │  :8080 (Admin)  │
                               └───┬────┬────┬───┘
                                   │    │    │
