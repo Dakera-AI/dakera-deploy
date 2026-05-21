@@ -15,6 +15,8 @@
 # ============================================================================
 # Build Stage
 # ============================================================================
+# nightly required for the custom `docker` Cargo profile (split-debuginfo + incremental build flags
+# not yet stabilised in Rust stable). Switch to stable once those features are stabilised.
 FROM rustlang/rust:nightly-bookworm AS builder
 
 # Install build dependencies (cached layer - rarely changes)
@@ -31,14 +33,19 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy custom CA certificates (for corporate proxy/Netskope)
-COPY certs/netskope-ca.crt /tmp/netskope-ca.crt
+# Optional: corporate proxy / Netskope CA certificate injection.
+# External users: leave NETSKOPE_CERT blank — no cert file needed.
+# Internal users: place cert at certs/netskope-ca.crt and pass --build-arg NETSKOPE_CERT=1
+ARG NETSKOPE_CERT=0
+COPY certs/ /tmp/certs/
+WORKDIR /tmp
 RUN mkdir -p /usr/local/share/ca-certificates/netskope && \
-    cd /tmp && \
-    csplit -f netskope-cert- -b '%02d.crt' netskope-ca.crt '/-----BEGIN CERTIFICATE-----/' '{*}' && \
-    rm -f netskope-cert-00.crt && \
-    mv netskope-cert-*.crt /usr/local/share/ca-certificates/netskope/ && \
-    update-ca-certificates
+    if [ "${NETSKOPE_CERT}" = "1" ] && [ -f /tmp/certs/netskope-ca.crt ]; then \
+        csplit -f netskope-cert- -b '%02d.crt' certs/netskope-ca.crt '/-----BEGIN CERTIFICATE-----/' '{*}' && \
+        rm -f netskope-cert-00.crt && \
+        mv netskope-cert-*.crt /usr/local/share/ca-certificates/netskope/ && \
+        update-ca-certificates; \
+    fi
 
 # Set SSL cert environment variables for cargo
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
@@ -91,7 +98,7 @@ RUN apt-get update && apt-get install -y \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy custom CA certificates from builder
+# Copy CA certificates from builder (directory always present; only populated when NETSKOPE_CERT=1)
 COPY --from=builder /usr/local/share/ca-certificates/netskope/ /usr/local/share/ca-certificates/netskope/
 RUN update-ca-certificates
 
