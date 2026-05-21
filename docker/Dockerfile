@@ -53,9 +53,9 @@ ENV RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold"
 #   docker build --build-arg NETSKOPE_CERT=1 ...
 ARG NETSKOPE_CERT=0
 COPY certs/ /tmp/certs/
+WORKDIR /tmp
 RUN mkdir -p /usr/local/share/ca-certificates/netskope && \
     if [ "${NETSKOPE_CERT}" = "1" ] && [ -f /tmp/certs/netskope-ca.crt ]; then \
-        cd /tmp && \
         csplit -f netskope-cert- -b '%02d.crt' certs/netskope-ca.crt '/-----BEGIN CERTIFICATE-----/' '{*}' && \
         rm -f netskope-cert-00.crt && \
         mv netskope-cert-*.crt /usr/local/share/ca-certificates/netskope/ && \
