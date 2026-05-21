@@ -4,6 +4,24 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-21
+
+### Fixed
+
+- K8s MCP deployment image: `0.9.2` → `0.10.8` (14 versions behind — aligns with latest release)
+- K8s Dashboard version labels: `0.3.28` → `0.3.29` (label/image mismatch)
+- Dockerfile: replace invalid `COPY --if=` syntax with valid ARG-gated conditional (`NETSKOPE_CERT=0` default, `COPY certs/ /tmp/certs/` + `RUN if` pattern)
+- Dockerfile.dev: apply same ARG-gated Netskope cert pattern as production Dockerfile
+- docker-compose.yml ODE sidecar image: `0.9.0` → `0.2.0` (only available tag on GHCR)
+- k8s configmap: add `DAKERA_REQUEST_TIMEOUT: "120"` and `DAKERA_MAX_BODY_SIZE: "524288000"` (present in docker-compose, missing in k8s)
+
+### Added
+
+- .env.example: `DAKERA_ENCRYPTION_KEY` (AES-256-GCM at-rest encryption), `DAKERA_REQUEST_TIMEOUT`, `DAKERA_GRPC_ENABLED`
+- Dockerfile: source-build notice at top — Dockerfile requires dakera source repo as build context; external users should use pre-built GHCR image or docker-compose.local.yml
+- Dockerfile.dev: comment explaining why `rustlang/rust:nightly-bookworm` is used (custom `docker` Cargo profile with unstabilised flags)
+- README: "Client Tools" section — `dk` CLI and `npx @dakera-ai/dakera-mcp` quickstart
+
 ## [0.5.0] - 2026-05-14
 
 ### Security

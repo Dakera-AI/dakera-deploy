@@ -1,6 +1,12 @@
 # Dakera API Dockerfile
 # Multi-stage build with dependency layer caching for fast rebuilds
 #
+# IMPORTANT: This Dockerfile builds Dakera from SOURCE — it is intended to be run from
+# the root of the private dakera source repository (not from dakera-deploy alone).
+# External users should use the pre-built GHCR image instead:
+#   ghcr.io/dakera-ai/dakera:latest
+# or docker-compose.local.yml which pulls the pre-built image directly.
+#
 # Build strategy:
 #   1. Copy only Cargo manifests + create stub source files
 #   2. Compile all dependencies (cached in Docker layer until Cargo.toml/lock change)
@@ -8,7 +14,7 @@
 #
 # Build:
 #   docker compose --profile ha build dakera-1
-#   # or standalone:
+#   # or standalone (from dakera source repo root):
 #   docker build -t dakera-api:latest -f deploy/Dockerfile .
 
 # ============================================================================
@@ -40,14 +46,21 @@ ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=8
 # Use mold linker (10-50x faster linking than default ld)
 ENV RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold"
 
-# Copy custom CA certificates (for corporate proxy/Netskope)
-COPY certs/netskope-ca.crt /tmp/netskope-ca.crt
-WORKDIR /tmp
+# Optional: corporate proxy / Netskope CA certificate injection.
+# Only used for internal Dakera builds behind a corporate MITM proxy.
+# External users: leave NETSKOPE_CERT blank (the default) — no cert file needed.
+# Internal users: place your CA bundle at certs/netskope-ca.crt, then:
+#   docker build --build-arg NETSKOPE_CERT=1 ...
+ARG NETSKOPE_CERT=0
+COPY certs/ /tmp/certs/
 RUN mkdir -p /usr/local/share/ca-certificates/netskope && \
-    csplit -f netskope-cert- -b '%02d.crt' netskope-ca.crt '/-----BEGIN CERTIFICATE-----/' '{*}' && \
-    rm -f netskope-cert-00.crt && \
-    mv netskope-cert-*.crt /usr/local/share/ca-certificates/netskope/ && \
-    update-ca-certificates
+    if [ "${NETSKOPE_CERT}" = "1" ] && [ -f /tmp/certs/netskope-ca.crt ]; then \
+        cd /tmp && \
+        csplit -f netskope-cert- -b '%02d.crt' certs/netskope-ca.crt '/-----BEGIN CERTIFICATE-----/' '{*}' && \
+        rm -f netskope-cert-00.crt && \
+        mv netskope-cert-*.crt /usr/local/share/ca-certificates/netskope/ && \
+        update-ca-certificates; \
+    fi
 
 # Set SSL cert environment variables for cargo
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
@@ -128,7 +141,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy custom CA certificates from builder and properly install them
+# Copy custom CA certificates from builder (only populated when NETSKOPE_CERT=1)
+ARG NETSKOPE_CERT=0
 COPY --from=builder /usr/local/share/ca-certificates/netskope/ /usr/local/share/ca-certificates/netskope/
 RUN update-ca-certificates
 

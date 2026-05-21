@@ -196,7 +196,7 @@ services:
   #   DAKERA_ODE_WEBHOOK_URL=http://dakera-ode:8080/internal/webhook/memory-stored
   # ==========================================================================
   dakera-ode:
-    image: ${ODE_IMAGE:-ghcr.io/dakera-ai/dakera-ode:0.9.0}
+    image: ${ODE_IMAGE:-ghcr.io/dakera-ai/dakera-ode:0.2.0}
     container_name: dakera-ode
     profiles: ["ode", "full"]
     ports:
