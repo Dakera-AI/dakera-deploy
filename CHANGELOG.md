@@ -4,6 +4,19 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-27
+
+### Fixed
+
+- Dakera image default: `0.11.55` → `0.11.59` in docker-compose.yml, docker-compose.ha.yml, docker-compose.local.yml (all three were stale; production was already running 0.11.59)
+
+### Added
+
+- `scripts/runner/runner-health-monitor.sh` — systemd-managed health monitor for all `actions.runner.*` services on ARM/x64 runners. Fires every 5min, auto-restarts failed/OOM-killed runners, sends Telegram alerts. Deployed to both runners (DAK-5764).
+- `scripts/runner/runner-disk-cleanup.sh` — automated Rust `target/` directory cleanup for runner work dirs. Cleans stale build artifacts, runs docker prune if disk >80%, alerts Telegram if disk remains >85% after cleanup. ARM: every 6h via cron. x64: every 4h (DAK-5764).
+- `scripts/runner/runner-health-monitor.service` + `runner-health-monitor.timer` — systemd unit files for runner health monitoring on runner hosts.
+- `scripts/runner/install.sh` — one-command installer for all runner automation on a new runner host.
+
 ## [0.6.0] - 2026-05-21
 
 ### Fixed
