@@ -45,6 +45,8 @@ services:
       - DAKERA_REQUEST_TIMEOUT=${DAKERA_REQUEST_TIMEOUT:-600}
       - DAKERA_AUTH_ENABLED=${DAKERA_AUTH_ENABLED:-true}
       - DAKERA_ROOT_API_KEY=${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.example)}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
     volumes:
       - dakera-cache:/data/cache
       - dakera-rocksdb:/data/rocksdb
