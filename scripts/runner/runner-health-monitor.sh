@@ -29,6 +29,7 @@ tg_alert() {
 
 RESTARTED=0
 FAILED_UNITS=""
+NOW=$(date +%s)
 
 # --- Check all runner services ---
 while IFS= read -r UNIT; do
@@ -60,8 +61,16 @@ if [ -n "$OOM_PROCS" ]; then
     RESTARTED=$((RESTARTED + 1))
   done < <(systemctl list-units 'actions.runner.*' --no-pager --no-legend --state=failed,dead 2>/dev/null | awk '{print $1}')
   
-  OOM_MSG="🔴 *[Platform] Runner OOM Detected — ${HOSTNAME}*%0A%0AOOM kill detected in journal. Affected runners restarted.%0A%0AContext:%0A\`$(echo "$OOM_PROCS" | head -2 | tr '\n' ' ' | cut -c1-200)\`"
-  tg_alert "$OOM_MSG"
+  # 1-hour cooldown to prevent Telegram spam (DAK-5864)
+  OOM_ALERT_FILE="$STATE_DIR/last-oom-alert"
+  LAST_OOM_ALERT=$(cat "$OOM_ALERT_FILE" 2>/dev/null || echo 0)
+  if [ $((NOW - LAST_OOM_ALERT)) -gt 3600 ]; then
+    OOM_MSG="🔴 *[Platform] Runner OOM Detected — ${HOSTNAME}*%0A%0AOOM kill detected in journal. Affected runners restarted.%0A%0AContext:%0A\`$(echo "$OOM_PROCS" | head -2 | tr '\n' ' ' | cut -c1-200)\`"
+    tg_alert "$OOM_MSG"
+    echo "$NOW" > "$OOM_ALERT_FILE"
+  else
+    log "OOM detected — alert suppressed, cooldown $(( 3600 - (NOW - LAST_OOM_ALERT) ))s remaining"
+  fi
 fi
 
 # --- Send Telegram alert for restarts ---
@@ -73,7 +82,6 @@ fi
 # --- Periodic status log every 30min ---
 TICK_FILE="$STATE_DIR/last-status-tick"
 LAST_TICK=$(cat "$TICK_FILE" 2>/dev/null || echo 0)
-NOW=$(date +%s)
 if [ $((NOW - LAST_TICK)) -gt 1800 ]; then
   TOTAL=$(systemctl list-units 'actions.runner.*' --no-pager --no-legend 2>/dev/null | wc -l)
   ACTIVE=$(systemctl list-units 'actions.runner.*' --no-pager --no-legend --state=active 2>/dev/null | wc -l)
