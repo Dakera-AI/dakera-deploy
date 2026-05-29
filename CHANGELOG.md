@@ -4,6 +4,16 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-29
+
+### Changed
+
+- Bump default dakera image `0.11.61` → `0.11.66` across all compose files (docker-compose.yml, docker-compose.ha.yml, docker-compose.local.yml), k8s deployment.yaml, README examples, and production-checklist.md
+  - v0.11.62: text_lengths rank fix (DAK-5826)
+  - v0.11.63–v0.11.64: async metric recording, pipeline instrumentation
+  - v0.11.65: cross-encoder session pool (RERANKER_POOL_SIZE=2, batch reranking Phase 3)
+  - v0.11.66: batch ONNX cross-encoder inference (Phase 3 complete, ~2× rerank speedup)
+
 ## [0.7.0] - 2026-05-27
 
 ### Fixed
