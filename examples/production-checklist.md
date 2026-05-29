@@ -14,7 +14,7 @@ Use this checklist before exposing Dakera to the internet or handling real workl
 ## Storage
 
 - [ ] **Use persistent storage**: Use the default profile (MinIO-backed) or native S3, not in-memory mode
-- [ ] **Pin image versions**: Set `DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.55` explicitly — never use `latest` in production
+- [ ] **Pin image versions**: Set `DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.66` explicitly — never use `latest` in production
 - [ ] **Mount volumes**: Ensure `dakera-cache`, `dakera-rocksdb`, and `minio-data` volumes are on reliable storage
 - [ ] **Configure backups**: See [backup-restore.md](backup-restore.md) for backup procedures
 
