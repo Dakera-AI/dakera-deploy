@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://dakera.ai"><img src="https://img.shields.io/badge/dakera.ai-website-22c55e?style=for-the-badge" alt="Website" /></a>
   <a href="https://dakera.ai/docs"><img src="https://img.shields.io/badge/docs-dakera.ai%2Fdocs-3b82f6?style=for-the-badge" alt="Docs" /></a>
-  <a href="https://dakera.ai/benchmark"><img src="https://img.shields.io/badge/benchmark-87.8%25_LoCoMo-D4A843?style=for-the-badge" alt="Benchmark" /></a>
+  <a href="https://dakera.ai/benchmark"><img src="https://img.shields.io/badge/benchmark-88.2%25_LoCoMo-D4A843?style=for-the-badge" alt="Benchmark" /></a>
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@
 
 Dakera is the **agent-native memory platform** — purpose-built for AI agents that need persistent, session-aware, cross-agent memory. A single self-hosted Rust binary gives you vector search, hybrid retrieval (BM25 + HNSW), knowledge graphs, session management, and built-in embeddings. No external dependencies. Your data stays on your infrastructure.
 
-**87.8% on the [LoCoMo benchmark](https://dakera.ai/benchmark)** — 1,540 questions testing long-conversation memory across temporal reasoning, multi-hop retrieval, and event ordering. This is the highest score for a self-hosted memory system.
+**88.2% on the [LoCoMo benchmark](https://dakera.ai/benchmark)** — 1,540 questions testing long-conversation memory across temporal reasoning, multi-hop retrieval, and event ordering. This is the highest score for a self-hosted memory system.
 
 ---
 
@@ -133,7 +133,7 @@ Production-grade single-node deployment with MinIO, caching, and health checks.
 > **Version pinning**: The default image tags are pinned to the latest stable release.
 > To run a specific version, set `DAKERA_IMAGE` and `DASHBOARD_IMAGE` in your `.env`:
 > ```bash
-> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.66
+> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.67
 > DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.3.29
 > ```
 > Pinning to explicit versions prevents unexpected upgrades in production.
@@ -503,7 +503,7 @@ The Helm chart has moved to the dedicated **[dakera-helm](https://github.com/dak
 
 ```bash
 # Install from GHCR OCI
-helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.11.66 \
+helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.11.67 \
   --namespace dakera --create-namespace \
   --set dakera.rootApiKey=$(openssl rand -hex 32) \
   --set minio.rootPassword=$(openssl rand -hex 16)
