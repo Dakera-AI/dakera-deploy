@@ -1,0 +1,57 @@
+name: Namespace Cleanup
+
+# Runs weekly to delete stale test/smoke/preflight namespaces from production.
+# Root cause: bench preflight scripts and smoke tests create namespaces but
+# never clean them up (DAK-6099). This workflow prevents unbounded growth.
+#
+# Stale patterns removed: smoke-*, smoke-test-*, *-smoke, *-preflight-*,
+# *-probe, dak*-verify-*, test-*, sanity-*
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"   # Every Sunday at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (list stale namespaces without deleting)"
+        required: false
+        default: "false"
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: namespace-cleanup
+  cancel-in-progress: true
+
+jobs:
+  cleanup:
+    name: Clean Stale Namespaces
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run namespace cleanup
+        env:
+          DAKERA_API_URL: "http://${{ secrets.SERVER_IP_PROD }}:3300"
+          DAKERA_API_KEY: ${{ secrets.DAKERA_API_KEY }}
+          DRY_RUN: ${{ inputs.dry_run == 'true' && '1' || '0' }}
+        run: |
+          chmod +x scripts/namespace-cleanup/namespace-cleanup.sh
+          scripts/namespace-cleanup/namespace-cleanup.sh
+
+      - name: Notify Telegram on cleanup
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          STATUS="${{ job.status }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          DRY="${{ inputs.dry_run }}"
+          MODE="weekly"
+          [ "$DRY" = "true" ] && MODE="dry-run"
+          MESSAGE="⚙️ [Platform] Namespace Cleanup (${MODE})%0A%0AStatus: ${STATUS}%0ARun: ${RUN_URL}"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${MESSAGE}" > /dev/null
