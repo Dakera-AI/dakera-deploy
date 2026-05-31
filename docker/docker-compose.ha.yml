@@ -75,6 +75,9 @@ x-dakera-env: &dakera-env
   DAKERA_WARM_TO_COLD_SECS: "86400"
   DAKERA_AUTO_TIER: "true"
   DAKERA_TIER_CHECK_INTERVAL_SECS: "300"
+  # TieredEngine + hybrid search (binary HNSW via DAK-6051/PR#554)
+  DAKERA_TIERED: "1"
+  DAKERA_SEARCH_MODE: "hybrid"
   # Request limits
   DAKERA_MAX_BODY_SIZE: "524288000"
   DAKERA_REQUEST_TIMEOUT: "${DAKERA_REQUEST_TIMEOUT:-120}"
