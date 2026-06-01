@@ -35,7 +35,7 @@
 name: dakera-ha
 
 x-dakera-common: &dakera-common
-  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.11.77}
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.11.80}
   restart: unless-stopped
   networks:
     - dakera-ha-net
