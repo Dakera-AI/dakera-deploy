@@ -41,7 +41,9 @@ services:
       - DAKERA_WARM_TO_COLD_SECS=86400
       - DAKERA_AUTO_TIER=true
       - DAKERA_TIER_CHECK_INTERVAL_SECS=300
-      - DAKERA_TIERED=1
+      # DAK-6203: DAKERA_TIERED OFF — Model2Vec StaticBackend needs a local
+      # DAKERA_MODEL2VEC_PATH matrix (no remote model2vec repo exists).
+      - DAKERA_TIERED=0
       - DAKERA_SEARCH_MODE=hybrid
       - DAKERA_MAX_BODY_SIZE=524288000
       - DAKERA_REQUEST_TIMEOUT=${DAKERA_REQUEST_TIMEOUT:-600}
