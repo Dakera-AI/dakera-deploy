@@ -4,13 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "Action: delete-recreate, list-servers, resize"
+        description: "Action: delete-recreate, list-servers, resize, poweron"
         required: true
         type: choice
         options:
           - delete-recreate
           - list-servers
           - resize
+          - poweron
       target_server_name:
         description: "Target server name (for delete-recreate)"
         required: false
@@ -139,42 +140,58 @@ jobs:
           echo "Server: $SERVER_NAME (ID: $SERVER_ID) current type: $CURRENT_TYPE → target: ${{ inputs.server_type }}"
           echo "server_name=$SERVER_NAME" >> "$GITHUB_OUTPUT"
 
-          echo "Powering off $SERVER_NAME..."
-          curl -sf -X POST -H "Authorization: Bearer $HETZNER_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/poweroff" > /dev/null
-          for i in $(seq 1 24); do
-            sleep 10
-            STATUS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
-              "https://api.hetzner.cloud/v1/servers/$SERVER_ID" | jq -r '.server.status')
-            echo "[$i] status: $STATUS"
-            [ "$STATUS" = "off" ] && break
-          done
+          # Power off — tolerate already-off state
+          CURR_STATUS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers/$SERVER_ID" | jq -r '.server.status')
+          echo "Current status: $CURR_STATUS"
+          if [ "$CURR_STATUS" != "off" ]; then
+            echo "Powering off $SERVER_NAME..."
+            curl -s -X POST -H "Authorization: Bearer $HETZNER_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/poweroff" > /dev/null || true
+            for i in $(seq 1 24); do
+              sleep 10
+              STATUS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+                "https://api.hetzner.cloud/v1/servers/$SERVER_ID" | jq -r '.server.status')
+              echo "[$i] status: $STATUS"
+              [ "$STATUS" = "off" ] && break
+            done
+          else
+            echo "Server already off — skipping poweroff."
+          fi
 
-          echo "Changing server type to ${{ inputs.server_type }}..."
-          RESIZE_RESP=$(curl -sf -X POST -H "Authorization: Bearer $HETZNER_TOKEN" \
+          echo "Changing server type to ${{ inputs.server_type }} (upgrade_disk=true)..."
+          RESIZE_HTTP=$(curl -s -o /tmp/resize_resp.json -w '%{http_code}' \
+            -X POST -H "Authorization: Bearer $HETZNER_TOKEN" \
             -H "Content-Type: application/json" \
             "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/change_type" \
-            -d "{\"server_type\": \"${{ inputs.server_type }}\", \"upgrade_disk\": false}")
-          ACTION_ID=$(echo "$RESIZE_RESP" | jq -r '.action.id')
-          echo "Resize action ID: $ACTION_ID — waiting for completion..."
-          for i in $(seq 1 30); do
-            sleep 10
-            ACT_STATUS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
-              "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/$ACTION_ID" \
-              | jq -r '.action.status')
-            echo "[$i] action status: $ACT_STATUS"
-            [ "$ACT_STATUS" = "success" ] && break
-            if [ "$ACT_STATUS" = "error" ]; then
-              echo "ERROR: resize action failed"
-              exit 1
-            fi
-          done
+            -d "{\"server_type\": \"${{ inputs.server_type }}\", \"upgrade_disk\": true}")
+          echo "change_type HTTP: $RESIZE_HTTP"
+          cat /tmp/resize_resp.json
+          RESIZE_OK=false
+          if [ "$RESIZE_HTTP" -ge 200 ] && [ "$RESIZE_HTTP" -lt 300 ]; then
+            ACTION_ID=$(cat /tmp/resize_resp.json | jq -r '.action.id')
+            echo "Resize action ID: $ACTION_ID — waiting for completion..."
+            for i in $(seq 1 36); do
+              sleep 10
+              ACT_STATUS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+                "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/$ACTION_ID" \
+                | jq -r '.action.status')
+              echo "[$i] action status: $ACT_STATUS"
+              if [ "$ACT_STATUS" = "success" ]; then RESIZE_OK=true; break; fi
+              if [ "$ACT_STATUS" = "error" ]; then
+                echo "ERROR: change_type action failed"
+                break
+              fi
+            done
+          else
+            echo "ERROR: change_type API returned HTTP $RESIZE_HTTP — server will be powered on without resize."
+          fi
 
-          echo "Powering on $SERVER_NAME..."
-          curl -sf -X POST -H "Authorization: Bearer $HETZNER_TOKEN" \
+          echo "Powering on $SERVER_NAME (resize_ok=$RESIZE_OK)..."
+          curl -s -X POST -H "Authorization: Bearer $HETZNER_TOKEN" \
             -H "Content-Type: application/json" \
-            "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/poweron" > /dev/null
+            "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/poweron" > /dev/null || true
           for i in $(seq 1 30); do
             sleep 10
             STATUS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
@@ -184,8 +201,48 @@ jobs:
           done
           NEW_TYPE=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
             "https://api.hetzner.cloud/v1/servers/$SERVER_ID" | jq -r '.server.server_type.name')
-          echo "Resize complete. Server $SERVER_NAME is now running as type: $NEW_TYPE"
+          echo "Server $SERVER_NAME is running as type: $NEW_TYPE (resize_ok=$RESIZE_OK)"
           echo "new_type=$NEW_TYPE" >> "$GITHUB_OUTPUT"
+          if [ "$RESIZE_OK" = "false" ]; then
+            echo "::error::Resize FAILED — server is back online at original type $NEW_TYPE. See change_type error above."
+            exit 1
+          fi
+
+      - name: Power on server by IP
+        if: inputs.action == 'poweron'
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          TARGET_IP="${{ inputs.target_server_ip }}"
+          if [ -z "$TARGET_IP" ]; then
+            echo "ERROR: target_server_ip is required for poweron action"
+            exit 1
+          fi
+          SERVERS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers?per_page=50")
+          SERVER_ID=$(echo "$SERVERS" | jq -r --arg ip "$TARGET_IP" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | .id')
+          SERVER_NAME=$(echo "$SERVERS" | jq -r --arg ip "$TARGET_IP" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | .name')
+          SERVER_TYPE=$(echo "$SERVERS" | jq -r --arg ip "$TARGET_IP" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | .server_type.name')
+          if [ -z "$SERVER_ID" ] || [ "$SERVER_ID" = "null" ]; then
+            echo "ERROR: No server found with IP $TARGET_IP"
+            echo "$SERVERS" | jq -r '.servers[] | "\(.id) \(.name) \(.public_net.ipv4.ip) \(.server_type.name)"'
+            exit 1
+          fi
+          echo "Powering on $SERVER_NAME (ID: $SERVER_ID, type: $SERVER_TYPE)..."
+          curl -s -X POST -H "Authorization: Bearer $HETZNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/poweron" > /dev/null
+          for i in $(seq 1 30); do
+            sleep 10
+            STATUS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+              "https://api.hetzner.cloud/v1/servers/$SERVER_ID" | jq -r '.server.status')
+            echo "[$i] status: $STATUS"
+            [ "$STATUS" = "running" ] && break
+          done
+          echo "Server $SERVER_NAME is now $STATUS (type: $SERVER_TYPE)"
 
       - name: Notify Telegram
         if: inputs.action == 'delete-recreate' || inputs.action == 'resize'
