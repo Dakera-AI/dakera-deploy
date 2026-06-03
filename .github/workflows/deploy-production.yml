@@ -4,8 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Dakera version tag to deploy (e.g. 0.10.1)"
+        description: "Dakera version tag to deploy (e.g. 0.10.1 or edge)"
         required: true
+      build_sha:
+        description: "Git SHA baked into the image (for hotfix/edge deploys). Shown by build-image.yml as BUILD_SHA. Health check verifies /health build_sha field instead of version string."
+        required: false
+        default: ""
       skip_health_check:
         description: "Skip post-deploy health check"
         required: false
@@ -128,22 +132,31 @@ jobs:
       - name: Health check
         if: inputs.skip_health_check != 'true'
         run: |
-          # Enforce a version-string match only when the input is a real semver. Moving tags
-          # (edge, latest, sha-*) report the binary's own semver via /health, so a string
-          # match against the tag can never succeed — and the image digest was already
-          # verified during the SSH deploy step.
+          BUILD_SHA="${{ inputs.build_sha }}"
+          # Semver check only applies when version is a real semver (not moving tags like edge/latest).
           case "${{ inputs.version }}" in
             [0-9]*.[0-9]*.[0-9]*) REQUIRE_VERSION_MATCH=1 ;;
             *) REQUIRE_VERSION_MATCH=0 ;;
           esac
           for i in $(seq 1 12); do
             RESPONSE=$(curl -sf --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null || echo '{"error":"unreachable"}')
-            VERSION=$(echo "$RESPONSE" | jq -r '.version // "unknown"')
             STATUS=$(echo "$RESPONSE" | jq -r '.status // "unknown"')
-            echo "Attempt $i/12 — status=$STATUS version=$VERSION (require_version_match=$REQUIRE_VERSION_MATCH)"
-            if [ "$STATUS" = "healthy" ] && { [ "$REQUIRE_VERSION_MATCH" = "0" ] || [ "$VERSION" = "${{ inputs.version }}" ]; }; then
-              echo "✅ Deployed and healthy: v${{ inputs.version }}"
-              exit 0
+            VERSION=$(echo "$RESPONSE" | jq -r '.version // "unknown"')
+            RESP_SHA=$(echo "$RESPONSE" | jq -r '.build_sha // "none"')
+            echo "Attempt $i/12 — status=$STATUS version=$VERSION build_sha=$RESP_SHA"
+            if [ "$STATUS" = "healthy" ]; then
+              if [ -n "$BUILD_SHA" ]; then
+                # Hotfix/edge deploy: verify by build SHA, not semantic version.
+                # Accept full SHA or 7-char short SHA prefix from either side.
+                SHORT="${BUILD_SHA:0:7}"
+                if [[ "$RESP_SHA" == "$BUILD_SHA"* ]] || [[ "$RESP_SHA" == "$SHORT"* ]] || [[ "$BUILD_SHA" == "$RESP_SHA"* ]]; then
+                  echo "✅ Deployed and healthy: ${{ inputs.version }} (build_sha: $RESP_SHA)"
+                  exit 0
+                fi
+              elif [ "$REQUIRE_VERSION_MATCH" = "0" ] || [ "$VERSION" = "${{ inputs.version }}" ]; then
+                echo "✅ Deployed and healthy: v${{ inputs.version }}"
+                exit 0
+              fi
             fi
             sleep 10
           done
@@ -156,10 +169,13 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          BUILD_SHA="${{ inputs.build_sha }}"
+          SHA_SUFFIX=""
+          [ -n "$BUILD_SHA" ] && SHA_SUFFIX=" (sha: ${BUILD_SHA:0:7})"
           if [ "${{ job.status }}" = "success" ]; then
-            MSG="✅ [Platform] Deployed dakera v${{ inputs.version }} to production\n\nServer: ${{ env.SERVER_IP }}\nHealth: ✅ healthy"
+            MSG="✅ [Platform] Deployed dakera ${{ inputs.version }}${SHA_SUFFIX} to production\n\nServer: ${{ env.SERVER_IP }}\nHealth: ✅ healthy"
           else
-            MSG="❌ [Platform] Deploy dakera v${{ inputs.version }} FAILED\n\nServer: ${{ env.SERVER_IP }}\nCheck: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            MSG="❌ [Platform] Deploy dakera ${{ inputs.version }}${SHA_SUFFIX} FAILED\n\nServer: ${{ env.SERVER_IP }}\nCheck: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
