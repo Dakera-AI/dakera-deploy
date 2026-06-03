@@ -175,8 +175,8 @@ jobs:
             for i in $(seq 1 36); do
               sleep 10
               ACT_STATUS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
-                "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/$ACTION_ID" \
-                | jq -r '.action.status')
+                "https://api.hetzner.cloud/v1/actions/$ACTION_ID" \
+                | jq -r '.action.status // empty')
               echo "[$i] action status: $ACT_STATUS"
               if [ "$ACT_STATUS" = "success" ]; then RESIZE_OK=true; break; fi
               if [ "$ACT_STATUS" = "error" ]; then
