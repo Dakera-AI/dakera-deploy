@@ -30,7 +30,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: dakera
-          image: ghcr.io/dakera-ai/dakera:0.11.75
+          image: ghcr.io/dakera-ai/dakera:optA-baked-ec6ef91
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
