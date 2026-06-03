@@ -133,8 +133,10 @@ jobs:
                   echo "✅ Deployed and healthy: ${{ inputs.version }} (build_sha: $RESP_SHA)"
                   exit 0
                 fi
-              elif [ "$VERSION" = "${{ inputs.version }}" ]; then
-                echo "✅ Deployed and healthy: v${{ inputs.version }}"
+              else
+                # No build_sha provided: healthy status is sufficient.
+                # Binary reports Cargo semver (e.g. 0.11.81), never a docker tag like "edge".
+                echo "✅ Deployed and healthy: ${{ inputs.version }} (reported version: $VERSION)"
                 exit 0
               fi
             fi
