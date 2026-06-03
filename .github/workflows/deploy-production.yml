@@ -103,6 +103,21 @@ jobs:
             fi
           fi
 
+          # Authoritative deployment check: confirm the running container is on the image
+          # we just pulled (digest match). The /health version field reports the binary's
+          # Cargo semver, which cannot distinguish a moving tag (edge/latest) from the
+          # version it already served — so digest equality is the only reliable signal.
+          EXPECTED_IMAGE_ID=$(docker inspect "ghcr.io/dakera-ai/dakera:${{ inputs.version }}" --format '{{.Id}}')
+          RUNNING_CONTAINER=$(docker ps --filter "name=dakera" --format "{{.Names}}" | grep -vE 'minio' | head -1)
+          RUNNING_IMAGE_ID=$(docker inspect "$RUNNING_CONTAINER" --format '{{.Image}}')
+          echo "Expected image id: $EXPECTED_IMAGE_ID"
+          echo "Running  image id: $RUNNING_IMAGE_ID (container: $RUNNING_CONTAINER)"
+          if [ "$EXPECTED_IMAGE_ID" != "$RUNNING_IMAGE_ID" ]; then
+            echo "❌ Running container is NOT on the pulled image — deployment did not take effect"
+            exit 1
+          fi
+          echo "✅ Container verified on pulled image digest"
+
           echo "=== Deploy complete ==="
           DEPLOY_SCRIPT
 
@@ -113,12 +128,20 @@ jobs:
       - name: Health check
         if: inputs.skip_health_check != 'true'
         run: |
+          # Enforce a version-string match only when the input is a real semver. Moving tags
+          # (edge, latest, sha-*) report the binary's own semver via /health, so a string
+          # match against the tag can never succeed — and the image digest was already
+          # verified during the SSH deploy step.
+          case "${{ inputs.version }}" in
+            [0-9]*.[0-9]*.[0-9]*) REQUIRE_VERSION_MATCH=1 ;;
+            *) REQUIRE_VERSION_MATCH=0 ;;
+          esac
           for i in $(seq 1 12); do
             RESPONSE=$(curl -sf --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null || echo '{"error":"unreachable"}')
             VERSION=$(echo "$RESPONSE" | jq -r '.version // "unknown"')
             STATUS=$(echo "$RESPONSE" | jq -r '.status // "unknown"')
-            echo "Attempt $i/12 — status=$STATUS version=$VERSION"
-            if [ "$VERSION" = "${{ inputs.version }}" ] && [ "$STATUS" = "healthy" ]; then
+            echo "Attempt $i/12 — status=$STATUS version=$VERSION (require_version_match=$REQUIRE_VERSION_MATCH)"
+            if [ "$STATUS" = "healthy" ] && { [ "$REQUIRE_VERSION_MATCH" = "0" ] || [ "$VERSION" = "${{ inputs.version }}" ]; }; then
               echo "✅ Deployed and healthy: v${{ inputs.version }}"
               exit 0
             fi
