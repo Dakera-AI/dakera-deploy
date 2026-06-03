@@ -35,7 +35,7 @@
 name: dakera-ha
 
 x-dakera-common: &dakera-common
-  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.11.81}
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:optA-baked-ec6ef91}
   restart: unless-stopped
   networks:
     - dakera-ha-net
@@ -75,10 +75,8 @@ x-dakera-env: &dakera-env
   DAKERA_WARM_TO_COLD_SECS: "86400"
   DAKERA_AUTO_TIER: "true"
   DAKERA_TIER_CHECK_INTERVAL_SECS: "300"
-  # Hybrid search (binary HNSW). DAK-6203: DAKERA_TIERED OFF — the Model2Vec
-  # StaticBackend needs a locally-distilled matrix (DAKERA_MODEL2VEC_PATH); there
-  # is no remote model2vec repo. Set to "1" only after mounting a local matrix.
-  DAKERA_TIERED: "0"
+  # DAK-6209/DAK-6284: TIERED ON — optA-baked-ec6ef91 has ONNX baked in (DAK-6272 cold-boot guard).
+  DAKERA_TIERED: "1"
   DAKERA_SEARCH_MODE: "hybrid"
   # Request limits
   DAKERA_MAX_BODY_SIZE: "524288000"
