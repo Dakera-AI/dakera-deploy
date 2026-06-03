@@ -4,20 +4,25 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "Action: delete-recreate, list-servers"
+        description: "Action: delete-recreate, list-servers, resize"
         required: true
         type: choice
         options:
           - delete-recreate
           - list-servers
+          - resize
       target_server_name:
         description: "Target server name (for delete-recreate)"
         required: false
         default: "hetzner-runner-x64"
-      server_type:
-        description: "Server type for recreation"
+      target_server_ip:
+        description: "Target server IP (for resize — e.g. 178.104.227.173)"
         required: false
-        default: "cpx32"
+        default: ""
+      server_type:
+        description: "Server type for recreation/resize (cpx41=8vCPU/16GB, cpx51=16vCPU/32GB)"
+        required: false
+        default: "cpx41"
 
 permissions: {}
 
@@ -107,14 +112,95 @@ jobs:
             [ "$S" = "running" ] && break
           done
 
+      - name: Resize server (cold resize — poweroff → change_type → poweron)
+        if: inputs.action == 'resize'
+        id: resize
+        env:
+          HETZNER_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          TARGET_IP="${{ inputs.target_server_ip }}"
+          if [ -z "$TARGET_IP" ]; then
+            echo "ERROR: target_server_ip is required for resize action"
+            exit 1
+          fi
+          SERVERS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers?per_page=50")
+          SERVER_ID=$(echo "$SERVERS" | jq -r --arg ip "$TARGET_IP" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | .id')
+          SERVER_NAME=$(echo "$SERVERS" | jq -r --arg ip "$TARGET_IP" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | .name')
+          CURRENT_TYPE=$(echo "$SERVERS" | jq -r --arg ip "$TARGET_IP" \
+            '.servers[] | select(.public_net.ipv4.ip == $ip) | .server_type.name')
+          if [ -z "$SERVER_ID" ] || [ "$SERVER_ID" = "null" ]; then
+            echo "ERROR: No server found with IP $TARGET_IP"
+            echo "$SERVERS" | jq -r '.servers[] | "\(.id) \(.name) \(.public_net.ipv4.ip) \(.server_type.name)"'
+            exit 1
+          fi
+          echo "Server: $SERVER_NAME (ID: $SERVER_ID) current type: $CURRENT_TYPE → target: ${{ inputs.server_type }}"
+          echo "server_name=$SERVER_NAME" >> "$GITHUB_OUTPUT"
+
+          echo "Powering off $SERVER_NAME..."
+          curl -sf -X POST -H "Authorization: Bearer $HETZNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/poweroff" > /dev/null
+          for i in $(seq 1 24); do
+            sleep 10
+            STATUS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+              "https://api.hetzner.cloud/v1/servers/$SERVER_ID" | jq -r '.server.status')
+            echo "[$i] status: $STATUS"
+            [ "$STATUS" = "off" ] && break
+          done
+
+          echo "Changing server type to ${{ inputs.server_type }}..."
+          RESIZE_RESP=$(curl -sf -X POST -H "Authorization: Bearer $HETZNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/change_type" \
+            -d "{\"server_type\": \"${{ inputs.server_type }}\", \"upgrade_disk\": false}")
+          ACTION_ID=$(echo "$RESIZE_RESP" | jq -r '.action.id')
+          echo "Resize action ID: $ACTION_ID — waiting for completion..."
+          for i in $(seq 1 30); do
+            sleep 10
+            ACT_STATUS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+              "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/$ACTION_ID" \
+              | jq -r '.action.status')
+            echo "[$i] action status: $ACT_STATUS"
+            [ "$ACT_STATUS" = "success" ] && break
+            if [ "$ACT_STATUS" = "error" ]; then
+              echo "ERROR: resize action failed"
+              exit 1
+            fi
+          done
+
+          echo "Powering on $SERVER_NAME..."
+          curl -sf -X POST -H "Authorization: Bearer $HETZNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.hetzner.cloud/v1/servers/$SERVER_ID/actions/poweron" > /dev/null
+          for i in $(seq 1 30); do
+            sleep 10
+            STATUS=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+              "https://api.hetzner.cloud/v1/servers/$SERVER_ID" | jq -r '.server.status')
+            echo "[$i] status: $STATUS"
+            [ "$STATUS" = "running" ] && break
+          done
+          NEW_TYPE=$(curl -sf -H "Authorization: Bearer $HETZNER_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers/$SERVER_ID" | jq -r '.server.server_type.name')
+          echo "Resize complete. Server $SERVER_NAME is now running as type: $NEW_TYPE"
+          echo "new_type=$NEW_TYPE" >> "$GITHUB_OUTPUT"
+
       - name: Notify Telegram
-        if: inputs.action == 'delete-recreate'
+        if: inputs.action == 'delete-recreate' || inputs.action == 'resize'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          NEW_IP="${{ steps.recreate.outputs.new_ip }}"
-          MSG="🖥️ [CTO] Runner server recreated"$'\n'"Name: ${{ inputs.target_server_name }}"$'\n'"IP: ${NEW_IP}"$'\n'"Type: ${{ inputs.server_type }}"$'\n'"SSH: ssh root@${NEW_IP}"
+          if [ "${{ inputs.action }}" = "resize" ]; then
+            NEW_TYPE="${{ steps.resize.outputs.new_type }}"
+            SERVER_NAME="${{ steps.resize.outputs.server_name }}"
+            MSG="🖥️ [Platform] Server resized (DAK-6253)"$'\n'"Name: ${SERVER_NAME}"$'\n'"IP: ${{ inputs.target_server_ip }}"$'\n'"New type: ${NEW_TYPE}"$'\n'"Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          else
+            NEW_IP="${{ steps.recreate.outputs.new_ip }}"
+            MSG="🖥️ [CTO] Runner server recreated"$'\n'"Name: ${{ inputs.target_server_name }}"$'\n'"IP: ${NEW_IP}"$'\n'"Type: ${{ inputs.server_type }}"$'\n'"SSH: ssh root@${NEW_IP}"
+          fi
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"$MSG\"}" > /dev/null 2>&1 || true
