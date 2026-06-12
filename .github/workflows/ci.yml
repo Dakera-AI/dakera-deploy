@@ -21,6 +21,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Log in to GHCR (needed for hadolint container image on self-hosted runner)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Validate docker-compose.yml
         env:
           DAKERA_ROOT_API_KEY: ci-validation-placeholder
