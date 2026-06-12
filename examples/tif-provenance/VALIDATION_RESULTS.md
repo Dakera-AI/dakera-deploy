@@ -75,3 +75,27 @@ Runtime contract notes observed on Dakera `0.11.90`:
 - `POST /v1/memories/{memory_id}/links` requires `agent_id`.
 
 No engine code was modified. No first-class recall filters were added.
+
+## Review Correction Rerun
+
+Date: 2026-06-12 17:20:58 -04:00
+
+Corrections after fork review:
+
+- healthcheck now requires `ready: true` before runtime validation proceeds;
+- unsupported feedback signals now produce a clear validation error instead of a raw `KeyError`;
+- Phase 1 recall normalization was reviewed and already handles list, dict, and nested `memory` response shapes.
+
+Rerun commands:
+
+```powershell
+python -m py_compile examples\tif-provenance\validate_tif_provenance.py examples\tif-reliability\validate_tif_reliability.py
+python examples\tif-provenance\validate_tif_provenance.py --self-test
+python examples\tif-reliability\validate_tif_reliability.py --self-test
+docker compose -f docker\docker-compose.tif-phase1.yml down
+docker compose -f docker\docker-compose.tif-phase1.yml up -d
+python examples\tif-provenance\validate_tif_provenance.py --api http://localhost:3200 --request-timeout 240
+docker compose -f docker\docker-compose.tif-phase1.yml down
+```
+
+Result: passed.
