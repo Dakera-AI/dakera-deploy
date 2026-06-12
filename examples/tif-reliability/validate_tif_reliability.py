@@ -49,11 +49,11 @@ def request_json(method: str, url: str, payload: dict[str, Any] | None = None) -
         raise RuntimeError(f"{method} {url} failed: {exc}") from exc
 
 
-def healthcheck(api_base: str, retries: int = 20, delay: float = 1.5) -> Any:
+def healthcheck(api_base: str, retries: int = 120, delay: float = 2.0) -> Any:
     last_error: Exception | None = None
     for _ in range(retries):
         try:
-            return request_json("GET", f"{api_base}/health")
+            return request_json("GET", f"{api_base}/health/ready")
         except Exception as exc:  # noqa: BLE001 - report final connection failure.
             last_error = exc
             time.sleep(delay)
@@ -218,8 +218,9 @@ def run_self_test(fixture: dict[str, Any]) -> list[dict[str, Any]]:
     return results
 
 
-def run_runtime_validation(api_base: str, fixture: dict[str, Any], top_k: int) -> dict[str, Any]:
-    agent_id = fixture["agent_id"]
+def run_runtime_validation(
+    api_base: str, fixture: dict[str, Any], top_k: int, agent_id: str
+) -> dict[str, Any]:
     health = healthcheck(api_base)
 
     store_results = []
@@ -232,7 +233,7 @@ def run_runtime_validation(api_base: str, fixture: dict[str, Any], top_k: int) -
         recalled = recall_memories(api_base, agent_id, scenario["query"], scenario_top_k)
         scenario_results.append(evaluate_scenario(scenario, recalled))
 
-    return {"health": health, "stored": store_results, "scenarios": scenario_results}
+    return {"agent_id": agent_id, "health": health, "stored": store_results, "scenarios": scenario_results}
 
 
 def print_report(results: list[dict[str, Any]]) -> None:
@@ -259,6 +260,10 @@ def main() -> int:
     parser.add_argument("--api", default=DEFAULT_API, help="Dakera REST API base URL.")
     parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE, help="Path to Phase 1 fixture JSON.")
     parser.add_argument("--top-k", type=int, default=8, help="Recall top_k value.")
+    parser.add_argument(
+        "--agent-id",
+        help="Agent ID for runtime validation. Defaults to a unique ID derived from the fixture.",
+    )
     parser.add_argument("--self-test", action="store_true", help="Run local evaluator test without Dakera.")
     args = parser.parse_args()
 
@@ -268,7 +273,8 @@ def main() -> int:
         print_report(results)
         return 0 if all(result["passed"] for result in results) else 1
 
-    runtime = run_runtime_validation(args.api.rstrip("/"), fixture, args.top_k)
+    agent_id = args.agent_id or f"{fixture['agent_id']}-{int(time.time())}"
+    runtime = run_runtime_validation(args.api.rstrip("/"), fixture, args.top_k, agent_id)
     print(json.dumps(runtime, indent=2, sort_keys=True))
     return 0 if all(item["passed"] for item in runtime["scenarios"]) else 1
 
