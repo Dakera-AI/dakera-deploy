@@ -42,6 +42,8 @@ filters, engine schema, SDK models, or storage behavior.
 ## Start Dakera On Port 3200
 
 This avoids conflicts with local services that may already use port `3000`.
+The compose file binds REST and gRPC to `127.0.0.1` and disables auth only
+for local validation. Do not run it on a shared or internet-facing host.
 
 ```bash
 cd docker
@@ -74,6 +76,13 @@ python examples/tif-reliability/validate_tif_reliability.py --self-test
 
 ```bash
 python examples/tif-reliability/validate_tif_reliability.py --api http://localhost:3200
+```
+
+If the first run is slow while the ONNX model warms up, increase the request
+timeout:
+
+```bash
+python examples/tif-reliability/validate_tif_reliability.py --api http://localhost:3200 --request-timeout 240
 ```
 
 The script will:

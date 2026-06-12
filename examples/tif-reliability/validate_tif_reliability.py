@@ -21,6 +21,8 @@ from typing import Any
 
 DEFAULT_API = "http://localhost:3200"
 DEFAULT_FIXTURE = Path(__file__).with_name("phase1_memories.json")
+DEFAULT_REQUEST_TIMEOUT = 120
+REQUEST_TIMEOUT = DEFAULT_REQUEST_TIMEOUT
 
 
 def load_fixture(path: Path) -> dict[str, Any]:
@@ -37,7 +39,7 @@ def request_json(method: str, url: str, payload: dict[str, Any] | None = None) -
 
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
             raw = response.read().decode("utf-8")
             if not raw:
                 return {}
@@ -200,14 +202,21 @@ def evaluate_scenario(scenario: dict[str, Any], memories: list[dict[str, Any]]) 
 
 
 def fixture_memories_for_scenario(fixture: dict[str, Any], scenario: dict[str, Any]) -> list[dict[str, Any]]:
-    memories = fixture["memories"]
+    memories = {memory["id"]: memory for memory in fixture["memories"]}
+
+    def by_id(memory_id: str) -> dict[str, Any]:
+        try:
+            return memories[memory_id]
+        except KeyError as exc:
+            raise KeyError(f"fixture memory id not found: {memory_id}") from exc
+
     if scenario["id"] == "obsolete-roundtrip-plan":
-        return [memories[1], memories[0]]
+        return [by_id("phase1-obsolete-roundtrip-plan"), by_id("phase1-maintainer-target")]
     if scenario["id"] == "high-falsity-contradiction":
-        return [memories[3], memories[0]]
+        return [by_id("phase1-high-falsity-handling"), by_id("phase1-maintainer-target")]
     if scenario["id"] == "high-indeterminacy-clarification":
-        return [memories[4], memories[0]]
-    return [memories[0], memories[2]]
+        return [by_id("phase1-high-indeterminacy-handling"), by_id("phase1-maintainer-target")]
+    return [by_id("phase1-maintainer-target"), by_id("phase1-developer-facing-name")]
 
 
 def run_self_test(fixture: dict[str, Any]) -> list[dict[str, Any]]:
@@ -264,8 +273,17 @@ def main() -> int:
         "--agent-id",
         help="Agent ID for runtime validation. Defaults to a unique ID derived from the fixture.",
     )
+    parser.add_argument(
+        "--request-timeout",
+        type=int,
+        default=DEFAULT_REQUEST_TIMEOUT,
+        help="HTTP request timeout in seconds. Startup and first recall can be slow while ONNX warms up.",
+    )
     parser.add_argument("--self-test", action="store_true", help="Run local evaluator test without Dakera.")
     args = parser.parse_args()
+
+    global REQUEST_TIMEOUT
+    REQUEST_TIMEOUT = args.request_timeout
 
     fixture = load_fixture(args.fixture)
     if args.self_test:
