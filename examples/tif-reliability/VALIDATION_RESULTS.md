@@ -60,6 +60,9 @@ Runtime validation passed all scenarios:
 | `high-indeterminacy-clarification` | `reuse_top_memory` | `ask_clarification` | true | true |
 | `safe-reuse-maintainer-target` | `reuse_top_memory` | `reuse_confidently` | false | true |
 
+The validation script now creates a unique runtime `agent_id` by default so
+repeat runs do not contaminate recall with memories from prior executions.
+
 ## Evidence
 
 The store response preserved `metadata.reliability`:

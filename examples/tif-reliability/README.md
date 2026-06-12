@@ -79,10 +79,11 @@ python examples/tif-reliability/validate_tif_reliability.py --api http://localho
 The script will:
 
 1. verify `/health/ready`;
-2. store issue-derived memories with `metadata.reliability`;
-3. recall memories for Phase 1 scenarios;
-4. compare a baseline importance/relevance-only decision with a T-I-F-aware decision;
-5. fail if the expected high-`i` or high-`f` decision changes are not observed.
+2. create a unique runtime `agent_id` unless one is passed explicitly;
+3. store issue-derived memories with `metadata.reliability`;
+4. recall memories for Phase 1 scenarios;
+5. compare a baseline importance/relevance-only decision with a T-I-F-aware decision;
+6. fail if the expected high-`i` or high-`f` decision changes are not observed.
 
 ## Expected Decision Change
 
