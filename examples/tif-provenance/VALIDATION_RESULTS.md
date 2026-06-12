@@ -100,6 +100,33 @@ docker compose -f docker\docker-compose.tif-phase1.yml down
 
 Result: passed.
 
+## Codex Review Correction Rerun
+
+Date: 2026-06-12 18:02:19 -04:00
+
+Additional Codex review findings corrected:
+
+- runtime decisions now use the normalized `/v1/memory/recall` response for each scenario query before choosing the baseline and feedback-aware memory;
+- each scenario records `scenario_recall_proof` and the recalled fixture/runtime memory IDs;
+- associated recall proof now verifies that every linked evidence memory appears in the full associated recall response and reports `associated_recall_missing_ids`;
+- runtime validation was rerun with PowerShell preserving the validator exit code before Docker cleanup.
+
+Rerun commands:
+
+```powershell
+python -m py_compile examples\tif-provenance\validate_tif_provenance.py examples\tif-reliability\validate_tif_reliability.py
+python examples\tif-provenance\validate_tif_provenance.py --self-test
+python examples\tif-reliability\validate_tif_reliability.py --self-test
+docker compose -f docker\docker-compose.tif-phase1.yml down
+docker compose -f docker\docker-compose.tif-phase1.yml up -d
+python examples\tif-provenance\validate_tif_provenance.py --api http://localhost:3200 --request-timeout 240
+$validationExit = $LASTEXITCODE
+docker compose -f docker\docker-compose.tif-phase1.yml down
+exit $validationExit
+```
+
+Result: passed. All three scenarios returned `scenario_recall_proof: true`, `associated_recall_missing_ids: []`, `associated_recall_proof: true`, and `passed: true`.
+
 ## Second Review Correction Rerun
 
 Date: 2026-06-12 17:40:38 -04:00

@@ -320,6 +320,51 @@ def recall_associated(api_base: str, agent_id: str, query: str) -> tuple[list[di
     return normalize_recall_response(response)
 
 
+def recall_scenario_memories(api_base: str, agent_id: str, query: str, top_k: int = 8) -> list[dict[str, Any]]:
+    payload = {"agent_id": agent_id, "query": query, "top_k": top_k}
+    try:
+        response = request_json("POST", f"{api_base}/v1/memory/recall", payload)
+    except TimeoutError:
+        # Recall is read-only. Retry once to tolerate cold ONNX/reranker startup.
+        response = request_json("POST", f"{api_base}/v1/memory/recall", payload)
+    memories, _associated = normalize_recall_response(response)
+    return memories
+
+
+def enrich_recalled_memories(
+    recalled: list[dict[str, Any]],
+    scenario: dict[str, Any],
+    stored_by_fixture: dict[str, dict[str, Any]],
+    feedback_history: dict[str, Any],
+) -> list[dict[str, Any]]:
+    fixture_by_id = {memory["id"]: memory for memory in scenario["memories"]}
+    fixture_by_stored_id = {
+        stored["id"]: fixture_id
+        for fixture_id, stored in stored_by_fixture.items()
+        if isinstance(stored.get("id"), str)
+    }
+    enriched = []
+    for item in recalled:
+        runtime_memory = copy.deepcopy(item)
+        metadata = runtime_memory.get("metadata")
+        fixture_id = metadata.get("fixture_id") if isinstance(metadata, dict) else None
+        if not isinstance(fixture_id, str):
+            fixture_id = fixture_by_stored_id.get(runtime_memory.get("id"))
+        if fixture_id not in fixture_by_id:
+            continue
+
+        source_memory = fixture_by_id[fixture_id]
+        if not isinstance(metadata, dict):
+            metadata = {}
+            runtime_memory["metadata"] = metadata
+        if not isinstance(metadata.get("reliability"), dict):
+            metadata["reliability"] = copy.deepcopy(source_memory.get("metadata", {}).get("reliability", {}))
+        runtime_memory["fixture_id"] = fixture_id
+        runtime_memory["feedback"] = extract_feedback_signals(feedback_history[fixture_id])
+        enriched.append(runtime_memory)
+    return enriched
+
+
 def store_decision_trace(
     api_base: str,
     agent_id: str,
@@ -400,15 +445,11 @@ def run_runtime_scenario(api_base: str, agent_id: str, scenario: dict[str, Any])
                 submit_feedback(api_base, agent_id, memory_id, signal)
             feedback_history[memory["id"]] = get_feedback(api_base, agent_id, memory_id)
 
-        runtime_memories = []
-        for memory in scenario["memories"]:
-            stored = stored_by_fixture[memory["id"]]
-            signals = extract_feedback_signals(feedback_history[memory["id"]])
-            runtime_memory = dict(memory)
-            runtime_memory["id"] = stored["id"]
-            runtime_memory["fixture_id"] = memory["id"]
-            runtime_memory["feedback"] = signals
-            runtime_memories.append(runtime_memory)
+        recalled = recall_scenario_memories(api_base, agent_id, scenario["query"], top_k=8)
+        runtime_memories = enrich_recalled_memories(recalled, scenario, stored_by_fixture, feedback_history)
+        recalled_fixture_ids = {item.get("fixture_id") for item in runtime_memories}
+        expected_fixture_ids = {scenario["expected_direct_memory"], scenario["expected_safe_memory"]}
+        recall_selection_ok = expected_fixture_ids.issubset(recalled_fixture_ids)
 
         baseline = choose_baseline(runtime_memories)
         direct, decision = choose_feedback_aware(runtime_memories)
@@ -432,7 +473,9 @@ def run_runtime_scenario(api_base: str, agent_id: str, scenario: dict[str, Any])
         associated_ids = {item.get("id") for item in associated}
         direct_ids = {item.get("id") for item in direct_recall}
         session_ids = {item.get("id") for item in session_memories(api_base, session_id)}
-        associated_ok = bool(set(evidence_ids) & associated_ids)
+        associated_response_ids = associated_ids | direct_ids
+        associated_missing_ids = sorted(set(evidence_ids) - associated_response_ids)
+        associated_ok = not associated_missing_ids
         session_ok = trace["id"] in session_ids and set(evidence_ids).issubset(session_ids)
         baseline_action = "reuse_top_memory" if baseline else "no_memory"
         same_memory = (
@@ -451,6 +494,13 @@ def run_runtime_scenario(api_base: str, agent_id: str, scenario: dict[str, Any])
             "feedback_tif_reason": decision["reason"],
             "feedback_aware_memory": direct["id"],
             "safe_memory": safe["id"] if safe else None,
+            "scenario_recall_memory_ids": sorted(
+                item["id"] for item in runtime_memories if isinstance(item.get("id"), str)
+            ),
+            "scenario_recall_fixture_ids": sorted(
+                item for item in recalled_fixture_ids if isinstance(item, str)
+            ),
+            "scenario_recall_proof": recall_selection_ok,
             "changed_decision": changed,
             "decision_trace_memory_id": trace["id"],
             "evidence_memory_ids": evidence_ids,
@@ -459,12 +509,14 @@ def run_runtime_scenario(api_base: str, agent_id: str, scenario: dict[str, Any])
                 for fixture_id, history in feedback_history.items()
             },
             "associated_recall_memory_ids": sorted(item for item in associated_ids if isinstance(item, str)),
+            "associated_recall_missing_ids": associated_missing_ids,
             "direct_recall_memory_ids": sorted(item for item in direct_ids if isinstance(item, str)),
             "session_memory_ids": sorted(item for item in session_ids if isinstance(item, str)),
             "associated_recall_proof": associated_ok,
             "session_trace_proof": session_ok,
             "passed": changed == scenario["expected_changed_decision"]
             and decision["action"] == scenario["expected_action"]
+            and recall_selection_ok
             and associated_ok
             and session_ok,
         }
