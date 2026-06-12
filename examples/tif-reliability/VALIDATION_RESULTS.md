@@ -11,11 +11,13 @@ ghcr.io/dakera-ai/dakera:0.11.81
 Local runtime:
 
 ```text
-REST: http://localhost:3200
-gRPC: localhost:51051
+REST: http://127.0.0.1:3200
+gRPC: 127.0.0.1:51051
 Storage: in-memory
 Auth: disabled for local validation only
 ```
+
+The validation compose binds these ports to localhost only.
 
 ## Commands
 
