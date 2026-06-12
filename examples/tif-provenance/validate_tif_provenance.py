@@ -61,10 +61,13 @@ def healthcheck(api_base: str, retries: int = 120, delay: float = 2.0) -> Any:
     last_error: Exception | None = None
     for _ in range(retries):
         try:
-            return request_json("GET", f"{api_base}/health/ready")
+            response = request_json("GET", f"{api_base}/health/ready")
+            if isinstance(response, dict) and response.get("ready") is True:
+                return response
+            last_error = RuntimeError(f"health endpoint is not ready: {response!r}")
         except Exception as exc:  # noqa: BLE001 - report final connection failure.
             last_error = exc
-            time.sleep(delay)
+        time.sleep(delay)
     raise RuntimeError(f"Dakera healthcheck failed after {retries} attempts: {last_error}")
 
 
@@ -85,6 +88,8 @@ def derive_reliability(memory: dict[str, Any], feedback_signals: list[str] | Non
     derived = initial_reliability(memory)
     signals = list(feedback_signals if feedback_signals is not None else memory.get("feedback", []))
     for signal in signals:
+        if signal not in FEEDBACK_DELTAS:
+            raise ValueError(f"unsupported feedback signal for T-I-F derivation: {signal!r}")
         delta = FEEDBACK_DELTAS[signal]
         derived["t"] = clamp(derived["t"] + delta["t"])
         derived["i"] = clamp(derived["i"] + delta["i"])
