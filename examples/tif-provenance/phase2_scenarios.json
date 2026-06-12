@@ -1,0 +1,128 @@
+{
+  "agent_id": "dakera-tif-phase2",
+  "scenarios": [
+    {
+      "id": "coding-assistant",
+      "title": "Coding assistant review correction",
+      "query": "Which Dakera REST endpoint should the coding assistant use for storing memory with reliability metadata?",
+      "expected_action": "surface_contradiction",
+      "expected_changed_decision": true,
+      "expected_direct_memory": "coding-obsolete-endpoint",
+      "expected_safe_memory": "coding-current-endpoint",
+      "memories": [
+        {
+          "id": "coding-current-endpoint",
+          "content": "Dakera memory store examples should use POST /v1/memory/store for the current public REST API.",
+          "importance": 0.84,
+          "feedback": ["upvote"],
+          "metadata": {
+            "reliability": {
+              "t": 0.66,
+              "i": 0.14,
+              "f": 0.10,
+              "basis": "Phase 1 runtime validation and maintainer review",
+              "source": "phase2_seed"
+            }
+          }
+        },
+        {
+          "id": "coding-obsolete-endpoint",
+          "content": "Dakera examples should use POST /v1/memories when storing agent memories.",
+          "importance": 0.93,
+          "feedback": ["downvote", "downvote"],
+          "metadata": {
+            "reliability": {
+              "t": 0.38,
+              "i": 0.20,
+              "f": 0.34,
+              "basis": "obsolete quickstart assumption superseded by current API behavior",
+              "source": "phase2_seed"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "research-agent",
+      "title": "Research agent source conflict",
+      "query": "Should the research agent cite an unsupported secondary note as confirmed evidence?",
+      "expected_action": "ask_clarification",
+      "expected_changed_decision": true,
+      "expected_direct_memory": "research-uncertain-source",
+      "expected_safe_memory": "research-source-backed",
+      "memories": [
+        {
+          "id": "research-source-backed",
+          "content": "A research agent should prefer source-backed claims and cite the primary evidence when summarizing technical decisions.",
+          "importance": 0.80,
+          "feedback": ["upvote"],
+          "metadata": {
+            "reliability": {
+              "t": 0.68,
+              "i": 0.16,
+              "f": 0.08,
+              "basis": "primary-source research discipline",
+              "source": "phase2_seed"
+            }
+          }
+        },
+        {
+          "id": "research-uncertain-source",
+          "content": "A research agent can treat an uncited secondary note as confirmed evidence when it sounds plausible.",
+          "importance": 0.92,
+          "feedback": ["flag", "flag"],
+          "metadata": {
+            "reliability": {
+              "t": 0.44,
+              "i": 0.18,
+              "f": 0.18,
+              "basis": "weak-source pattern flagged during review",
+              "source": "phase2_seed"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "customer-support",
+      "title": "Customer support outdated policy",
+      "query": "Which customer support policy should the agent reuse when an old process conflicts with the current escalation rule?",
+      "expected_action": "surface_contradiction",
+      "expected_changed_decision": true,
+      "expected_direct_memory": "support-outdated-policy",
+      "expected_safe_memory": "support-current-policy",
+      "memories": [
+        {
+          "id": "support-current-policy",
+          "content": "Customer support agents should follow the current escalation policy and ask for verification when a prior policy conflicts.",
+          "importance": 0.83,
+          "feedback": ["upvote"],
+          "metadata": {
+            "reliability": {
+              "t": 0.67,
+              "i": 0.12,
+              "f": 0.07,
+              "basis": "current support process",
+              "source": "phase2_seed"
+            }
+          }
+        },
+        {
+          "id": "support-outdated-policy",
+          "content": "Customer support agents should always use the old refund process without checking for newer escalation rules.",
+          "importance": 0.91,
+          "feedback": ["downvote", "flag"],
+          "metadata": {
+            "reliability": {
+              "t": 0.42,
+              "i": 0.18,
+              "f": 0.30,
+              "basis": "outdated policy deliberately retained as contradiction evidence",
+              "source": "phase2_seed"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
