@@ -17,16 +17,11 @@ permissions:
 jobs:
   validate:
     name: Validate Docker Configs
-    runs-on: [self-hosted, linux, arm64]
+    # GitHub-hosted: hadolint-action pulls ghcr.io/hadolint/hadolint which needs
+    # authenticated GHCR access; GitHub-hosted runners have ambient auth, self-hosted ARM do not.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
-      - name: Log in to GHCR (needed for hadolint container image on self-hosted runner)
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate docker-compose.yml
         env:
