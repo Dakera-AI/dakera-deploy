@@ -91,6 +91,9 @@ jobs:
             COMPOSE_DIR=$(docker inspect "$CONTAINER" --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' 2>/dev/null || echo "")
             if [ -n "$COMPOSE_DIR" ] && [ -d "$COMPOSE_DIR" ]; then
               cd "$COMPOSE_DIR"
+              # Remove stale container before recreate to prevent Docker naming conflicts
+              # (container_name + compose project-hash alias can collide on --force-recreate)
+              docker rm -f dakera 2>/dev/null || true
               # Force-recreate minio so new resource limits (cpus/memory) take effect
               DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:${{ inputs.version }} docker compose up -d --force-recreate minio minio-setup dakera
             else
