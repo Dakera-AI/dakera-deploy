@@ -99,3 +99,27 @@ docker compose -f docker\docker-compose.tif-phase1.yml down
 ```
 
 Result: passed.
+
+## Second Review Correction Rerun
+
+Date: 2026-06-12 17:40:38 -04:00
+
+Additional Qodo findings corrected:
+
+- runtime `changed_decision` now mirrors the self-test logic and treats same-memory `reuse_confidently` as unchanged reuse;
+- runtime memory metadata is deep-copied before adding derived reliability, and malformed or missing `metadata.reliability` now fails with a clear validation error;
+- associated recall keeps a single read-only retry to tolerate cold reranker startup without retrying mutating endpoints.
+
+Rerun commands:
+
+```powershell
+python -m py_compile examples\tif-provenance\validate_tif_provenance.py examples\tif-reliability\validate_tif_reliability.py
+python examples\tif-provenance\validate_tif_provenance.py --self-test
+python examples\tif-reliability\validate_tif_reliability.py --self-test
+docker compose -f docker\docker-compose.tif-phase1.yml down
+docker compose -f docker\docker-compose.tif-phase1.yml up -d
+python examples\tif-provenance\validate_tif_provenance.py --api http://localhost:3200 --request-timeout 240
+docker compose -f docker\docker-compose.tif-phase1.yml down
+```
+
+Result: passed.

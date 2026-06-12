@@ -9,6 +9,7 @@ recorded in session-scoped decision traces linked to evidence memories.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import sys
 import time
@@ -236,9 +237,14 @@ def session_memories(api_base: str, session_id: str) -> list[dict[str, Any]]:
 
 
 def store_memory(api_base: str, agent_id: str, session_id: str, memory: dict[str, Any]) -> dict[str, Any]:
-    metadata = dict(memory.get("metadata", {}))
+    metadata = copy.deepcopy(memory.get("metadata", {}))
+    if not isinstance(metadata, dict):
+        raise ValueError(f"memory {memory.get('id', '<unknown>')} metadata must be an object")
+    reliability = metadata.get("reliability")
+    if not isinstance(reliability, dict):
+        raise ValueError(f"memory {memory.get('id', '<unknown>')} requires metadata.reliability")
     metadata["fixture_id"] = memory["id"]
-    metadata["reliability"]["derived"] = derive_reliability(memory)
+    reliability["derived"] = derive_reliability(memory)
 
     response = request_json(
         "POST",
@@ -299,17 +305,18 @@ def link_memory(api_base: str, agent_id: str, memory_id: str, target_id: str) ->
 
 
 def recall_associated(api_base: str, agent_id: str, query: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    response = request_json(
-        "POST",
-        f"{api_base}/v1/memory/recall",
-        {
-            "agent_id": agent_id,
-            "query": query,
-            "top_k": 1,
-            "include_associated": True,
-            "associated_memories_depth": 1,
-        },
-    )
+    payload = {
+        "agent_id": agent_id,
+        "query": query,
+        "top_k": 1,
+        "include_associated": True,
+        "associated_memories_depth": 1,
+    }
+    try:
+        response = request_json("POST", f"{api_base}/v1/memory/recall", payload)
+    except TimeoutError:
+        # Recall is read-only. Retry once to tolerate cold ONNX/reranker startup.
+        response = request_json("POST", f"{api_base}/v1/memory/recall", payload)
     return normalize_recall_response(response)
 
 
@@ -427,12 +434,18 @@ def run_runtime_scenario(api_base: str, agent_id: str, scenario: dict[str, Any])
         session_ids = {item.get("id") for item in session_memories(api_base, session_id)}
         associated_ok = bool(set(evidence_ids) & associated_ids)
         session_ok = trace["id"] in session_ids and set(evidence_ids).issubset(session_ids)
-        changed = decision["action"] != "reuse_top_memory"
+        baseline_action = "reuse_top_memory" if baseline else "no_memory"
+        same_memory = (
+            baseline is not None
+            and baseline.get("fixture_id") == direct.get("fixture_id")
+        )
+        equivalent_reuse = same_memory and decision["action"] == "reuse_confidently"
+        changed = baseline_action != decision["action"] and not equivalent_reuse
 
         return {
             "scenario": scenario["id"],
             "session_id": session_id,
-            "baseline_action": "reuse_top_memory" if baseline else "no_memory",
+            "baseline_action": baseline_action,
             "baseline_memory": baseline["id"] if baseline else None,
             "feedback_tif_action": decision["action"],
             "feedback_tif_reason": decision["reason"],
