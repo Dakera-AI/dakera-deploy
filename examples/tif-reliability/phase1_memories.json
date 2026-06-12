@@ -1,0 +1,109 @@
+{
+  "agent_id": "dakera-tif-phase1",
+  "source_issue": "https://github.com/Dakera-AI/dakera-deploy/issues/161",
+  "memories": [
+    {
+      "id": "phase1-maintainer-target",
+      "content": "Phase 1 should validate whether T-I-F reliability metadata produces measurably better agent decisions, not merely whether metadata round-trips through recall.",
+      "importance": 0.95,
+      "metadata": {
+        "reliability": {
+          "t": 0.95,
+          "i": 0.03,
+          "f": 0.01,
+          "basis": "ferhimedamine Phase 1 instruction in Dakera issue #161",
+          "source": "tif_decision_provenance",
+          "evidence_url": "https://github.com/Dakera-AI/dakera-deploy/issues/161#issuecomment-4694050474"
+        }
+      }
+    },
+    {
+      "id": "phase1-obsolete-roundtrip-plan",
+      "content": "Phase 1 only needs to prove that metadata survives store and recall.",
+      "importance": 0.9,
+      "metadata": {
+        "reliability": {
+          "t": 0.28,
+          "i": 0.18,
+          "f": 0.82,
+          "basis": "superseded by maintainer clarification that metadata round-trip is already supported",
+          "source": "tif_decision_provenance",
+          "evidence_url": "https://github.com/Dakera-AI/dakera-deploy/issues/161#issuecomment-4694050474"
+        }
+      }
+    },
+    {
+      "id": "phase1-developer-facing-name",
+      "content": "For Phase 1, use metadata.reliability as the developer-facing key while keeping neutrosophic theory in documentation.",
+      "importance": 0.86,
+      "metadata": {
+        "reliability": {
+          "t": 0.88,
+          "i": 0.08,
+          "f": 0.04,
+          "basis": "maintainer leaned toward metadata.tif or metadata.reliability and user selected metadata.reliability",
+          "source": "tif_decision_provenance",
+          "evidence_url": "https://github.com/Dakera-AI/dakera-deploy/issues/161#issuecomment-4694050474"
+        }
+      }
+    },
+    {
+      "id": "phase1-high-falsity-handling",
+      "content": "A memory with high falsity should be silently hidden, filtered, or deleted before the agent can inspect it.",
+      "importance": 0.88,
+      "metadata": {
+        "reliability": {
+          "t": 0.12,
+          "i": 0.16,
+          "f": 0.91,
+          "basis": "contradicted by maintainer guidance: high-f memories are diagnostic signal and should surface as contradiction evidence",
+          "source": "tif_decision_provenance",
+          "evidence_url": "https://github.com/Dakera-AI/dakera-deploy/issues/161#issuecomment-4694050474"
+        }
+      }
+    },
+    {
+      "id": "phase1-high-indeterminacy-handling",
+      "content": "If a recalled memory has high indeterminacy, the agent should treat the reuse decision as unresolved and ask for clarification instead of silently trusting it.",
+      "importance": 0.82,
+      "metadata": {
+        "reliability": {
+          "t": 0.42,
+          "i": 0.72,
+          "f": 0.12,
+          "basis": "maintainer guidance: clarification prompting is agent-side decision logic for high indeterminacy",
+          "source": "tif_decision_provenance",
+          "evidence_url": "https://github.com/Dakera-AI/dakera-deploy/issues/161#issuecomment-4694050474"
+        }
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "obsolete-roundtrip-plan",
+      "query": "Should Phase 1 only prove metadata round-trip?",
+      "expected_changed_decision": true,
+      "expected_action": "surface_contradiction"
+    },
+    {
+      "id": "high-falsity-contradiction",
+      "query": "Should a high falsity memory be filtered or surfaced as contradiction evidence?",
+      "expected_changed_decision": true,
+      "expected_action": "surface_contradiction"
+    },
+    {
+      "id": "high-indeterminacy-clarification",
+      "query": "If a recalled memory has high indeterminacy, should the agent ask for clarification instead of silently trusting it?",
+      "top_k": 1,
+      "expected_changed_decision": true,
+      "expected_action": "ask_clarification"
+    },
+    {
+      "id": "safe-reuse-maintainer-target",
+      "query": "What should Phase 1 validate now?",
+      "top_k": 1,
+      "expected_changed_decision": false,
+      "expected_action": "reuse_confidently"
+    }
+  ]
+}
