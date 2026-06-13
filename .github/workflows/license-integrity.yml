@@ -1,0 +1,65 @@
+# NOTE: Out-of-network repos that removed fork relationship are not detectable via GitHub API.
+name: License Integrity Monitor
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-forks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute LICENSE ref hash
+        id: ref-hash
+        run: |
+          HASH=$(sha256sum LICENSE | awk '{print $1}')
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Check fork LICENSE integrity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_HASH: ${{ steps.ref-hash.outputs.hash }}
+        run: |
+          VIOLATIONS=""
+          PAGE=1
+          while true; do
+            FORKS=$(gh api "/repos/dakera-ai/dakera-deploy/forks?per_page=100&page=$PAGE" --jq '.[].full_name' 2>/dev/null || echo "")
+            if [ -z "$FORKS" ]; then
+              break
+            fi
+            while IFS= read -r FORK; do
+              CONTENT=$(gh api "/repos/$FORK/contents/LICENSE" --jq '.content' 2>/dev/null || echo "")
+              if [ -z "$CONTENT" ]; then
+                sleep 0.5
+                continue
+              fi
+              FORK_HASH=$(echo "$CONTENT" | base64 -d 2>/dev/null | sha256sum | awk '{print $1}')
+              if [ "$FORK_HASH" != "$REF_HASH" ]; then
+                VIOLATIONS="$VIOLATIONS\n- $FORK (expected: $REF_HASH, got: $FORK_HASH)"
+              fi
+              sleep 0.5
+            done <<< "$FORKS"
+            PAGE=$((PAGE + 1))
+          done
+          if [ -n "$VIOLATIONS" ]; then
+            echo "VIOLATIONS_FOUND=true" >> "$GITHUB_ENV"
+            printf "%b" "$VIOLATIONS" > /tmp/violations.txt
+          fi
+
+      - name: Open issue if violations found
+        if: env.VIOLATIONS_FOUND == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY="## License integrity violation detected\n\nThe following forks have a modified or missing LICENSE file:\n\n$(cat /tmp/violations.txt)\n\nPlease investigate and take appropriate action."
+          gh issue create \
+            --title "License integrity violation detected" \
+            --body "$(printf "%b" "$BODY")"
