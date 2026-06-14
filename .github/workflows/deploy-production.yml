@@ -74,41 +74,35 @@ jobs:
           # Pull new image
           docker pull ghcr.io/dakera-ai/dakera:${{ inputs.version }}
 
-          # Find and update the running dakera container
-          CONTAINER=$(docker ps --filter "name=dakera" --format "{{.Names}}" | head -1)
+          # Known compose dir — used as fallback when label is absent
+          KNOWN_COMPOSE_DIR="/home/dakera/ops/repos/dakera-deploy/docker"
+
+          # Find the running dakera container (exact name match to avoid matching dakera-minio, etc.)
+          CONTAINER=$(docker ps --format "{{.Names}}" | grep -E '^dakera$' | head -1)
           if [ -z "$CONTAINER" ]; then
-            echo "WARNING: No running dakera container found"
-            # Try docker-compose if available
-            if [ -f /opt/dakera/docker-compose.yml ]; then
-              cd /opt/dakera
+            echo "WARNING: No running dakera container found — starting fresh via compose"
+            COMPOSE_DIR="$KNOWN_COMPOSE_DIR"
+            if [ -f "$COMPOSE_DIR/docker-compose.yml" ]; then
+              cd "$COMPOSE_DIR"
               DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:${{ inputs.version }} docker compose up -d --force-recreate minio minio-setup dakera
             else
-              echo "ERROR: No docker-compose.yml found at /opt/dakera/"
+              echo "ERROR: docker-compose.yml not found at $COMPOSE_DIR"
               exit 1
             fi
           else
-            # Use docker-compose in the service directory
+            # Use docker-compose in the service directory (from label, or fall back to known path)
             COMPOSE_DIR=$(docker inspect "$CONTAINER" --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' 2>/dev/null || echo "")
-            if [ -n "$COMPOSE_DIR" ] && [ -d "$COMPOSE_DIR" ]; then
+            COMPOSE_DIR="${COMPOSE_DIR:-$KNOWN_COMPOSE_DIR}"
+            if [ -d "$COMPOSE_DIR" ] && [ -f "$COMPOSE_DIR/docker-compose.yml" ]; then
               cd "$COMPOSE_DIR"
-              # Remove ALL stale dakera containers before recreate to prevent Docker naming
-              # conflicts. docker-compose names containers as <project-hash>_<service>, so
-              # "docker rm -f dakera" misses containers named e.g. "fdbaa06c2bb4_dakera".
-              # Force-remove every container whose name contains "dakera" (excludes minio).
-              docker ps -a --filter "name=dakera" --format "{{.Names}}" | grep -vE 'minio|minio-setup' | xargs -r docker rm -f 2>/dev/null || true
+              # Remove stale containers before recreate — catches both the exact name (dakera)
+              # and any compose project-hash alias (<hash>_dakera) that can cause naming conflicts
+              docker ps -a --format "{{.Names}}" | grep -E '^(dakera|[a-f0-9]+_dakera)$' | xargs -r docker rm -f 2>/dev/null || true
               # Force-recreate minio so new resource limits (cpus/memory) take effect
               DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:${{ inputs.version }} docker compose up -d --force-recreate minio minio-setup dakera
             else
-              echo "Stopping old container and starting new one..."
-              # Get the current container's config
-              PORTS=$(docker port "$CONTAINER" 2>/dev/null || echo "")
-              docker stop "$CONTAINER"
-              docker rm "$CONTAINER"
-              docker run -d --name dakera \
-                --env-file /opt/dakera/.env \
-                -p 3300:3000 \
-                --restart unless-stopped \
-                ghcr.io/dakera-ai/dakera:${{ inputs.version }}
+              echo "ERROR: docker-compose.yml not found at $COMPOSE_DIR"
+              exit 1
             fi
           fi
 
