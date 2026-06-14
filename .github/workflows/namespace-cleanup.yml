@@ -35,7 +35,7 @@ jobs:
       - name: Run namespace cleanup
         env:
           DAKERA_API_URL: "http://${{ secrets.SERVER_IP_PROD }}:3300"
-          DAKERA_API_KEY: ${{ secrets.DAKERA_API_KEY }}
+          DAKERA_API_KEY: ${{ secrets.DAKERA_ROOT_API_KEY }}
           DRY_RUN: ${{ inputs.dry_run == 'true' && '1' || '0' }}
         run: |
           chmod +x scripts/namespace-cleanup/namespace-cleanup.sh
