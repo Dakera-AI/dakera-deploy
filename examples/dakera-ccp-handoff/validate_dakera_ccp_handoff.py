@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import importlib.metadata
 import json
 import sys
 import time
@@ -24,6 +25,44 @@ DEFAULT_API = "http://localhost:3200"
 DEFAULT_FIXTURE = Path(__file__).with_name("ccp_handoff_scenarios.json")
 DEFAULT_REQUEST_TIMEOUT = 120
 REQUEST_TIMEOUT = DEFAULT_REQUEST_TIMEOUT
+TRACE_EVENTS: list[dict[str, Any]] = []
+TOKEN_COUNTER: "TokenCounter | None" = None
+
+
+class TokenCounter:
+    def __init__(self, encoding_name: str = "cl100k_base") -> None:
+        self.encoding_name = encoding_name
+        self.method = "estimated_len_div_4"
+        self.package_version: str | None = None
+        self._encoding: Any | None = None
+        try:
+            import tiktoken  # type: ignore[import-not-found]
+
+            self._encoding = tiktoken.get_encoding(encoding_name)
+            self.method = "tiktoken"
+            try:
+                self.package_version = importlib.metadata.version("tiktoken")
+            except importlib.metadata.PackageNotFoundError:
+                self.package_version = "unknown"
+        except Exception:
+            self._encoding = None
+
+    def count(self, text: str) -> int:
+        if self._encoding is not None:
+            return len(self._encoding.encode(text))
+        return token_estimate(text)
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "method": self.method,
+            "encoding": self.encoding_name if self._encoding is not None else None,
+            "package": "tiktoken" if self._encoding is not None else None,
+            "version": self.package_version,
+            "exact": self._encoding is not None,
+            "fallback_note": None
+            if self._encoding is not None
+            else "fallback estimate uses ceil(len(text) / 4); do not treat as exact model tokens",
+        }
 
 
 def load_fixture(path: Path) -> dict[str, Any]:
@@ -39,16 +78,37 @@ def request_json(method: str, url: str, payload: dict[str, Any] | None = None) -
         headers["Content-Type"] = "application/json"
 
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
+    started = time.perf_counter()
+    event: dict[str, Any] = {
+        "method": method,
+        "url": url,
+        "request": payload,
+    }
     try:
         with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
             raw = response.read().decode("utf-8")
+            event["status"] = response.status
+            event["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 3)
+            event["response_text"] = raw
             if not raw:
+                event["response"] = {}
+                TRACE_EVENTS.append(event)
                 return {}
-            return json.loads(raw)
+            parsed = json.loads(raw)
+            event["response"] = parsed
+            TRACE_EVENTS.append(event)
+            return parsed
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
+        event["status"] = exc.code
+        event["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 3)
+        event["error"] = detail
+        TRACE_EVENTS.append(event)
         raise RuntimeError(f"{method} {url} failed: HTTP {exc.code}: {detail}") from exc
     except urllib.error.URLError as exc:
+        event["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 3)
+        event["error"] = str(exc)
+        TRACE_EVENTS.append(event)
         raise RuntimeError(f"{method} {url} failed: {exc}") from exc
 
 
@@ -68,6 +128,35 @@ def healthcheck(api_base: str, retries: int = 120, delay: float = 2.0) -> Any:
 
 def token_estimate(text: str) -> int:
     return max(1, (len(text) + 3) // 4)
+
+
+def token_count(text: str) -> int:
+    global TOKEN_COUNTER
+    if TOKEN_COUNTER is None:
+        TOKEN_COUNTER = TokenCounter()
+    return TOKEN_COUNTER.count(text)
+
+
+def token_metadata() -> dict[str, Any]:
+    global TOKEN_COUNTER
+    if TOKEN_COUNTER is None:
+        TOKEN_COUNTER = TokenCounter()
+    return TOKEN_COUNTER.metadata()
+
+
+def payload_metrics(label: str, payload: Any) -> dict[str, Any]:
+    if isinstance(payload, str):
+        text = payload
+    else:
+        text = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    encoded = text.encode("utf-8")
+    return {
+        "label": label,
+        "bytes": len(encoded),
+        "chars": len(text),
+        "tokens": token_count(text),
+        "tokenizer": token_metadata(),
+    }
 
 
 def memory_fixture_id(memory: dict[str, Any]) -> str | None:
@@ -168,8 +257,8 @@ def evaluate_static_scenario(scenario: dict[str, Any], fixture: dict[str, Any]) 
         for memory in fixture["memories"]
         if memory["id"] in {"ccp-key-decision", "ccp-evidence", "ccp-caveat"}
     )
-    full_tokens = token_estimate(full_transcript)
-    ccp_tokens = token_estimate(ccp_payload)
+    full_tokens = token_count(full_transcript)
+    ccp_tokens = token_count(ccp_payload)
 
     if scenario["id"] == "namespace-agent-isolation":
         passed = scenario["expected_excluded_memory"] == "ccp-unrelated-agent-memory"
@@ -280,13 +369,16 @@ def link_memory(api_base: str, agent_id: str, memory_id: str, target_id: str) ->
     )
 
 
-def recall(api_base: str, agent_id: str, query: str, top_k: int = 8, associated: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def recall(
+    api_base: str, agent_id: str, query: str, top_k: int = 8, associated: bool = False
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], Any]:
     payload: dict[str, Any] = {"agent_id": agent_id, "query": query, "top_k": top_k}
     if associated:
         payload["include_associated"] = True
         payload["associated_memories_depth"] = 1
     response = request_json("POST", f"{api_base}/v1/memory/recall", payload)
-    return normalize_recall_response(response)
+    memories, linked = normalize_recall_response(response)
+    return memories, linked, response
 
 
 def enrich_recalled(recalled: list[dict[str, Any]], stored_by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -320,7 +412,7 @@ def evaluate_runtime_scenario(
     session_ids: set[str],
 ) -> dict[str, Any]:
     full_transcript = "\n".join(fixture["full_transcript"])
-    memories, associated = recall(
+    memories, associated, raw_recall_response = recall(
         api_base,
         agent_id,
         scenario["query"],
@@ -332,9 +424,21 @@ def evaluate_runtime_scenario(
     recalled_fixture_ids = {memory.get("fixture_id") for memory in enriched}
     associated_fixture_ids = {memory.get("fixture_id") for memory in associated_enriched}
 
-    full_tokens = token_estimate(full_transcript)
+    full_tokens = token_count(full_transcript)
     ccp_text = "\n".join(memory.get("content", "") for memory in enriched[:3])
-    ccp_tokens = token_estimate(ccp_text)
+    ccp_tokens = token_count(ccp_text)
+    recall_rankings = [
+        {
+            "rank": index + 1,
+            "id": memory.get("id"),
+            "fixture_id": memory.get("fixture_id"),
+            "score": memory.get("score"),
+            "weighted_score": memory.get("weighted_score"),
+            "smart_score": memory.get("smart_score"),
+            "content_tokens": token_count(str(memory.get("content", ""))),
+        }
+        for index, memory in enumerate(enriched)
+    ]
 
     if scenario["id"] == "namespace-agent-isolation":
         excluded = scenario["expected_excluded_memory"]
@@ -348,6 +452,16 @@ def evaluate_runtime_scenario(
             "full_transcript_tokens": full_tokens,
             "ccp_payload_tokens": ccp_tokens,
             "token_savings": full_tokens - ccp_tokens,
+            "tokenizer": token_metadata(),
+            "payload_metrics": [
+                payload_metrics("full_transcript", full_transcript),
+                payload_metrics("runtime_recalled_top3_content", ccp_text),
+                payload_metrics("raw_recall_response", raw_recall_response),
+            ],
+            "recall_rankings": recall_rankings,
+            "raw_recall_response": raw_recall_response,
+            "normalized_recall": enriched,
+            "normalized_associated_recall": associated_enriched,
             "session_memory_proof": bool(session_ids),
             "associated_recall_proof": True,
             "passed": passed,
@@ -392,6 +506,16 @@ def evaluate_runtime_scenario(
         "full_transcript_tokens": full_tokens,
         "ccp_payload_tokens": ccp_tokens,
         "token_savings": full_tokens - ccp_tokens,
+        "tokenizer": token_metadata(),
+        "payload_metrics": [
+            payload_metrics("full_transcript", full_transcript),
+            payload_metrics("runtime_recalled_top3_content", ccp_text),
+            payload_metrics("raw_recall_response", raw_recall_response),
+        ],
+        "recall_rankings": recall_rankings,
+        "raw_recall_response": raw_recall_response,
+        "normalized_recall": enriched,
+        "normalized_associated_recall": associated_enriched,
         "session_memory_proof": bool(session_ids),
         "associated_recall_proof": associated_ok,
         "passed": passed,
@@ -399,30 +523,40 @@ def evaluate_runtime_scenario(
 
 
 def run_runtime_validation(api_base: str, fixture: dict[str, Any], agent_id: str) -> dict[str, Any]:
+    TRACE_EVENTS.clear()
     health = healthcheck(api_base)
     session_id = start_session(api_base, agent_id)
     stored_by_id: dict[str, dict[str, Any]] = {}
+    store_responses: list[dict[str, Any]] = []
+    link_responses: list[dict[str, Any]] = []
+    session_memory_response: list[dict[str, Any]] = []
+    end_session_response: Any = None
+    runtime_result: dict[str, Any] = {}
     try:
         agent_a_memories = [memory for memory in fixture["memories"] if memory["id"] != "ccp-unrelated-agent-memory"]
         unrelated = next(memory for memory in fixture["memories"] if memory["id"] == "ccp-unrelated-agent-memory")
 
         for memory in agent_a_memories:
             stored_by_id[memory["id"]] = store_memory(api_base, agent_id, session_id, memory)
+            store_responses.append({"fixture_id": memory["id"], "response": stored_by_id[memory["id"]]})
 
         unrelated_agent_id = f"{agent_id}-unrelated"
         stored_by_id[unrelated["id"]] = store_memory(api_base, unrelated_agent_id, None, unrelated)
+        store_responses.append({"fixture_id": unrelated["id"], "response": stored_by_id[unrelated["id"]]})
 
         for target_fixture_id in ("ccp-evidence", "ccp-caveat"):
-            link_memory(
+            link_response = link_memory(
                 api_base,
                 agent_id,
                 stored_by_id["ccp-key-decision"]["id"],
                 stored_by_id[target_fixture_id]["id"],
             )
+            link_responses.append({"target_fixture_id": target_fixture_id, "response": link_response})
 
+        session_memory_response = session_memories(api_base, session_id)
         session_ids = {
             item.get("id")
-            for item in session_memories(api_base, session_id)
+            for item in session_memory_response
             if isinstance(item.get("id"), str)
         }
 
@@ -430,19 +564,127 @@ def run_runtime_validation(api_base: str, fixture: dict[str, Any], agent_id: str
             evaluate_runtime_scenario(api_base, agent_id, scenario, fixture, stored_by_id, session_ids)
             for scenario in fixture["scenarios"]
         ]
-        return {
+        runtime_result = {
             "agent_id": agent_id,
             "session_id": session_id,
             "health": health,
+            "tokenizer": token_metadata(),
+            "store_responses": store_responses,
+            "link_responses": link_responses,
+            "session_memory_response": session_memory_response,
             "stored_fixture_ids": sorted(stored_by_id),
             "session_memory_ids": sorted(session_ids),
             "scenarios": scenarios,
         }
     finally:
         try:
-            end_session(api_base, session_id, "Phase 5 Dakera CCP handoff validation completed.")
+            end_session_response = end_session(api_base, session_id, "Phase 5 Dakera CCP handoff validation completed.")
+            if TRACE_EVENTS and isinstance(TRACE_EVENTS[-1], dict):
+                TRACE_EVENTS[-1]["note"] = "session_end"
         except Exception:
             pass
+    runtime_result["end_session_response"] = end_session_response
+    runtime_result["api_trace"] = copy.deepcopy(TRACE_EVENTS)
+    return runtime_result
+
+
+def write_runtime_artifacts(runtime: dict[str, Any], output_json: Path) -> None:
+    output_json.parent.mkdir(parents=True, exist_ok=True)
+    output_json.write_text(json.dumps(runtime, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output_md = output_json.with_suffix(".md")
+    output_md.write_text(render_runtime_markdown(runtime), encoding="utf-8")
+
+
+def render_runtime_markdown(runtime: dict[str, Any]) -> str:
+    health = runtime.get("health", {})
+    scenarios = runtime.get("scenarios", [])
+    passed = sum(1 for item in scenarios if item.get("passed"))
+    total = len(scenarios)
+    lines = [
+        "# Phase 5 Runtime Output",
+        "",
+        "This file is generated from a live Dakera runtime validation run.",
+        "",
+        "## Runtime",
+        "",
+        f"- Agent ID: `{runtime.get('agent_id')}`",
+        f"- Session ID: `{runtime.get('session_id')}`",
+        f"- Health ready: `{health.get('ready')}`",
+        f"- Dakera version: `{health.get('version')}`",
+        f"- Tokenizer: `{runtime.get('tokenizer', {}).get('method')}`",
+        f"- Scenarios passed: `{passed}/{total}`",
+        "",
+        "## Store Responses",
+        "",
+        "| Fixture ID | Runtime Memory ID |",
+        "|---|---|",
+    ]
+    for item in runtime.get("store_responses", []):
+        response = item.get("response", {})
+        lines.append(f"| `{item.get('fixture_id')}` | `{response.get('id')}` |")
+
+    lines.extend(
+        [
+            "",
+            "## Scenario Results",
+            "",
+            "| Scenario | Action | Selected Fixture | Token Savings | Passed |",
+            "|---|---|---|---:|---|",
+        ]
+    )
+    for item in scenarios:
+        lines.append(
+            "| `{scenario}` | `{action}` | `{fixture}` | {saving} | `{passed}` |".format(
+                scenario=item.get("scenario"),
+                action=item.get("action"),
+                fixture=item.get("selected_fixture_id"),
+                saving=item.get("token_savings"),
+                passed=item.get("passed"),
+            )
+        )
+
+    first_recall = next((item for item in scenarios if item.get("normalized_recall")), None)
+    lines.extend(["", "## Example Store -> Recall Round Trip", ""])
+    if first_recall:
+        lines.extend(
+            [
+                f"- Scenario: `{first_recall.get('scenario')}`",
+                f"- Selected fixture: `{first_recall.get('selected_fixture_id')}`",
+                "",
+                "| Rank | Runtime ID | Fixture ID | Score | Weighted | Smart | Content Tokens |",
+                "|---:|---|---|---:|---:|---:|---:|",
+            ]
+        )
+        for ranking in first_recall.get("recall_rankings", []):
+            lines.append(
+                "| {rank} | `{id}` | `{fixture}` | {score} | {weighted} | {smart} | {tokens} |".format(
+                    rank=ranking.get("rank"),
+                    id=ranking.get("id"),
+                    fixture=ranking.get("fixture_id"),
+                    score=ranking.get("score"),
+                    weighted=ranking.get("weighted_score"),
+                    smart=ranking.get("smart_score"),
+                    tokens=ranking.get("content_tokens"),
+                )
+            )
+    else:
+        lines.append("No recalled memory was available in the runtime output.")
+
+    lines.extend(
+        [
+            "",
+            "## API Timing",
+            "",
+            "| Method | URL | Status | Elapsed ms |",
+            "|---|---|---:|---:|",
+        ]
+    )
+    for event in runtime.get("api_trace", []):
+        lines.append(
+            f"| `{event.get('method')}` | `{event.get('url')}` | {event.get('status', '')} | {event.get('elapsed_ms', '')} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
 
 
 def print_report(results: list[dict[str, Any]]) -> None:
@@ -473,6 +715,7 @@ def main() -> int:
         help="HTTP request timeout in seconds.",
     )
     parser.add_argument("--self-test", action="store_true", help="Run local evaluator test without Dakera.")
+    parser.add_argument("--output-json", type=Path, help="Write full runtime JSON and sibling Markdown output.")
     args = parser.parse_args()
 
     global REQUEST_TIMEOUT
@@ -486,6 +729,8 @@ def main() -> int:
 
     agent_id = args.agent_id or f"{fixture['agent_id']}-{int(time.time())}"
     runtime = run_runtime_validation(args.api.rstrip("/"), fixture, agent_id)
+    if args.output_json is not None:
+        write_runtime_artifacts(runtime, args.output_json)
     print(json.dumps(runtime, indent=2, sort_keys=True))
     return 0 if all(item["passed"] for item in runtime["scenarios"]) else 1
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark bee-style vs ant-style context assembly for Phase 5 CCP."""
+"""Measured payload benchmark for Phase 5 bee-vs-ant context assembly."""
 
 from __future__ import annotations
 
@@ -20,24 +20,53 @@ def ratio(numerator: float, denominator: float) -> float:
     return round(numerator / denominator, 4)
 
 
-def score_winner(bee_score: float, ant_score: float) -> str:
-    if bee_score > ant_score:
-        return "bee"
-    if ant_score > bee_score:
+def winner(baseline_tokens: int, candidate_tokens: int) -> str:
+    if candidate_tokens < baseline_tokens:
         return "ant"
+    if baseline_tokens < candidate_tokens:
+        return "bee"
     return "tie"
 
 
-def token_winner(full_tokens: int, candidate_tokens: int) -> str:
-    if full_tokens < candidate_tokens:
-        return "bee"
-    if candidate_tokens < full_tokens:
-        return "ant"
-    return "tie"
+def compact_projection(memories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    projection = []
+    for memory in memories:
+        reliability = memory.get("metadata", {}).get("reliability", {})
+        projection.append(
+            {
+                "fixture_id": memory["id"],
+                "content": memory["content"],
+                "reliability_action": validator.classify_ccp(memory)["action"],
+                "t": reliability.get("t"),
+                "i": reliability.get("i"),
+                "f": reliability.get("f"),
+            }
+        )
+    return projection
 
 
-def memory_json_tokens(memories: list[dict[str, Any]]) -> int:
-    return validator.token_estimate(json.dumps(memories, sort_keys=True, separators=(",", ":")))
+def metric(label: str, payload: Any) -> dict[str, Any]:
+    return validator.payload_metrics(label, payload)
+
+
+def token_case(case_id: str, meaning: str, bee_payload: Any, ant_payload: Any) -> dict[str, Any]:
+    bee = metric(f"{case_id}_bee", bee_payload)
+    ant = metric(f"{case_id}_ant", ant_payload)
+    delta = bee["tokens"] - ant["tokens"]
+    return {
+        "id": case_id,
+        "meaning": meaning,
+        "bee_tokens": bee["tokens"],
+        "ant_tokens": ant["tokens"],
+        "token_delta": delta,
+        "token_savings_ratio": ratio(delta, bee["tokens"]),
+        "bee_bytes": bee["bytes"],
+        "ant_bytes": ant["bytes"],
+        "byte_delta": bee["bytes"] - ant["bytes"],
+        "winner": winner(bee["tokens"], ant["tokens"]),
+        "bee_payload_label": bee["label"],
+        "ant_payload_label": ant["label"],
+    }
 
 
 def build_benchmark(fixture: dict[str, Any]) -> dict[str, Any]:
@@ -47,141 +76,141 @@ def build_benchmark(fixture: dict[str, Any]) -> dict[str, Any]:
         for memory in fixture["memories"]
         if memory["id"] in {"ccp-key-decision", "ccp-evidence", "ccp-caveat"}
     ]
-    ccp_payload = "\n".join(memory["content"] for memory in ccp_memories)
-    full_tokens = validator.token_estimate(full_transcript)
-    ant_tokens = validator.token_estimate(ccp_payload)
-    ant_json_tokens = memory_json_tokens(ccp_memories)
-    top_k_overfetch_tokens = memory_json_tokens(fixture["memories"])
-    token_savings = full_tokens - ant_tokens
-    token_savings_ratio = ratio(token_savings, full_tokens)
-    json_token_delta = full_tokens - ant_json_tokens
-    top_k_overfetch_delta = full_tokens - top_k_overfetch_tokens
-    break_even_transcript_tokens = ant_json_tokens + 1
+    key_decision = [memory for memory in ccp_memories if memory["id"] == "ccp-key-decision"]
+    ccp_content_payload = "\n".join(memory["content"] for memory in ccp_memories)
+    key_content_payload = key_decision[0]["content"]
+    full_json_payload = json.dumps(ccp_memories, sort_keys=True, separators=(",", ":"))
+    top_k_overfetch_payload = json.dumps(fixture["memories"], sort_keys=True, separators=(",", ":"))
+    projection_payload = json.dumps(compact_projection(ccp_memories), sort_keys=True, separators=(",", ":"))
+    lazy_projection_payload = json.dumps(compact_projection(key_decision), sort_keys=True, separators=(",", ":"))
 
-    benchmark_cases = [
-        {
-            "id": "tiny_single_turn_context",
-            "question": "When the whole context is tiny, is a queen-style bee relay simpler?",
-            "bee_score": 0.90,
-            "ant_score": 0.62,
-            "bee_rationale": "One short transcript transfer has minimal overhead and preserves everything.",
-            "ant_rationale": "Trace assembly adds metadata and recall ceremony that may not pay off.",
-        },
-        {
-            "id": "multi_agent_long_handoff",
-            "question": "When Agent B needs only key continuity from a larger run, which approach is cheaper?",
-            "bee_score": 1.0 - token_savings_ratio,
-            "ant_score": min(1.0, 0.55 + token_savings_ratio),
-            "bee_rationale": "The queen relay sends the full transcript to avoid missing details.",
-            "ant_rationale": f"Ant trace assembly avoids {token_savings} estimated tokens in this fixture.",
-        },
-        {
-            "id": "uncertainty_and_contradiction",
-            "question": "Which approach makes caveats and contradictions explicit before reuse?",
-            "bee_score": 0.55,
-            "ant_score": 0.88,
-            "bee_rationale": "Transcript relay can contain caveats, but they are unstructured and easy to miss.",
-            "ant_rationale": "T-I-F reliability metadata makes high indeterminacy and falsity actionable.",
-        },
-        {
-            "id": "agent_scope_isolation",
-            "question": "Which approach avoids unrelated agent memory polluting the handoff?",
-            "bee_score": 0.58,
-            "ant_score": 0.86,
-            "bee_rationale": "A central relay can manually filter, but scope is convention-based.",
-            "ant_rationale": "Agent-scoped recall makes the isolation boundary executable.",
-        },
-        {
-            "id": "full_audit_reconstruction",
-            "question": "When a reviewer needs every detail, which approach is more complete?",
-            "bee_score": 0.92,
-            "ant_score": 0.70,
-            "bee_rationale": "The full transcript is the most complete audit artifact.",
-            "ant_rationale": "Trace assembly is compact by design and may need session memory expansion.",
-        },
+    cases = [
+        token_case(
+            "compact_content_payload",
+            "Agent B receives only the compact CCP content needed for handoff.",
+            full_transcript,
+            ccp_content_payload,
+        ),
+        token_case(
+            "decision_only_payload",
+            "Agent B receives only the selected decision packet content; caveat/evidence are lazy-loaded later.",
+            full_transcript,
+            key_content_payload,
+        ),
+        token_case(
+            "compact_projection_payload",
+            "Agent B receives content plus minimal fixture/reliability/action projection, not full memory JSON.",
+            full_transcript,
+            projection_payload,
+        ),
+        token_case(
+            "lazy_projection_payload",
+            "Agent B receives one projected decision packet and expands evidence only when needed.",
+            full_transcript,
+            lazy_projection_payload,
+        ),
+        token_case(
+            "full_json_packet_payload",
+            "Agent B receives full CCP memory JSON including metadata.",
+            full_transcript,
+            full_json_payload,
+        ),
+        token_case(
+            "top_k_overfetch_payload",
+            "Recall overfetch returns all fixture memories instead of only needed CCP packets.",
+            full_transcript,
+            top_k_overfetch_payload,
+        ),
     ]
 
-    for case in benchmark_cases:
-        case["winner"] = score_winner(case["bee_score"], case["ant_score"])
+    full_tokens = validator.token_count(full_transcript)
+    full_json_tokens = validator.token_count(full_json_payload)
+    break_even_case = {
+        "id": "json_break_even",
+        "meaning": "Full JSON CCP becomes cheaper only when the transcript exceeds this threshold.",
+        "bee_tokens": full_json_tokens + 1,
+        "ant_tokens": full_json_tokens,
+        "token_delta": 1,
+        "token_savings_ratio": ratio(1, full_json_tokens + 1),
+        "bee_bytes": len(("x " * (full_json_tokens + 1)).encode("utf-8")),
+        "ant_bytes": len(full_json_payload.encode("utf-8")),
+        "byte_delta": None,
+        "winner": "ant",
+        "bee_payload_label": "synthetic_transcript_break_even",
+        "ant_payload_label": "full_json_packet_payload",
+    }
+    cases.append(break_even_case)
 
     wins = {
-        "bee": sum(1 for case in benchmark_cases if case["winner"] == "bee"),
-        "ant": sum(1 for case in benchmark_cases if case["winner"] == "ant"),
-        "tie": sum(1 for case in benchmark_cases if case["winner"] == "tie"),
+        "bee": sum(1 for case in cases if case["winner"] == "bee"),
+        "ant": sum(1 for case in cases if case["winner"] == "ant"),
+        "tie": sum(1 for case in cases if case["winner"] == "tie"),
     }
-    viability = "hybrid_bee_control_ant_trace_assembly" if wins["ant"] >= wins["bee"] else "bee_preferred_for_this_fixture"
+    best_case = min(cases[:-1], key=lambda item: item["ant_tokens"])
+    compact_case = next(item for item in cases if item["id"] == "compact_content_payload")
+    remaining_after_compact = compact_case["ant_tokens"]
+    half_cost_target = full_tokens * 0.5
+    required_next_cut = max(0, remaining_after_compact - half_cost_target)
+    required_next_cut_ratio = ratio(required_next_cut, remaining_after_compact)
 
     return {
-        "benchmark": "phase5_bee_vs_ant_swarm_assembly",
+        "benchmark": "phase5_bee_vs_ant_swarm_assembly_measured_payloads",
+        "methodology": "measured payload/token benchmark; no subjective bee_score or ant_score constants",
+        "tokenizer": validator.token_metadata(),
         "bee_definition": "central queen/master relay sends or curates the full transcript/state",
         "ant_definition": "distributed trace assembly stores compact CCP packets in Dakera and recalls only relevant traces",
         "hybrid_definition": "bee/queen controls routing policy and escalation; ant assembly leaves and follows compact Dakera traces",
         "full_transcript_tokens": full_tokens,
-        "ant_ccp_payload_tokens": ant_tokens,
-        "ant_ccp_json_tokens": ant_json_tokens,
-        "top_k_overfetch_tokens": top_k_overfetch_tokens,
-        "token_savings": token_savings,
-        "token_savings_ratio": token_savings_ratio,
-        "token_economy_tests": [
-            {
-                "id": "compact_content_payload",
-                "bee_tokens": full_tokens,
-                "ant_tokens": ant_tokens,
-                "delta": token_savings,
-                "winner": token_winner(full_tokens, ant_tokens),
-                "meaning": "Agent B receives only compact CCP content.",
-            },
-            {
-                "id": "full_json_packet_payload",
-                "bee_tokens": full_tokens,
-                "ant_tokens": ant_json_tokens,
-                "delta": json_token_delta,
-                "winner": token_winner(full_tokens, ant_json_tokens),
-                "meaning": "Agent B receives full memory JSON including metadata.",
-            },
-            {
-                "id": "top_k_overfetch_payload",
-                "bee_tokens": full_tokens,
-                "ant_tokens": top_k_overfetch_tokens,
-                "delta": top_k_overfetch_delta,
-                "winner": token_winner(full_tokens, top_k_overfetch_tokens),
-                "meaning": "Recall returns all fixture memories instead of only the needed CCP packet.",
-            },
-            {
-                "id": "json_break_even",
-                "bee_tokens": break_even_transcript_tokens,
-                "ant_tokens": ant_json_tokens,
-                "delta": 1,
-                "winner": "ant",
-                "meaning": "Full JSON CCP becomes cheaper only when the transcript is longer than this threshold.",
-            },
-        ],
+        "full_transcript_bytes": len(full_transcript.encode("utf-8")),
         "winner_counts": wins,
-        "viability": viability,
-        "cases": benchmark_cases,
+        "viability": "hybrid_bee_control_ant_trace_assembly",
+        "cases": cases,
+        "best_measured_ant_case": best_case["id"],
+        "half_cost_feasibility": {
+            "baseline_tokens": full_tokens,
+            "half_cost_target_tokens": half_cost_target,
+            "compact_content_tokens": compact_case["ant_tokens"],
+            "compact_content_savings_ratio": compact_case["token_savings_ratio"],
+            "additional_tokens_to_cut_from_compact": required_next_cut,
+            "additional_remaining_cut_ratio_needed": required_next_cut_ratio,
+            "best_case_tokens": best_case["ant_tokens"],
+            "best_case_reaches_half_cost": best_case["ant_tokens"] <= half_cost_target,
+        },
     }
 
 
 def print_markdown(result: dict[str, Any]) -> None:
     print("# Bee vs Ant Swarm Assembly Benchmark")
     print()
+    print(f"Methodology: {result['methodology']}")
+    print(f"Tokenizer: `{result['tokenizer']['method']}`")
     print(f"Viability: `{result['viability']}`")
     print()
-    print("| Case | Bee | Ant | Winner |")
-    print("|---|---:|---:|---|")
+    print("| Case | Bee Tokens | Ant Tokens | Delta | Savings Ratio | Winner |")
+    print("|---|---:|---:|---:|---:|---|")
     for case in result["cases"]:
-        print(f"| `{case['id']}` | {case['bee_score']:.2f} | {case['ant_score']:.2f} | `{case['winner']}` |")
+        print(
+            f"| `{case['id']}` | {case['bee_tokens']} | {case['ant_tokens']} | "
+            f"{case['token_delta']} | {case['token_savings_ratio']} | `{case['winner']}` |"
+        )
+    print()
+    feasibility = result["half_cost_feasibility"]
+    print("## Half-Cost Feasibility")
     print()
     print(
-        f"Token estimate: full transcript `{result['full_transcript_tokens']}`, "
-        f"ant CCP payload `{result['ant_ccp_payload_tokens']}`, "
-        f"savings `{result['token_savings']}`."
+        f"Baseline `{feasibility['baseline_tokens']}` tokens; half-cost target "
+        f"`{feasibility['half_cost_target_tokens']}` tokens."
     )
-    print()
-    print("| Token Test | Bee Tokens | Ant Tokens | Delta | Winner |")
-    print("|---|---:|---:|---:|---|")
-    for item in result["token_economy_tests"]:
-        print(f"| `{item['id']}` | {item['bee_tokens']} | {item['ant_tokens']} | {item['delta']} | `{item['winner']}` |")
+    print(
+        f"Compact content payload is `{feasibility['compact_content_tokens']}` tokens; "
+        f"additional cut needed from that payload is "
+        f"`{feasibility['additional_tokens_to_cut_from_compact']}` tokens "
+        f"({feasibility['additional_remaining_cut_ratio_needed']})."
+    )
+    print(
+        f"Best measured ant case `{result['best_measured_ant_case']}` reaches half-cost: "
+        f"`{feasibility['best_case_reaches_half_cost']}`."
+    )
 
 
 def main() -> int:

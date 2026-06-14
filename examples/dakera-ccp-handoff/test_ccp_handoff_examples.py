@@ -77,9 +77,9 @@ class DakeraCcpHandoffExamples(unittest.TestCase):
         result = benchmark.build_benchmark(self.fixture)
         bee_wins = [case for case in result["cases"] if case["winner"] == "bee"]
         ant_wins = [case for case in result["cases"] if case["winner"] == "ant"]
-        token_tests = {
+        cases = {
             item["id"]: item
-            for item in result["token_economy_tests"]
+            for item in result["cases"]
         }
 
         self.assertGreaterEqual(len(bee_wins), 1)
@@ -87,9 +87,12 @@ class DakeraCcpHandoffExamples(unittest.TestCase):
         self.assertEqual(result["winner_counts"]["bee"], len(bee_wins))
         self.assertEqual(result["winner_counts"]["ant"], len(ant_wins))
         self.assertEqual(result["viability"], "hybrid_bee_control_ant_trace_assembly")
-        self.assertEqual(token_tests["compact_content_payload"]["winner"], "ant")
-        self.assertIn(token_tests["full_json_packet_payload"]["winner"], {"bee", "ant", "tie"})
-        self.assertIn(token_tests["top_k_overfetch_payload"]["winner"], {"bee", "ant", "tie"})
+        self.assertEqual(cases["compact_content_payload"]["winner"], "ant")
+        self.assertIn(cases["full_json_packet_payload"]["winner"], {"bee", "ant", "tie"})
+        self.assertIn(cases["top_k_overfetch_payload"]["winner"], {"bee", "ant", "tie"})
+        self.assertNotIn("bee_score", cases["compact_content_payload"])
+        self.assertNotIn("ant_score", cases["compact_content_payload"])
+        self.assertIn("half_cost_feasibility", result)
 
 
 if __name__ == "__main__":

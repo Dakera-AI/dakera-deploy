@@ -1,0 +1,298 @@
+{
+  "after": {
+    "best_after_payload": "after_decision_only",
+    "commit": "0fb3a29",
+    "comparisons_vs_before_full_transcript": {
+      "after_compact_content": {
+        "after_tokens": 121,
+        "beats_before_full_transcript": true,
+        "before_baseline_tokens": 222,
+        "savings_ratio": 0.455,
+        "token_delta": 101
+      },
+      "after_contradiction_packet": {
+        "after_tokens": 92,
+        "beats_before_full_transcript": true,
+        "before_baseline_tokens": 222,
+        "savings_ratio": 0.5856,
+        "token_delta": 130
+      },
+      "after_decision_only": {
+        "after_tokens": 42,
+        "beats_before_full_transcript": true,
+        "before_baseline_tokens": 222,
+        "savings_ratio": 0.8108,
+        "token_delta": 180
+      },
+      "after_full_json_packet": {
+        "after_tokens": 535,
+        "beats_before_full_transcript": false,
+        "before_baseline_tokens": 222,
+        "savings_ratio": -1.4099,
+        "token_delta": -313
+      },
+      "after_lazy_projection": {
+        "after_tokens": 119,
+        "beats_before_full_transcript": true,
+        "before_baseline_tokens": 222,
+        "savings_ratio": 0.464,
+        "token_delta": 103
+      },
+      "after_overfetch": {
+        "after_tokens": 1028,
+        "beats_before_full_transcript": false,
+        "before_baseline_tokens": 222,
+        "savings_ratio": -3.6306,
+        "token_delta": -806
+      },
+      "after_uncertainty_packet": {
+        "after_tokens": 95,
+        "beats_before_full_transcript": true,
+        "before_baseline_tokens": 222,
+        "savings_ratio": 0.5721,
+        "token_delta": 127
+      }
+    },
+    "git_status_short": [
+      "AM examples/dakera-ccp-handoff/DAKERA_BEFORE_AFTER_TIF_BENCHMARK.json",
+      "AM examples/dakera-ccp-handoff/DAKERA_BEFORE_AFTER_TIF_BENCHMARK.md",
+      "A  examples/dakera-ccp-handoff/EXTERNAL_SWARM_BENCHMARK_RESULTS.md",
+      "M  examples/dakera-ccp-handoff/README.md",
+      "A  examples/dakera-ccp-handoff/RUNTIME_OUTPUT.json",
+      "A  examples/dakera-ccp-handoff/RUNTIME_OUTPUT.md",
+      "M  examples/dakera-ccp-handoff/VALIDATION_RESULTS.md",
+      "AM examples/dakera-ccp-handoff/benchmark_dakera_before_after_tif.py",
+      "M  examples/dakera-ccp-handoff/benchmark_swarm_assembly.py",
+      "M  examples/dakera-ccp-handoff/test_ccp_handoff_examples.py",
+      "M  examples/dakera-ccp-handoff/validate_dakera_ccp_handoff.py"
+    ],
+    "implemented_tif_ccp_validation_available": true,
+    "label": "current_phase5_tif_ccp_worktree",
+    "payload_metrics": {
+      "after_compact_content": {
+        "bytes": 640,
+        "chars": 640,
+        "label": "after_compact_content",
+        "tokens": 121
+      },
+      "after_contradiction_packet": {
+        "bytes": 355,
+        "chars": 355,
+        "label": "after_contradiction_packet",
+        "tokens": 92
+      },
+      "after_decision_only": {
+        "bytes": 229,
+        "chars": 229,
+        "label": "after_decision_only",
+        "tokens": 42
+      },
+      "after_full_json_packet": {
+        "bytes": 1992,
+        "chars": 1992,
+        "label": "after_full_json_packet",
+        "tokens": 535
+      },
+      "after_lazy_projection": {
+        "bytes": 501,
+        "chars": 501,
+        "label": "after_lazy_projection",
+        "tokens": 119
+      },
+      "after_overfetch": {
+        "bytes": 4041,
+        "chars": 4041,
+        "label": "after_overfetch",
+        "tokens": 1028
+      },
+      "after_uncertainty_packet": {
+        "bytes": 366,
+        "chars": 366,
+        "label": "after_uncertainty_packet",
+        "tokens": 95
+      }
+    },
+    "tif_or_ccp_paths_present": {
+      "examples/dakera-ccp-handoff": true,
+      "examples/tif-graph-reliability": true,
+      "examples/tif-provenance": true,
+      "examples/tif-reliability": true
+    },
+    "working_tree_has_uncommitted_changes": true,
+    "worst_after_payload": "after_overfetch"
+  },
+  "before": {
+    "baseline": {
+      "bytes": 1170,
+      "chars": 1170,
+      "label": "before_full_transcript_handoff",
+      "tokens": 222
+    },
+    "commit": "533fd04",
+    "handoff_payload_available": "full_transcript_only_for_this_benchmark",
+    "implemented_tif_ccp_validation_available": false,
+    "label": "pre_tif_origin_main_533fd04",
+    "tif_or_ccp_paths_present": {
+      "examples/dakera-ccp-handoff": false,
+      "examples/tif-graph-reliability": false,
+      "examples/tif-provenance": false,
+      "examples/tif-reliability": false
+    }
+  },
+  "benchmark": "dakera_before_after_tif_ccp",
+  "comparison_points": [
+    {
+      "after": "present: examples/tif-reliability",
+      "before": "absent",
+      "dimension": "T-I-F reliability validation surface",
+      "id": 1,
+      "verdict": "improved"
+    },
+    {
+      "after": "present: examples/tif-provenance",
+      "before": "absent",
+      "dimension": "Feedback-derived provenance validation",
+      "id": 2,
+      "verdict": "improved"
+    },
+    {
+      "after": "present: examples/tif-graph-reliability",
+      "before": "absent",
+      "dimension": "Graph reliability handoff documentation",
+      "id": 3,
+      "verdict": "improved"
+    },
+    {
+      "after": "present: True",
+      "before": "absent",
+      "dimension": "CCP handoff validator",
+      "id": 4,
+      "verdict": "improved"
+    },
+    {
+      "after": "present: True",
+      "before": "absent",
+      "dimension": "Reusable scenario fixture",
+      "id": 5,
+      "verdict": "improved"
+    },
+    {
+      "after": "222 tokens baseline retained for audit comparison",
+      "before": "222 tokens",
+      "dimension": "Full transcript baseline cost",
+      "id": 6,
+      "verdict": "neutral_reference"
+    },
+    {
+      "after": "42 tokens via after_decision_only",
+      "before": "222 tokens, full transcript only in this benchmark",
+      "dimension": "Best compact handoff cost",
+      "id": 7,
+      "verdict": "improved"
+    },
+    {
+      "after": "42 tokens",
+      "before": "not implemented",
+      "dimension": "Decision-only handoff cost",
+      "id": 8,
+      "verdict": "improved"
+    },
+    {
+      "after": "119 tokens",
+      "before": "not implemented",
+      "dimension": "Lazy projection handoff cost",
+      "id": 9,
+      "verdict": "improved"
+    },
+    {
+      "after": "ask_clarification packet available",
+      "before": "not encoded as structured action",
+      "dimension": "Uncertainty/caveat action",
+      "id": 10,
+      "verdict": "improved"
+    },
+    {
+      "after": "surface_contradiction packet available",
+      "before": "not encoded as structured action",
+      "dimension": "Contradiction/falsity action",
+      "id": 11,
+      "verdict": "improved"
+    },
+    {
+      "after": "namespace-agent-isolation scenario available",
+      "before": "not locally validated",
+      "dimension": "Agent isolation scenario",
+      "id": 12,
+      "verdict": "improved"
+    },
+    {
+      "after": "1028 tokens; loses to before baseline",
+      "before": "not measured",
+      "dimension": "Token overfetch honesty",
+      "id": 13,
+      "verdict": "negative_result_preserved"
+    },
+    {
+      "after": "535 tokens",
+      "before": "not measured",
+      "dimension": "Full JSON handoff honesty",
+      "id": 14,
+      "verdict": "mixed"
+    },
+    {
+      "after": "RUNTIME_OUTPUT.json present: True",
+      "before": "absent",
+      "dimension": "Runtime raw evidence artifact",
+      "id": 15,
+      "verdict": "improved"
+    },
+    {
+      "after": "RUNTIME_OUTPUT.md present: True",
+      "before": "absent",
+      "dimension": "Readable runtime report",
+      "id": 16,
+      "verdict": "improved"
+    },
+    {
+      "after": "attempted, but current REST validator still fails 2 associated-recall scenarios",
+      "before": "absent",
+      "dimension": "Associated graph recall proof",
+      "id": 17,
+      "verdict": "still_not_proven"
+    },
+    {
+      "after": "tiktoken, exact=True",
+      "before": "not present in local examples",
+      "dimension": "Exact token accounting",
+      "id": 18,
+      "verdict": "improved"
+    },
+    {
+      "after": "present: True",
+      "before": "absent",
+      "dimension": "Measured benchmark script",
+      "id": 19,
+      "verdict": "improved"
+    },
+    {
+      "after": "no engine, SDK, or MCP tool changes required by this package",
+      "before": "none from examples",
+      "dimension": "Engine/SDK/MCP mutation risk",
+      "id": 20,
+      "verdict": "low_risk"
+    }
+  ],
+  "interpretation": {
+    "negative": "Full JSON and overfetch payloads can be worse than the before full-transcript baseline. Associated graph recall is still not proven by the current REST validator.",
+    "positive": "After T-I-F/CCP, Dakera has concrete local validators and compact handoff packets that did not exist at the pre-T-I-F commit.",
+    "truth_boundary": "This benchmark measures local example availability and payload economy. It does not prove a changed Dakera engine behavior."
+  },
+  "tokenizer": {
+    "encoding": "cl100k_base",
+    "exact": true,
+    "fallback_note": null,
+    "method": "tiktoken",
+    "package": "tiktoken",
+    "version": "0.11.0"
+  }
+}
