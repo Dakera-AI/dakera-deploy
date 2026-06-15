@@ -1,4 +1,4 @@
-name: Playground — Provision CPX31
+name: Playground - Provision CPX31
 
 # Provisions a Hetzner CPX31 in fsn1 with Docker, Dakera, MinIO, Nginx+TLS.
 # This is a one-shot workflow; run it once per playground lifecycle.
@@ -342,6 +342,21 @@ jobs:
             echo "::warning::TLS health returned HTTP $HTTP_CODE — check nginx logs"
           fi
 
+      - name: Seed demo data (AC7 — 5 scenarios)
+        env:
+          DAKERA_ROOT_API_KEY: ${{ secrets.DAKERA_ROOT_API_KEY }}
+          DOMAIN: ${{ inputs.playground_domain }}
+        run: |
+          if [ -n "$DOMAIN" ]; then
+            export DAKERA_URL="https://${DOMAIN}"
+          else
+            export DAKERA_URL="https://${SERVER_IP}"
+          fi
+          echo "Seeding demo data at ${DAKERA_URL}..."
+          # Upload and run the seeding script on the runner (curl against the live server)
+          bash scripts/playground/seed-demo-data.sh
+          echo "Demo data seeded."
+
       - name: Send Telegram notification
         if: always()
         env:
@@ -372,7 +387,7 @@ Dakera: ${DAKERA_VERSION}
 URL: ${URL}
 Health: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-Dakera playground is live. Nginx rate-limiting: 10 req/s per IP."
+Dakera playground is live. Nginx rate-limiting: 10 req/min per IP. 5 demo scenarios seeded."
 
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
