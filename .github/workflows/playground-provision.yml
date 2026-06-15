@@ -1,0 +1,380 @@
+name: Playground — Provision CPX31
+
+# Provisions a Hetzner CPX31 in fsn1 with Docker, Dakera, MinIO, Nginx+TLS.
+# This is a one-shot workflow; run it once per playground lifecycle.
+# To reprovision: set replace_existing=true.
+
+on:
+  workflow_dispatch:
+    inputs:
+      playground_domain:
+        description: "Domain for Let's Encrypt TLS (e.g. play.dakera.ai). Leave empty for self-signed."
+        required: false
+        default: ""
+      dakera_version:
+        description: "Dakera image tag (e.g. latest, 0.11.91)"
+        required: false
+        default: "latest"
+      replace_existing:
+        description: "Delete existing playground server before creating"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+concurrency:
+  group: playground-provision
+  cancel-in-progress: false
+
+env:
+  SERVER_NAME: "dakera-playground"
+  SERVER_TYPE: "cpx31"
+  LOCATION: "fsn1"
+  IMAGE: "ubuntu-24.04"
+  PLAYGROUND_DIR: "/opt/playground"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Provision the Hetzner CPX31 server
+  # ---------------------------------------------------------------------------
+  provision:
+    name: Provision CPX31 in fsn1
+    runs-on: ubuntu-latest
+    outputs:
+      server_ip: ${{ steps.resolve.outputs.server_ip }}
+      server_id: ${{ steps.resolve.outputs.server_id }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install hcloud CLI
+        run: |
+          curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin hcloud
+          hcloud version
+
+      - name: Check for existing server
+        id: check
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          EXISTING_ID=$(hcloud server describe "$SERVER_NAME" --output format="{{ .ID }}" 2>/dev/null || echo "")
+          if [ -n "$EXISTING_ID" ]; then
+            EXISTING_IP=$(hcloud server describe "$SERVER_NAME" --output format="{{ .PublicNet.IPv4.IP }}")
+            echo "server_exists=true"  >> "$GITHUB_OUTPUT"
+            echo "server_id=$EXISTING_ID" >> "$GITHUB_OUTPUT"
+            echo "server_ip=$EXISTING_IP" >> "$GITHUB_OUTPUT"
+            echo "Existing server: id=$EXISTING_ID ip=$EXISTING_IP"
+          else
+            echo "server_exists=false" >> "$GITHUB_OUTPUT"
+            echo "No existing server named $SERVER_NAME."
+          fi
+
+      - name: Delete existing server (if replace_existing=true)
+        if: steps.check.outputs.server_exists == 'true' && inputs.replace_existing == 'true'
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          echo "Deleting existing server $SERVER_NAME..."
+          hcloud server delete "$SERVER_NAME"
+          echo "Deleted. Waiting 15s..."
+          sleep 15
+
+      - name: Abort if server exists and replace_existing=false
+        if: steps.check.outputs.server_exists == 'true' && inputs.replace_existing != 'true'
+        run: |
+          echo "::warning::Server '$SERVER_NAME' already exists. Pass replace_existing=true to recreate."
+          echo "Reusing existing server — skipping creation."
+
+      - name: Register ops SSH key
+        if: steps.check.outputs.server_exists != 'true' || inputs.replace_existing == 'true'
+        id: ssh_key
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HETZNER }}
+        run: bash scripts/playground/hetzner.sh ssh-key || true
+
+      - name: Write cloud-init (Docker + Nginx + Certbot)
+        if: steps.check.outputs.server_exists != 'true' || inputs.replace_existing == 'true'
+        run: |
+          cat > /tmp/playground-cloud-init.yaml << 'CLOUDINIT'
+          #cloud-config
+          package_update: true
+          package_upgrade: false
+          packages:
+            - nginx
+            - certbot
+            - python3-certbot-nginx
+            - curl
+            - openssl
+            - jq
+          runcmd:
+            - curl -fsSL https://get.docker.com | sh
+            - systemctl enable docker
+            - mkdir -p /opt/playground /var/www/certbot /etc/nginx/ssl
+            - touch /tmp/cloud-init-playground-done
+          CLOUDINIT
+          echo "Cloud-init written."
+
+      - name: Create CPX31 server
+        if: steps.check.outputs.server_exists != 'true' || inputs.replace_existing == 'true'
+        id: create
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HETZNER }}
+        run: |
+          KEY_NAME="ops-dakera-ai"
+          PUB_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+69Mv++aOAjMyHWmmtYXp6O31t1jwQXFt9OHzqIoN2 ops@dakera.ai"
+
+          # Ensure SSH key registered
+          FP=$(ssh-keygen -E md5 -lf /dev/stdin <<< "$PUB_KEY" | awk '{print $2}' | sed 's/MD5://')
+          KEY_ID=$(hcloud ssh-key list -o json \
+            | python3 -c "import sys,json; keys=json.load(sys.stdin); \
+              m=[k['id'] for k in keys if k['fingerprint']=='$FP']; print(m[0] if m else '')")
+          if [ -z "$KEY_ID" ]; then
+            KEY_ID=$(hcloud ssh-key create --name "$KEY_NAME" --public-key "$PUB_KEY" \
+              --output format="{{ .ID }}")
+            echo "Registered SSH key: $KEY_ID"
+          else
+            echo "SSH key already registered: $KEY_ID"
+          fi
+
+          echo "Creating $SERVER_NAME ($SERVER_TYPE @ $LOCATION)..."
+          hcloud server create \
+            --name  "$SERVER_NAME" \
+            --type  "$SERVER_TYPE" \
+            --image "$IMAGE" \
+            --location "$LOCATION" \
+            --ssh-key "$KEY_ID" \
+            --user-data-from-file /tmp/playground-cloud-init.yaml \
+            --label "env=playground" \
+            --label "managed_by=dakera-platform"
+
+          SERVER_ID=$(hcloud server describe "$SERVER_NAME" --output format="{{ .ID }}")
+          SERVER_IP=$(hcloud server describe "$SERVER_NAME" --output format="{{ .PublicNet.IPv4.IP }}")
+          echo "server_id=$SERVER_ID" >> "$GITHUB_OUTPUT"
+          echo "server_ip=$SERVER_IP" >> "$GITHUB_OUTPUT"
+          echo "Created: id=$SERVER_ID ip=$SERVER_IP"
+
+      - name: Resolve server details
+        id: resolve
+        run: |
+          if [ "${{ steps.check.outputs.server_exists }}" = "true" ] && [ "${{ inputs.replace_existing }}" != "true" ]; then
+            echo "server_id=${{ steps.check.outputs.server_id }}" >> "$GITHUB_OUTPUT"
+            echo "server_ip=${{ steps.check.outputs.server_ip }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "server_id=${{ steps.create.outputs.server_id }}" >> "$GITHUB_OUTPUT"
+            echo "server_ip=${{ steps.create.outputs.server_ip }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Deploy Dakera Playground stack via SSH
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy Playground Stack
+    runs-on: ubuntu-latest
+    needs: provision
+    env:
+      SERVER_IP: ${{ needs.provision.outputs.server_ip }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Wait for SSH
+        run: |
+          echo "Waiting for SSH on $SERVER_IP..."
+          for i in $(seq 1 36); do
+            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+                -o ConnectTimeout=5 -o BatchMode=yes \
+                root@"$SERVER_IP" "echo ok" 2>/dev/null; then
+              echo "SSH ready."
+              exit 0
+            fi
+            echo "Attempt $i/36..."
+            sleep 10
+          done
+          echo "::error::SSH unavailable after 6 minutes."
+          exit 1
+
+      - name: Wait for cloud-init (Docker + Nginx install)
+        run: |
+          echo "Waiting for cloud-init to complete..."
+          for i in $(seq 1 40); do
+            STATUS=$(ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=10 root@"$SERVER_IP" \
+              "cloud-init status 2>/dev/null || echo unknown")
+            echo "Attempt $i/40 — cloud-init: $STATUS"
+            case "$STATUS" in
+              *done*)  echo "Cloud-init complete."; break ;;
+              *error*) echo "::error::cloud-init failed."; exit 1 ;;
+            esac
+            sleep 15
+          done
+
+      - name: Generate playground secrets
+        id: secrets
+        run: |
+          MINIO_PW=$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 32)
+          echo "minio_password=$MINIO_PW" >> "$GITHUB_OUTPUT"
+          echo "Playground MinIO password generated."
+
+      - name: Copy playground compose file
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            docker/docker-compose.playground.yml \
+            root@"$SERVER_IP":/opt/playground/docker-compose.yml
+
+      - name: Write .env on server
+        env:
+          DAKERA_ROOT_API_KEY: ${{ secrets.DAKERA_ROOT_API_KEY }}
+          MINIO_PASSWORD: ${{ steps.secrets.outputs.minio_password }}
+          DAKERA_VERSION: ${{ inputs.dakera_version }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@"$SERVER_IP" \
+            "tee /opt/playground/.env > /dev/null" << EOF
+          DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:${DAKERA_VERSION}
+          DAKERA_ROOT_API_KEY=${DAKERA_ROOT_API_KEY}
+          MINIO_ROOT_USER=playground
+          MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
+          MINIO_BUCKET=dakera-playground
+          RUST_LOG=warn
+          EOF
+
+      - name: Configure Nginx with TLS
+        env:
+          DOMAIN: ${{ inputs.playground_domain }}
+        run: |
+          DOMAIN="${DOMAIN:-}"
+
+          # Determine TLS cert paths
+          if [ -n "$DOMAIN" ]; then
+            CERT_PATH="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
+            KEY_PATH="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+          else
+            CERT_PATH="/etc/nginx/ssl/playground.crt"
+            KEY_PATH="/etc/nginx/ssl/playground.key"
+          fi
+
+          # Substitute placeholders in nginx config and upload
+          sed "s|SSL_CERT_PLACEHOLDER|${CERT_PATH}|g; s|SSL_KEY_PLACEHOLDER|${KEY_PATH}|g" \
+            docker/nginx-playground.conf > /tmp/nginx-playground-rendered.conf
+
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            /tmp/nginx-playground-rendered.conf \
+            root@"$SERVER_IP":/etc/nginx/sites-available/playground
+
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@"$SERVER_IP" "
+            set -e
+
+            # Self-signed TLS if no domain
+            if [ -z '${DOMAIN}' ]; then
+              mkdir -p /etc/nginx/ssl
+              openssl req -x509 -nodes -days 730 -newkey rsa:2048 \
+                -keyout /etc/nginx/ssl/playground.key \
+                -out /etc/nginx/ssl/playground.crt \
+                -subj '/C=DE/O=Dakera AI/CN=playground' 2>/dev/null
+              echo 'Self-signed TLS certificate created.'
+            fi
+
+            # Activate nginx site
+            ln -sf /etc/nginx/sites-available/playground /etc/nginx/sites-enabled/playground
+            rm -f /etc/nginx/sites-enabled/default
+            nginx -t
+            systemctl restart nginx
+            echo 'Nginx configured and restarted.'
+          "
+
+          # Obtain Let's Encrypt cert if domain provided
+          if [ -n "$DOMAIN" ]; then
+            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@"$SERVER_IP" "
+              certbot --nginx -d '${DOMAIN}' --non-interactive --agree-tos \
+                -m ops@dakera.ai --redirect
+              echo 'Let'\''s Encrypt TLS configured.'
+            "
+          fi
+
+      - name: Start Dakera playground stack
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@"$SERVER_IP" "
+            set -e
+            cd /opt/playground
+            docker compose up -d
+            echo 'Playground stack started.'
+          "
+
+      - name: Verify health endpoint
+        run: |
+          echo "Waiting for Dakera health endpoint..."
+          for i in $(seq 1 30); do
+            if curl -sf --max-time 10 http://"$SERVER_IP":3000/health > /tmp/health.json 2>/dev/null; then
+              echo "Health response:"
+              cat /tmp/health.json
+              echo ""
+              echo "Dakera is healthy!"
+              break
+            fi
+            echo "Attempt $i/30 — waiting..."
+            sleep 10
+          done
+
+          # Verify HTTPS health through nginx
+          SCHEME="https"
+          DOMAIN="${{ inputs.playground_domain }}"
+          if [ -n "$DOMAIN" ]; then
+            TARGET="https://${DOMAIN}/health"
+          else
+            TARGET="https://${SERVER_IP}/health"
+          fi
+          echo "Verifying TLS health at ${TARGET}..."
+          # Allow self-signed cert
+          HTTP_CODE=$(curl -sk --max-time 15 -o /dev/null -w "%{http_code}" "$TARGET" || echo "000")
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "TLS health check PASSED (HTTP $HTTP_CODE)"
+          else
+            echo "::warning::TLS health returned HTTP $HTTP_CODE — check nginx logs"
+          fi
+
+      - name: Send Telegram notification
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DOMAIN: ${{ inputs.playground_domain }}
+          DAKERA_VERSION: ${{ inputs.dakera_version }}
+          STATUS: ${{ job.status }}
+        run: |
+          if [ -n "$DOMAIN" ]; then
+            URL="https://${DOMAIN}"
+          else
+            URL="https://${SERVER_IP} (self-signed)"
+          fi
+
+          if [ "$STATUS" = "success" ]; then
+            ICON="✅"
+            MSG="[Platform] Playground provisioned"
+          else
+            ICON="❌"
+            MSG="[Platform] Playground provision FAILED"
+          fi
+
+          TEXT="${ICON} ${MSG}
+
+Server: ${SERVER_IP} (cpx31, fsn1)
+Dakera: ${DAKERA_VERSION}
+URL: ${URL}
+Health: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+Dakera playground is live. Nginx rate-limiting: 10 req/s per IP."
+
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .)}" \
+            > /dev/null || true
