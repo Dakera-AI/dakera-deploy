@@ -1,0 +1,31 @@
+name: Playground Sandbox Proxy CI
+
+# Runs the sandbox proxy's unit + integration tests (zero npm deps) whenever the
+# proxy code changes. Keeps the DAK-6713 acceptance criterion "CI green" honest.
+
+on:
+  push:
+    paths:
+      - 'docker/playground/proxy/**'
+      - '.github/workflows/playground-proxy-ci.yml'
+  pull_request:
+    paths:
+      - 'docker/playground/proxy/**'
+      - '.github/workflows/playground-proxy-ci.yml'
+
+jobs:
+  test:
+    name: node --test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docker/playground/proxy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Syntax check
+        run: for f in *.js; do node -c "$f"; done
+      - name: Run tests
+        run: node --test
