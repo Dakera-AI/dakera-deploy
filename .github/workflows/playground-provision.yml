@@ -1,6 +1,6 @@
-name: Playground - Provision CAX21
+name: Playground - Provision Server
 
-# Provisions a Hetzner CAX21 (ARM) in nbg1 with Docker, Dakera, MinIO, Nginx+TLS.
+# Provisions a Hetzner server with Docker, Dakera, MinIO, Nginx+TLS.
 # This is a one-shot workflow; run it once per playground lifecycle.
 # To reprovision: set replace_existing=true.
 
@@ -15,6 +15,14 @@ on:
         description: "Dakera image tag (e.g. latest, 0.11.91)"
         required: false
         default: "latest"
+      server_type:
+        description: "Hetzner server type (e.g. cax21, cax31, cpx41, ccx23)"
+        required: false
+        default: "cax21"
+      location:
+        description: "Hetzner datacenter location (nbg1, hel1, ash)"
+        required: false
+        default: "hel1"
       replace_existing:
         description: "Delete existing playground server before creating"
         required: false
@@ -30,8 +38,8 @@ concurrency:
 
 env:
   SERVER_NAME: "dakera-playground"
-  SERVER_TYPE: "cax21"
-  LOCATION: "nbg1"
+  SERVER_TYPE: "${{ inputs.server_type || 'cax21' }}"
+  LOCATION: "${{ inputs.location || 'hel1' }}"
   IMAGE: "ubuntu-24.04"
   PLAYGROUND_DIR: "/opt/playground"
 
@@ -40,7 +48,7 @@ jobs:
   # Job 1: Provision the Hetzner CPX31 server
   # ---------------------------------------------------------------------------
   provision:
-    name: Provision CAX21 in nbg1
+    name: "Provision ${{ inputs.server_type || 'cax21' }} in ${{ inputs.location || 'hel1' }}"
     runs-on: ubuntu-latest
     outputs:
       server_ip: ${{ steps.resolve.outputs.server_ip }}
@@ -118,7 +126,7 @@ jobs:
           CLOUDINIT
           echo "Cloud-init written."
 
-      - name: Create CAX21 server
+      - name: Create server
         if: steps.check.outputs.server_exists != 'true' || inputs.replace_existing == 'true'
         id: create
         env:
@@ -379,7 +387,7 @@ jobs:
             ICON="FAILED"
             MSG="[Platform] Playground provision FAILED"
           fi
-          TEXT=$(printf "%s %s\n\nServer: %s (cax21, nbg1)\nDakera: %s\nURL: %s\nRun: %s\n\nPlayground live. Nginx rate-limit: 10 req/min per IP. 5 demo scenarios seeded." \
+          TEXT=$(printf "%s %s\n\nServer: %s (${{ inputs.server_type || 'cax21' }}, ${{ inputs.location || 'hel1' }})\nDakera: %s\nURL: %s\nRun: %s\n\nPlayground live. Nginx rate-limit: 10 req/min per IP. 5 demo scenarios seeded." \
             "$ICON" "$MSG" "$SERVER_IP" "$DAKERA_VERSION" "$URL" "$RUN_URL")
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
