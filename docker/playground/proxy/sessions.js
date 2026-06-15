@@ -1,0 +1,137 @@
+'use strict';
+
+const crypto = require('crypto');
+
+// =============================================================================
+// Sandbox session store (DAK-6713 req #1, #2, #3) — in-memory, TTL-bounded.
+// =============================================================================
+// A session is identified by the `X-Playground-Session` header. When a client
+// does not present a valid one, requests fall back to an IP-keyed bucket so the
+// caps still apply (a header-less client cannot escape them). A per-IP cap on
+// the number of live sessions bounds header-rotation abuse.
+//
+// All time is injected via a `now()` clock so the logic is deterministic under
+// test.
+// =============================================================================
+
+const SESSION_RE = /^pg_[A-Za-z0-9_-]{8,64}$/;
+
+function newSessionId() {
+  return 'pg_' + crypto.randomBytes(18).toString('base64url');
+}
+
+class SessionStore {
+  /**
+   * @param {object} opts
+   * @param {number} opts.rateLimitPerMin
+   * @param {number} opts.memoryCap
+   * @param {number} opts.ttlMs
+   * @param {number} opts.maxSessionsPerIp
+   * @param {() => number} [opts.now]
+   */
+  constructor(opts) {
+    this.rateLimitPerMin = opts.rateLimitPerMin;
+    this.memoryCap = opts.memoryCap;
+    this.ttlMs = opts.ttlMs;
+    this.maxSessionsPerIp = opts.maxSessionsPerIp;
+    this.now = opts.now || Date.now;
+    /** @type {Map<string, {createdAt:number, calls:number[], memoryCount:number, ip:string, generated:boolean}>} */
+    this.sessions = new Map();
+  }
+
+  _expired(s) {
+    return this.now() - s.createdAt > this.ttlMs;
+  }
+
+  /**
+   * Resolve the session for a request, creating one if needed.
+   * @returns {{ok:true, id:string, generated:boolean, session:object}
+   *          |{ok:false, code:number, error:string, message:string}}
+   */
+  resolve(headerValue, ip) {
+    const hdr = typeof headerValue === 'string' ? headerValue.trim() : '';
+    const provided = SESSION_RE.test(hdr);
+    const key = provided ? hdr : `ip:${ip || 'unknown'}`;
+
+    let s = this.sessions.get(key);
+    if (s && this._expired(s)) {
+      // req #3: 30-min auto-expiry — drop stale state, start fresh.
+      this.sessions.delete(key);
+      s = undefined;
+    }
+
+    if (!s) {
+      // Enforce per-IP live-session ceiling before minting a new session.
+      if (this.maxSessionsPerIp > 0 && this._liveSessionsForIp(ip) >= this.maxSessionsPerIp) {
+        return {
+          ok: false,
+          code: 429,
+          error: 'too_many_sessions',
+          message: `Too many active sandbox sessions from this address (max ${this.maxSessionsPerIp}). Try again later.`,
+        };
+      }
+      s = { createdAt: this.now(), calls: [], memoryCount: 0, ip: ip || 'unknown', generated: !provided };
+      this.sessions.set(key, s);
+    }
+
+    return { ok: true, id: provided ? hdr : key, generated: !provided, session: s };
+  }
+
+  _liveSessionsForIp(ip) {
+    let n = 0;
+    for (const s of this.sessions.values()) {
+      if (s.ip === ip && !this._expired(s)) n += 1;
+    }
+    return n;
+  }
+
+  /**
+   * req #1: sliding 60s window rate limit. Records the call when allowed.
+   * @returns {{ok:true, remaining:number}|{ok:false, retryAfterSec:number}}
+   */
+  checkRate(session) {
+    const now = this.now();
+    const windowStart = now - 60_000;
+    session.calls = session.calls.filter((t) => t > windowStart);
+    if (session.calls.length >= this.rateLimitPerMin) {
+      const oldest = session.calls[0];
+      const retryAfterSec = Math.max(1, Math.ceil((oldest + 60_000 - now) / 1000));
+      return { ok: false, retryAfterSec };
+    }
+    session.calls.push(now);
+    return { ok: true, remaining: this.rateLimitPerMin - session.calls.length };
+  }
+
+  /**
+   * req #2: would storing `count` more memories exceed the cap?
+   * @returns {{ok:true, remaining:number}|{ok:false, remaining:number}}
+   */
+  checkMemoryCap(session, count) {
+    const remaining = this.memoryCap - session.memoryCount;
+    if (count > remaining) return { ok: false, remaining };
+    return { ok: true, remaining };
+  }
+
+  /** Commit a successful store of `count` memories. */
+  commitMemory(session, count) {
+    session.memoryCount += count;
+  }
+
+  /** Evict expired sessions; returns the number removed. */
+  sweep() {
+    let removed = 0;
+    for (const [k, s] of this.sessions) {
+      if (this._expired(s)) {
+        this.sessions.delete(k);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  get size() {
+    return this.sessions.size;
+  }
+}
+
+module.exports = { SessionStore, newSessionId, SESSION_RE };

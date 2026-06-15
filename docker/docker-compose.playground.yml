@@ -130,6 +130,55 @@ services:
     networks:
       - playground-net
 
+  # ==========================================================================
+  # Sandbox Proxy — per-session limits for the public playground (DAK-6713)
+  # Sits between Nginx and the engine, enforcing rate/cap/TTL/allow-list/CORS
+  # that the per-IP Nginx rules cannot express. Injects the root API key so
+  # clients never hold it. Pure Node.js stdlib, zero dependencies.
+  # ==========================================================================
+  sandbox-proxy:
+    build:
+      context: ./playground/proxy
+    image: dakera-playground-sandbox-proxy:latest
+    container_name: playground-sandbox-proxy
+    ports:
+      - "127.0.0.1:3100:3100"
+    environment:
+      - PROXY_PORT=3100
+      - DAKERA_UPSTREAM_URL=http://dakera:3000
+      - DAKERA_ROOT_API_KEY=${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env}
+      - SANDBOX_RATE_LIMIT_PER_MIN=${SANDBOX_RATE_LIMIT_PER_MIN:-10}
+      - SANDBOX_MEMORY_CAP=${SANDBOX_MEMORY_CAP:-50}
+      - SANDBOX_SESSION_TTL_SEC=${SANDBOX_SESSION_TTL_SEC:-1800}
+      - SANDBOX_MAX_SESSIONS_PER_IP=${SANDBOX_MAX_SESSIONS_PER_IP:-20}
+      - SANDBOX_MAX_BODY_BYTES=${SANDBOX_MAX_BODY_BYTES:-262144}
+      - SANDBOX_ALLOWED_ORIGINS=${SANDBOX_ALLOWED_ORIGINS:-https://dakera.ai,https://www.dakera.ai,https://playground.dakera.ai}
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+        reservations:
+          memory: 32M
+          cpus: "0.1"
+    depends_on:
+      dakera:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3100/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - playground-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
 volumes:
   dakera-cache:
   dakera-rocksdb:
