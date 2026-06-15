@@ -365,31 +365,23 @@ jobs:
           DOMAIN: ${{ inputs.playground_domain }}
           DAKERA_VERSION: ${{ inputs.dakera_version }}
           STATUS: ${{ job.status }}
+          RUN_URL: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         run: |
           if [ -n "$DOMAIN" ]; then
             URL="https://${DOMAIN}"
           else
             URL="https://${SERVER_IP} (self-signed)"
           fi
-
           if [ "$STATUS" = "success" ]; then
-            ICON="✅"
+            ICON="OK"
             MSG="[Platform] Playground provisioned"
           else
-            ICON="❌"
+            ICON="FAILED"
             MSG="[Platform] Playground provision FAILED"
           fi
-
-          TEXT="${ICON} ${MSG}
-
-Server: ${SERVER_IP} (cpx31, fsn1)
-Dakera: ${DAKERA_VERSION}
-URL: ${URL}
-Health: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-Dakera playground is live. Nginx rate-limiting: 10 req/min per IP. 5 demo scenarios seeded."
-
+          TEXT=$(printf "%s %s\n\nServer: %s (cpx31, fsn1)\nDakera: %s\nURL: %s\nRun: %s\n\nPlayground live. Nginx rate-limit: 10 req/min per IP. 5 demo scenarios seeded." \
+            "$ICON" "$MSG" "$SERVER_IP" "$DAKERA_VERSION" "$URL" "$RUN_URL")
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":$(echo "$TEXT" | jq -Rs .)}" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":$(printf '%s' "$TEXT" | jq -Rs .)}" \
             > /dev/null || true
