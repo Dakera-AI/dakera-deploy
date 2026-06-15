@@ -31,7 +31,7 @@ concurrency:
 env:
   SERVER_NAME: "dakera-playground"
   SERVER_TYPE: "cpx31"
-  LOCATION: "fsn1"
+  LOCATION: "nbg1"
   IMAGE: "ubuntu-24.04"
   PLAYGROUND_DIR: "/opt/playground"
 
@@ -379,7 +379,7 @@ jobs:
             ICON="FAILED"
             MSG="[Platform] Playground provision FAILED"
           fi
-          TEXT=$(printf "%s %s\n\nServer: %s (cpx31, fsn1)\nDakera: %s\nURL: %s\nRun: %s\n\nPlayground live. Nginx rate-limit: 10 req/min per IP. 5 demo scenarios seeded." \
+          TEXT=$(printf "%s %s\n\nServer: %s (cpx31, nbg1)\nDakera: %s\nURL: %s\nRun: %s\n\nPlayground live. Nginx rate-limit: 10 req/min per IP. 5 demo scenarios seeded." \
             "$ICON" "$MSG" "$SERVER_IP" "$DAKERA_VERSION" "$URL" "$RUN_URL")
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
