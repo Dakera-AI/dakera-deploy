@@ -1,4 +1,4 @@
-name: Playground — Provision CPX31
+name: Playground - Provision CPX31
 
 # Provisions a Hetzner CPX31 in fsn1 with Docker, Dakera, MinIO, Nginx+TLS.
 # This is a one-shot workflow; run it once per playground lifecycle.
