@@ -1,0 +1,15 @@
+{
+  "name": "dakera-playground-sandbox-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sandbox proxy enforcing per-session limits for playground.dakera.ai (DAK-6713)",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  },
+  "license": "UNLICENSED"
+}
