@@ -16,13 +16,13 @@ on:
         required: false
         default: "latest"
       server_type:
-        description: "Hetzner server type (e.g. cax21, cax31, cpx41, ccx23)"
+        description: "Hetzner server type (e.g. ccx23, ccx33, cax21, cax31)"
         required: false
-        default: "cax21"
+        default: "ccx23"
       location:
         description: "Hetzner datacenter location (nbg1, hel1, ash)"
         required: false
-        default: "hel1"
+        default: "nbg1"
       replace_existing:
         description: "Delete existing playground server before creating"
         required: false
@@ -38,8 +38,8 @@ concurrency:
 
 env:
   SERVER_NAME: "dakera-playground"
-  SERVER_TYPE: "${{ inputs.server_type || 'cax21' }}"
-  LOCATION: "${{ inputs.location || 'hel1' }}"
+  SERVER_TYPE: "${{ inputs.server_type || 'ccx23' }}"
+  LOCATION: "${{ inputs.location || 'nbg1' }}"
   IMAGE: "ubuntu-24.04"
   PLAYGROUND_DIR: "/opt/playground"
 
