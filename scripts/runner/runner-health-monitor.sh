@@ -65,18 +65,38 @@ if [ -n "$OOM_PROCS" ]; then
   OOM_ALERT_FILE="$STATE_DIR/last-oom-alert"
   LAST_OOM_ALERT=$(cat "$OOM_ALERT_FILE" 2>/dev/null || echo 0)
   if [ $((NOW - LAST_OOM_ALERT)) -gt 3600 ]; then
-    OOM_MSG="🔴 *[Platform] Runner OOM Detected — ${HOSTNAME}*%0A%0AOOM kill detected in journal. Affected runners restarted.%0A%0AContext:%0A\`$(echo "$OOM_PROCS" | head -2 | tr '\n' ' ' | cut -c1-200)\`"
-    tg_alert "$OOM_MSG"
+    # Suppress alert if agents-paused flag is set (founder pause) — DAK-6700
+    # Flag management: touch/rm /var/lib/runner-health/agents-paused on each runner server
+    if [ -f "$STATE_DIR/agents-paused" ]; then
+      log "OOM detected — Telegram alert suppressed (agents-paused flag: $STATE_DIR/agents-paused)"
+    else
+      OOM_MSG="🔴 *[Platform] Runner OOM Detected — ${HOSTNAME}*%0A%0AOOM kill detected in journal. Affected runners restarted.%0A%0AContext:%0A\`$(echo "$OOM_PROCS" | head -2 | tr '\n' ' ' | cut -c1-200)\`"
+      tg_alert "$OOM_MSG"
+    fi
     echo "$NOW" > "$OOM_ALERT_FILE"
   else
     log "OOM detected — alert suppressed, cooldown $(( 3600 - (NOW - LAST_OOM_ALERT) ))s remaining"
   fi
 fi
 
-# --- Send Telegram alert for restarts ---
+# --- Send Telegram alert for restarts (DAK-6492: silent on success, 4h cooldown on failure) ---
 if [ "$RESTARTED" -gt 0 ]; then
-  MSG="⚠️ *[Platform] Runner Auto-Restart — ${HOSTNAME}*%0A%0A${RESTARTED} runner(s) restarted:%0A$(echo -e "$FAILED_UNITS")%0A%0AAll runners checked and recovered."
-  tg_alert "$MSG"
+  RESTART_ALERT_FILE="$STATE_DIR/last-restart-alert"
+  LAST_RESTART_ALERT=$(cat "$RESTART_ALERT_FILE" 2>/dev/null || echo 0)
+  # Only alert if a restart FAILED (service not back to active)
+  HAS_FAILURE=$(echo -e "$FAILED_UNITS" | grep -v "active)" | grep -v "^$" || true)
+  if [ -n "$HAS_FAILURE" ] && [ $((NOW - LAST_RESTART_ALERT)) -gt 14400 ]; then
+    # Suppress alert if agents-paused flag is set (founder pause) — DAK-6700
+    if [ -f "$STATE_DIR/agents-paused" ]; then
+      log "Runner restart failure — Telegram alert suppressed (agents-paused flag: $STATE_DIR/agents-paused)"
+    else
+      MSG="🔴 *[Platform] Runner Restart FAILED — ${HOSTNAME}*%0A%0A${RESTARTED} runner(s) attempted restart:%0A$(echo -e "$FAILED_UNITS")%0A%0ASome runners did NOT recover."
+      tg_alert "$MSG"
+    fi
+    echo "$NOW" > "$RESTART_ALERT_FILE"
+  else
+    log "Auto-restart: $RESTARTED service(s) handled (all recovered or cooldown active)"
+  fi
 fi
 
 # --- Periodic status log every 30min ---
