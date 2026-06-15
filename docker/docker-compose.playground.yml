@@ -6,7 +6,7 @@
 #   MinIO:   1.5 GB RAM / 1 vCPU (vs 4 GB / 2 vCPU)
 #   Body:    5 MB max (vs 500 MB)
 #   Timeout: 30 s (vs 600 s)
-#   Rate:    Nginx enforces 10 req/s per IP
+#   Rate:    Nginx enforces 10 req/min per IP (AC8)
 #
 # Deploy: docker compose -f docker-compose.playground.yml up -d
 # =============================================================================
