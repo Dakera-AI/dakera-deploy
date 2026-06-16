@@ -25,6 +25,10 @@ function baseConfig(over = {}) {
     maxBodyBytes: 256 * 1024,
     allowedOrigins: ['https://dakera.ai', 'https://playground.dakera.ai'],
     upstreamTimeoutMs: 5000,
+    // LLM compare (DAK-6845) — disabled by default in tests (no real key)
+    openRouterApiKey: '',
+    llmCompareTimeoutMs: 5000,
+    llmRateLimitPer10Min: 5,
     version: 'test',
     ...over,
   };
@@ -56,6 +60,7 @@ async function startProxy(over = {}, upstreamHandler) {
     memoryCap: config.memoryCapPerSession,
     ttlMs: config.sessionTtlMs,
     maxSessionsPerIp: config.maxSessionsPerIp,
+    llmRateLimit: config.llmRateLimitPer10Min,
   });
   const server = createServer(config, store);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -560,5 +565,214 @@ test('batch store namespaces every item against the session (DAK-6757)', async (
   const body = JSON.parse(p.upstream.captured[0].body);
   assert.equal(body.agent_id, ns);
   assert.equal(body.memories[0].agent_id, ns); // per-item agent_id rewritten too
+  await p.close();
+});
+
+// ---------------------------------------------------------------------------
+// unit + integration: LLM compare (DAK-6845)
+// ---------------------------------------------------------------------------
+
+const { handleLlmCompare, SEED_MEMORIES, DEFAULT_MODEL } = require('./llm-compare');
+
+// Minimal noop mocks for the internal I/O helpers.
+function makeOrMock(response) {
+  return async () => ({ status: 200, body: JSON.stringify({ model: 'meta-llama/llama-4-maverick:free', choices: [{ message: { content: response } }] }) });
+}
+const noopSeed = async () => ({ status: 200 });
+const emptyRecall = async () => ({ status: 200, body: JSON.stringify({ results: [] }) });
+
+function makeStore(overrides = {}) {
+  return new SessionStore({
+    rateLimitPerMin: 1000,
+    memoryCap: 50,
+    ttlMs: 1e9,
+    maxSessionsPerIp: 0,
+    llmRateLimit: 5,
+    ...overrides,
+  });
+}
+
+function makeResolved(store, id = 'pg_llmtest0001') {
+  return store.resolve(id, '1.2.3.4');
+}
+
+function makeConfig(overrides = {}) {
+  return {
+    openRouterApiKey: 'test-key',
+    llmCompareTimeoutMs: 5000,
+    upstreamUrl: 'http://127.0.0.1:0',
+    rootApiKey: 'root-key',
+    ...overrides,
+  };
+}
+
+test('llm-compare returns 503 when OPENROUTER_API_KEY is not set (DAK-6845)', async () => {
+  const store = makeStore();
+  const resolved = makeResolved(store);
+  const result = await handleLlmCompare(makeConfig({ openRouterApiKey: '' }), store, resolved, Buffer.from('{"question":"test"}'), {
+    _callOpenRouter: makeOrMock('ok'),
+    _callDakeraRecall: emptyRecall,
+    _callDakeraStoreBatch: noopSeed,
+  });
+  assert.equal(result.status, 503);
+  assert.equal(result.error, 'llm_not_configured');
+});
+
+test('llm-compare returns 400 for missing question field (DAK-6845)', async () => {
+  const store = makeStore();
+  const resolved = makeResolved(store);
+  const result = await handleLlmCompare(makeConfig(), store, resolved, Buffer.from('{"model":"foo"}'), {
+    _callOpenRouter: makeOrMock('ok'),
+    _callDakeraRecall: emptyRecall,
+    _callDakeraStoreBatch: noopSeed,
+  });
+  assert.equal(result.status, 400);
+  assert.equal(result.error, 'bad_request');
+});
+
+test('llm-compare returns 400 for bad JSON body (DAK-6845)', async () => {
+  const store = makeStore();
+  const resolved = makeResolved(store);
+  const result = await handleLlmCompare(makeConfig(), store, resolved, Buffer.from('not json'), {
+    _callOpenRouter: makeOrMock('ok'),
+    _callDakeraRecall: emptyRecall,
+    _callDakeraStoreBatch: noopSeed,
+  });
+  assert.equal(result.status, 400);
+  assert.equal(result.error, 'bad_request');
+});
+
+test('llm-compare successful call returns correct structure (DAK-6845)', async () => {
+  const store = makeStore();
+  const resolved = makeResolved(store);
+  const result = await handleLlmCompare(makeConfig(), store, resolved, Buffer.from(JSON.stringify({ question: 'What medication is the patient taking?' })), {
+    _callOpenRouter: makeOrMock('Some medication answer'),
+    _callDakeraRecall: async () => ({ status: 200, body: JSON.stringify({ results: [{ content: 'Patient takes Metformin 500mg' }] }) }),
+    _callDakeraStoreBatch: noopSeed,
+  });
+  assert.equal(result.status, 200);
+  assert.ok(result.without_memory);
+  assert.ok(result.with_memory);
+  assert.equal(typeof result.processing_time_ms, 'number');
+  assert.ok(Array.isArray(result.with_memory.memories_used));
+  assert.ok(result.with_memory.memories_used.length > 0);
+  assert.equal(result.without_memory.model, DEFAULT_MODEL);
+  assert.equal(result.without_memory.response, 'Some medication answer');
+});
+
+test('llm-compare passes model override to OpenRouter (DAK-6845)', async () => {
+  const store = makeStore();
+  const resolved = makeResolved(store);
+  const capturedModels = [];
+  const result = await handleLlmCompare(makeConfig(), store, resolved, Buffer.from(JSON.stringify({ question: 'hello', model: 'google/gemma-3-27b-it:free' })), {
+    _callOpenRouter: async (key, model) => {
+      capturedModels.push(model);
+      return { status: 200, body: JSON.stringify({ model, choices: [{ message: { content: 'hi' } }] }) };
+    },
+    _callDakeraRecall: emptyRecall,
+    _callDakeraStoreBatch: noopSeed,
+  });
+  assert.equal(result.status, 200);
+  assert.ok(capturedModels.every((m) => m === 'google/gemma-3-27b-it:free'));
+});
+
+test('llm-compare LLM-specific rate limit blocks after 5 calls per 10 min (DAK-6845)', async () => {
+  let now = 0;
+  const store = new SessionStore({ rateLimitPerMin: 1000, memoryCap: 50, ttlMs: 1e9, maxSessionsPerIp: 0, llmRateLimit: 5, now: () => now });
+  const resolved = store.resolve('pg_llmratetest1', '1.1.1.1');
+  const body = Buffer.from(JSON.stringify({ question: 'hello' }));
+  const cfg = makeConfig();
+  const mocks = { _callOpenRouter: makeOrMock('resp'), _callDakeraRecall: emptyRecall, _callDakeraStoreBatch: noopSeed };
+
+  for (let i = 0; i < 5; i++) {
+    const r = await handleLlmCompare(cfg, store, resolved, body, mocks);
+    assert.equal(r.status, 200, `call ${i + 1} should succeed`);
+  }
+  const blocked = await handleLlmCompare(cfg, store, resolved, body, mocks);
+  assert.equal(blocked.status, 429);
+  assert.equal(blocked.error, 'llm_rate_limit_exceeded');
+  assert.ok(blocked.retryAfterSec >= 1);
+
+  // Window expires — should allow again.
+  now = 10 * 60 * 1000 + 1_000;
+  const allowed = await handleLlmCompare(cfg, store, resolved, body, mocks);
+  assert.equal(allowed.status, 200);
+});
+
+test('llm-compare handles OpenRouter 402 gracefully (DAK-6845)', async () => {
+  const store = makeStore();
+  const resolved = makeResolved(store);
+  const result = await handleLlmCompare(makeConfig(), store, resolved, Buffer.from(JSON.stringify({ question: 'test' })), {
+    _callOpenRouter: async () => ({ status: 402, body: JSON.stringify({ error: { message: 'Insufficient credits' } }) }),
+    _callDakeraRecall: emptyRecall,
+    _callDakeraStoreBatch: noopSeed,
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.without_memory.error, 'credits_exhausted');
+  assert.equal(result.with_memory.error, 'credits_exhausted');
+});
+
+test('llm-compare proceeds when Dakera recall fails (DAK-6845)', async () => {
+  const store = makeStore();
+  const resolved = makeResolved(store);
+  const result = await handleLlmCompare(makeConfig(), store, resolved, Buffer.from(JSON.stringify({ question: 'test' })), {
+    _callOpenRouter: makeOrMock('fallback answer'),
+    _callDakeraRecall: async () => { throw new Error('network error'); },
+    _callDakeraStoreBatch: noopSeed,
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.with_memory.recall_warning, 'Dakera recall failed; response may not reflect stored memories.');
+  assert.deepEqual(result.with_memory.memories_used, []);
+});
+
+test('llm-compare seeds memories on first call for a session (DAK-6845)', async () => {
+  const store = makeStore();
+  const resolved = makeResolved(store, 'pg_seedtest001');
+  let seedCalled = false;
+  const result = await handleLlmCompare(makeConfig(), store, resolved, Buffer.from(JSON.stringify({ question: 'test' })), {
+    _callOpenRouter: makeOrMock('ok'),
+    _callDakeraRecall: emptyRecall,
+    _callDakeraStoreBatch: async (url, key, agent, memories) => {
+      seedCalled = true;
+      assert.equal(memories.length, SEED_MEMORIES.length);
+      return { status: 200 };
+    },
+  });
+  assert.equal(result.status, 200);
+  assert.ok(seedCalled, 'seed store should have been called');
+  assert.ok(resolved.session.llmSeeded, 'llmSeeded flag should be set');
+});
+
+test('llm-compare does NOT seed again on second call (DAK-6845)', async () => {
+  const store = makeStore();
+  const resolved = makeResolved(store, 'pg_seedtest002');
+  let seedCallCount = 0;
+  const mocks = {
+    _callOpenRouter: makeOrMock('ok'),
+    _callDakeraRecall: emptyRecall,
+    _callDakeraStoreBatch: async () => { seedCallCount++; return { status: 200 }; },
+  };
+  await handleLlmCompare(makeConfig(), store, resolved, Buffer.from(JSON.stringify({ question: 'first' })), mocks);
+  await handleLlmCompare(makeConfig(), store, resolved, Buffer.from(JSON.stringify({ question: 'second' })), mocks);
+  assert.equal(seedCallCount, 1, 'seed should only fire once per session');
+});
+
+test('llm-compare endpoint accessible via HTTP proxy (integration, DAK-6845)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000, openRouterApiKey: 'fake-key', llmRateLimitPer10Min: 5, llmCompareTimeoutMs: 5000 });
+  // The proxy will try to call OpenRouter (fake-key, won't succeed) and Dakera upstream.
+  // We just verify the proxy routes it correctly (not 403 forbidden_endpoint).
+  const res = await request(p.port, {
+    method: 'POST',
+    path: '/v1/playground/llm-compare',
+    headers: { 'content-type': 'application/json', 'x-playground-session': 'pg_integllm1' },
+    body: JSON.stringify({ question: 'test question' }),
+  });
+  // With a real fake key the OpenRouter call will fail or return 4xx — either way
+  // the endpoint should respond (not 403 forbidden) and include the structured fields.
+  assert.notEqual(res.status, 403, 'llm-compare must not be denied by the allow-list');
+  assert.notEqual(res.status, 404, 'route must exist');
+  const json = JSON.parse(res.body);
+  // Status 200 OR an upstream error (503/502) — either is valid here without real creds.
+  assert.ok(json.without_memory !== undefined || json.error, 'response must be structured');
   await p.close();
 });

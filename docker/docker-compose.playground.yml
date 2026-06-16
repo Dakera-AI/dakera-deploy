@@ -154,6 +154,10 @@ services:
       - SANDBOX_MAX_SESSIONS_PER_IP=${SANDBOX_MAX_SESSIONS_PER_IP:-20}
       - SANDBOX_MAX_BODY_BYTES=${SANDBOX_MAX_BODY_BYTES:-262144}
       - SANDBOX_ALLOWED_ORIGINS=${SANDBOX_ALLOWED_ORIGINS:-https://dakera.ai,https://www.dakera.ai,https://playground.dakera.ai}
+      # LLM side-by-side comparison (DAK-6845): OpenRouter free-model API key.
+      # Required for POST /v1/playground/llm-compare to function.
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - SANDBOX_LLM_RATE_LIMIT=${SANDBOX_LLM_RATE_LIMIT:-5}
     deploy:
       resources:
         limits:

@@ -29,6 +29,7 @@ class SessionStore {
    * @param {number} opts.memoryCap
    * @param {number} opts.ttlMs
    * @param {number} opts.maxSessionsPerIp
+   * @param {number} [opts.llmRateLimit]  – max LLM compare calls per 10 min (DAK-6845)
    * @param {() => number} [opts.now]
    */
   constructor(opts) {
@@ -36,8 +37,9 @@ class SessionStore {
     this.memoryCap = opts.memoryCap;
     this.ttlMs = opts.ttlMs;
     this.maxSessionsPerIp = opts.maxSessionsPerIp;
+    this.llmRateLimit = opts.llmRateLimit !== undefined ? opts.llmRateLimit : 5;
     this.now = opts.now || Date.now;
-    /** @type {Map<string, {createdAt:number, calls:number[], memoryCount:number, ip:string, generated:boolean}>} */
+    /** @type {Map<string, {createdAt:number, calls:number[], memoryCount:number, ip:string, generated:boolean, llmCalls?:number[], llmSeeded?:boolean}>} */
     this.sessions = new Map();
   }
 
@@ -128,6 +130,25 @@ class SessionStore {
   /** Commit a successful store of `count` memories. */
   commitMemory(session, count) {
     session.memoryCount += count;
+  }
+
+  /**
+   * LLM-specific rate limit (DAK-6845): sliding 10-min window.
+   * Called only on POST /v1/playground/llm-compare requests.
+   * Records the call when allowed.
+   * @returns {{ok:true, remaining:number}|{ok:false, retryAfterSec:number}}
+   */
+  checkLlmRate(session) {
+    const now = this.now();
+    const windowStart = now - 10 * 60_000;
+    session.llmCalls = (session.llmCalls || []).filter((t) => t > windowStart);
+    if (session.llmCalls.length >= this.llmRateLimit) {
+      const oldest = session.llmCalls[0];
+      const retryAfterSec = Math.max(1, Math.ceil((oldest + 10 * 60_000 - now) / 1000));
+      return { ok: false, retryAfterSec };
+    }
+    session.llmCalls.push(now);
+    return { ok: true, remaining: this.llmRateLimit - session.llmCalls.length };
   }
 
   /** Evict expired sessions; returns the number removed. */
