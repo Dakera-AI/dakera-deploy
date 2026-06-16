@@ -33,7 +33,7 @@ jobs:
       - name: Verify Docker image exists
         run: |
           echo "Checking ghcr.io/dakera-ai/dakera:${{ inputs.version }}..."
-          for i in $(seq 1 10); do
+          for i in $(seq 1 90); do
             if docker manifest inspect ghcr.io/dakera-ai/dakera:${{ inputs.version }} > /dev/null 2>&1; then
               echo "✅ Image exists (attempt $i/10)"
               exit 0
