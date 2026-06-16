@@ -1,0 +1,82 @@
+name: Playground - Enable SSL (Let's Encrypt)
+
+# Run after playground.dakera.ai A record is added to Cloudflare DNS
+# pointing to 5.75.177.31. This workflow SSHs to the server and runs certbot.
+# One-shot: safe to re-run if cert expires or needs renewal.
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Domain for Let's Encrypt cert"
+        required: false
+        default: "playground.dakera.ai"
+      server_ip:
+        description: "Playground server IP"
+        required: false
+        default: "5.75.177.31"
+
+jobs:
+  ssl:
+    name: "Issue Let's Encrypt cert for ${{ inputs.domain || 'playground.dakera.ai' }}"
+    runs-on: ubuntu-latest
+    env:
+      DOMAIN: ${{ inputs.domain || 'playground.dakera.ai' }}
+      SERVER_IP: ${{ inputs.server_ip || '5.75.177.31' }}
+
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_IP" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Verify DNS points to server
+        run: |
+          RESOLVED=$(dig +short "$DOMAIN" | head -1)
+          echo "DNS: $DOMAIN -> $RESOLVED (expected $SERVER_IP)"
+          if [ "$RESOLVED" != "$SERVER_IP" ]; then
+            echo "ERROR: DNS not yet pointing to $SERVER_IP (got: $RESOLVED)"
+            echo "Add an A record in Cloudflare: $DOMAIN -> $SERVER_IP"
+            exit 1
+          fi
+          echo "DNS verified."
+
+      - name: Wait for SSH
+        run: |
+          echo "Waiting for SSH on $SERVER_IP..."
+          for i in $(seq 1 10); do
+            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 "root@$SERVER_IP" "echo ok" 2>/dev/null; then
+              echo "SSH ready."
+              break
+            fi
+            [ "$i" -eq 10 ] && { echo "SSH unavailable after 100s."; exit 1; }
+            sleep 10
+          done
+
+      - name: Run certbot
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@$SERVER_IP" bash << "REMOTE"
+          set -e
+          certbot certonly --nginx -d "$DOMAIN" \
+            --non-interactive --agree-tos --email admin@dakera.ai
+          cp /etc/letsencrypt/live/"$DOMAIN"/fullchain.pem /etc/nginx/ssl/playground.crt
+          cp /etc/letsencrypt/live/"$DOMAIN"/privkey.pem /etc/nginx/ssl/playground.key
+          nginx -t && systemctl reload nginx
+          echo "SSL cert updated."
+REMOTE
+        env:
+          DOMAIN: ${{ env.DOMAIN }}
+
+      - name: Verify HTTPS
+        run: |
+          sleep 5
+          HEALTH=$(curl -sf "https://$DOMAIN/health" 2>&1)
+          echo "Health: $HEALTH"
+          if echo "$HEALTH" | grep -q '"status":"healthy"'; then
+            echo "HTTPS health check passed!"
+          else
+            echo "WARNING: HTTPS health check did not return healthy response"
+            exit 1
+          fi
