@@ -1,0 +1,10 @@
+[Unit]
+Description=Dakera Playground Health Monitor Timer — DAK-6745
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

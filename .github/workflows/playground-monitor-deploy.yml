@@ -1,0 +1,80 @@
+name: Deploy Playground Monitor - DAK-6745
+on:
+  workflow_dispatch:
+    inputs:
+      playground_ip:
+        description: "Playground server IP"
+        required: false
+        default: "5.75.177.31"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/playground/playground-monitor.sh"
+      - "scripts/playground/playground-monitor.service"
+      - "scripts/playground/playground-monitor.timer"
+
+jobs:
+  deploy-monitor:
+    name: Deploy Monitor to Playground
+    runs-on: ubuntu-latest
+    env:
+      PLAYGROUND_IP: ${{ github.event.inputs.playground_ip || '5.75.177.31' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$PLAYGROUND_IP" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Upload monitor script
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            scripts/playground/playground-monitor.sh \
+            "root@${PLAYGROUND_IP}:/usr/local/bin/playground-monitor.sh"
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            scripts/playground/playground-monitor.service \
+            "root@${PLAYGROUND_IP}:/etc/systemd/system/playground-monitor.service"
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            scripts/playground/playground-monitor.timer \
+            "root@${PLAYGROUND_IP}:/etc/systemd/system/playground-monitor.timer"
+
+      - name: Install and start monitor
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@${PLAYGROUND_IP}" bash << 'REMOTE'
+          set -euo pipefail
+          chmod +x /usr/local/bin/playground-monitor.sh
+          mkdir -p /var/lib/playground-health
+          systemctl daemon-reload
+          systemctl enable playground-monitor.timer
+          systemctl restart playground-monitor.timer
+          echo "--- Timer status ---"
+          systemctl status playground-monitor.timer --no-pager
+          echo "--- Running health check once ---"
+          systemctl start playground-monitor.service || true
+          echo "--- Last 30 journal lines ---"
+          journalctl -u playground-monitor.service -n 30 --no-pager 2>/dev/null || true
+          REMOTE
+
+      - name: Verify monitor is scheduled
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@${PLAYGROUND_IP}" \
+            "systemctl is-active playground-monitor.timer && echo 'Timer: ACTIVE' || echo 'Timer: NOT ACTIVE'"
+
+      - name: Notify Telegram
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            ICON="✅"
+            MSG="Playground monitor deployed and running. Health check every 5min. Alerts: disk >80%, mem >90%, container crash, HTTP failure."
+          else
+            ICON="❌"
+            MSG="Playground monitor deploy FAILED. Manual installation needed."
+          fi
+          printf '{"chat_id":"%s","text":"%s *[Platform] Playground Monitor*\\n\\nIP: %s\\nStatus: %s\\nDAK-6745\\n\\n%s"}' \
+            "1170826474" "$ICON" "$PLAYGROUND_IP" "$STATUS" "$MSG" | \
+          curl -sf -X POST "https://api.telegram.org/bot***REDACTED_BOT_TOKEN***/sendMessage" \
+            -H "Content-Type: application/json" -d @- > /dev/null || true
