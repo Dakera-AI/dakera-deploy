@@ -1,0 +1,82 @@
+name: Deploy Playground Proxy
+
+# Auto-deploys the sandbox proxy to the playground server whenever proxy source
+# changes land on main. Fills the gap left by playground-proxy-ci.yml (tests
+# only) — build-context containers don't auto-update on PR merge without this.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker/playground/proxy/**'
+      - 'docker/docker-compose.playground.yml'
+      - '.github/workflows/playground-proxy-deploy.yml'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason for manual trigger"
+        required: false
+        default: "manual redeploy"
+
+env:
+  PLAYGROUND_IP: ${{ secrets.PLAYGROUND_IP }}
+  PROXY_SRC: docker/playground/proxy
+  PROXY_DEST: /opt/playground/playground/proxy
+  COMPOSE_FILE: /opt/playground/docker-compose.yml
+
+jobs:
+  deploy-proxy:
+    name: Deploy sandbox proxy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$PLAYGROUND_IP" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Copy proxy source to server
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ env.PROXY_SRC }}/*.js \
+            ${{ env.PROXY_SRC }}/Dockerfile \
+            ${{ env.PROXY_SRC }}/package.json \
+            root@${{ env.PLAYGROUND_IP }}:${{ env.PROXY_DEST }}/
+
+      - name: Rebuild and restart proxy
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@${{ env.PLAYGROUND_IP }}" bash << 'REMOTE'
+          set -e
+          cd /opt/playground
+          echo "Building proxy image..."
+          docker compose -f docker-compose.yml build --no-cache sandbox-proxy
+          echo "Restarting sandbox-proxy..."
+          docker compose -f docker-compose.yml up -d --no-deps sandbox-proxy
+          echo "Waiting for health..."
+          sleep 8
+          HEALTH=$(curl -sf http://localhost:3100/health 2>/dev/null) || { echo "Health check failed"; exit 1; }
+          echo "Proxy healthy: $HEALTH"
+          REMOTE
+
+      - name: Notify Telegram on success
+        if: success()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG="✅ [Platform] Playground proxy deployed — $(git log -1 --format='%s')"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$MSG")" > /dev/null
+
+      - name: Notify Telegram on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG="❌ [Platform] Playground proxy deploy FAILED — $(git log -1 --format='%s'). Check: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$MSG")" > /dev/null
