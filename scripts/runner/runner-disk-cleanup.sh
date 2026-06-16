@@ -5,8 +5,8 @@
 
 set -euo pipefail
 
-TELEGRAM_BOT_TOKEN="***REDACTED_BOT_TOKEN***"
-TELEGRAM_CHAT_ID="1170826474"
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN must be set}"
+TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID must be set}"
 LOG="/var/log/runner-disk-cleanup.log"
 HOSTNAME=$(hostname -s)
 DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)

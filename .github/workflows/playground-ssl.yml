@@ -1,7 +1,7 @@
 name: Playground - Enable SSL (Let's Encrypt)
 
-# Run after playground.dakera.ai A record is added to Cloudflare DNS
-# pointing to 5.75.177.31. This workflow SSHs to the server and runs certbot.
+# Run after playground.dakera.ai A record is added to Cloudflare DNS.
+# This workflow SSHs to the server and runs certbot.
 # One-shot: safe to re-run if cert expires or needs renewal.
 
 on:
@@ -14,7 +14,7 @@ on:
       server_ip:
         description: "Playground server IP"
         required: false
-        default: "5.75.177.31"
+        default: ""
 
 jobs:
   ssl:
@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DOMAIN: ${{ inputs.domain || 'playground.dakera.ai' }}
-      SERVER_IP: ${{ inputs.server_ip || '5.75.177.31' }}
+      SERVER_IP: ${{ inputs.server_ip || secrets.PLAYGROUND_IP }}
 
     steps:
       - name: Setup SSH

@@ -5,7 +5,7 @@ on:
       playground_ip:
         description: "Playground server IP"
         required: false
-        default: "5.75.177.31"
+        default: ""
   push:
     branches: [main]
     paths:
@@ -18,7 +18,7 @@ jobs:
     name: Deploy Monitor to Playground
     runs-on: ubuntu-latest
     env:
-      PLAYGROUND_IP: ${{ github.event.inputs.playground_ip || '5.75.177.31' }}
+      PLAYGROUND_IP: ${{ github.event.inputs.playground_ip || secrets.PLAYGROUND_IP }}
     steps:
       - uses: actions/checkout@v4
 
@@ -74,7 +74,7 @@ jobs:
             ICON="❌"
             MSG="Playground monitor deploy FAILED. Manual installation needed."
           fi
-          printf '{"chat_id":"%s","text":"%s *[Platform] Playground Monitor*\\n\\nIP: %s\\nStatus: %s\\nDAK-6745\\n\\n%s"}' \
-            "1170826474" "$ICON" "$PLAYGROUND_IP" "$STATUS" "$MSG" | \
-          curl -sf -X POST "https://api.telegram.org/bot***REDACTED_BOT_TOKEN***/sendMessage" \
+          printf '{"chat_id":"%s","text":"%s *[Platform] Playground Monitor*\\n\\nStatus: %s\\n\\n%s"}' \
+            "${{ secrets.TELEGRAM_CHAT_ID }}" "$ICON" "$STATUS" "$MSG" | \
+          curl -sf -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -H "Content-Type: application/json" -d @- > /dev/null || true
