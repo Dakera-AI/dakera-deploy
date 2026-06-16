@@ -6,9 +6,11 @@ const crypto = require('crypto');
 // Sandbox session store (DAK-6713 req #1, #2, #3) — in-memory, TTL-bounded.
 // =============================================================================
 // A session is identified by the `X-Playground-Session` header. When a client
-// does not present a valid one, requests fall back to an IP-keyed bucket so the
-// caps still apply (a header-less client cannot escape them). A per-IP cap on
-// the number of live sessions bounds header-rotation abuse.
+// does not present a valid one (no header or non-pg_ value), a fresh pg_xxx
+// session is minted and returned via X-Playground-Session so the client can
+// reuse it on subsequent requests. This guarantees every client gets a unique
+// namespace for memory isolation (DAK-6757/DAK-6783). A per-IP cap on the
+// number of live sessions bounds header-rotation abuse.
 //
 // All time is injected via a `now()` clock so the logic is deterministic under
 // test.
@@ -51,6 +53,9 @@ class SessionStore {
   resolve(headerValue, ip) {
     const hdr = typeof headerValue === 'string' ? headerValue.trim() : '';
     const provided = SESSION_RE.test(hdr);
+    // For clients with a valid pg_xxx header, use it as the key.
+    // For clients without a valid header, look up any existing legacy ip:-keyed
+    // session so in-flight requests aren't orphaned (DAK-6783).
     const key = provided ? hdr : `ip:${ip || 'unknown'}`;
 
     let s = this.sessions.get(key);
@@ -70,10 +75,18 @@ class SessionStore {
           message: `Too many active sandbox sessions from this address (max ${this.maxSessionsPerIp}). Try again later.`,
         };
       }
+      // Mint a fresh pg_xxx session ID for new sessions — both for clients that
+      // provided no header AND for IP-fallback clients. Returning a pg_xxx ID
+      // via X-Playground-Session lets the client reuse it on subsequent requests,
+      // giving every client a unique engine namespace (DAK-6757/DAK-6783).
+      const mintedId = provided ? hdr : newSessionId();
       s = { createdAt: this.now(), calls: [], memoryCount: 0, ip: ip || 'unknown', generated: !provided };
-      this.sessions.set(key, s);
+      this.sessions.set(mintedId, s);
+      return { ok: true, id: mintedId, generated: !provided, session: s };
     }
 
+    // Existing session: for pg_xxx clients return their key; for legacy ip:-keyed
+    // sessions return the key too (they expire within 30 min and get pg_xxx after).
     return { ok: true, id: provided ? hdr : key, generated: !provided, session: s };
   }
 

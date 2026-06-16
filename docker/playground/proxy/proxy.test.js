@@ -492,19 +492,58 @@ test('agent_id is namespaced per session before forwarding (DAK-6757)', async ()
   await p.close();
 });
 
-test('header-less clients are isolated by IP bucket namespace (DAK-6757)', async () => {
+test('header-less clients get a fresh pg_xxx session and unique namespace (DAK-6757/DAK-6783)', async () => {
   const p = await startProxy({ rateLimitPerMin: 1000 }, memoryEngine());
-  // No X-Playground-Session header -> falls back to ip: bucket; still namespaced.
+  // No X-Playground-Session header -> proxy mints a new pg_xxx session ID and
+  // returns it via X-Playground-Session so the client can reuse it.
   const store = await request(p.port, {
     method: 'POST',
     path: '/v1/memory/store',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ agent_id: 'playground-demo', content: 'ip-bucket secret' }),
+    body: JSON.stringify({ agent_id: 'playground-demo', content: 'session-less secret' }),
   });
   assert.equal(store.status, 200);
+  // Proxy should return a pg_xxx session ID in the response header.
+  const mintedSession = store.headers['x-playground-session'];
+  assert.ok(mintedSession, 'proxy must return X-Playground-Session for header-less clients');
+  assert.ok(/^pg_[A-Za-z0-9_-]{8,}$/.test(mintedSession), `minted session must match pg_xxx format, got: ${mintedSession}`);
+  // Forwarded body must use the unique namespace for this session.
   const seen = JSON.parse(p.upstream.captured[0].body).agent_id;
   assert.ok(seen.startsWith('playground-demo-'));
   assert.notEqual(seen, 'playground-demo');
+  await p.close();
+});
+
+test('two clients without session headers get different namespaces (DAK-6783 cross-session isolation)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000 }, memoryEngine());
+
+  // Client A stores a secret (no session header).
+  const storeA = await request(p.port, {
+    method: 'POST',
+    path: '/v1/memory/store',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ agent_id: 'playground-demo', content: 'client-A-secret' }),
+  });
+  assert.equal(storeA.status, 200);
+  const sessionA = storeA.headers['x-playground-session'];
+  const nsA = JSON.parse(p.upstream.captured[0].body).agent_id;
+
+  // Client B (no session header either) stores something.
+  const storeB = await request(p.port, {
+    method: 'POST',
+    path: '/v1/memory/store',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ agent_id: 'playground-demo', content: 'client-B-secret' }),
+  });
+  assert.equal(storeB.status, 200);
+  const sessionB = storeB.headers['x-playground-session'];
+  const nsB = JSON.parse(p.upstream.captured[1].body).agent_id;
+
+  // Each client must have received a DIFFERENT session ID and namespace.
+  assert.notEqual(sessionA, sessionB, 'each client must get a unique session ID');
+  assert.notEqual(nsA, nsB, 'each client must get a unique engine namespace');
+  assert.ok(nsA.startsWith('playground-demo-'));
+  assert.ok(nsB.startsWith('playground-demo-'));
   await p.close();
 });
 
