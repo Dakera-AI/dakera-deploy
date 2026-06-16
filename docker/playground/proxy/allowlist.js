@@ -54,9 +54,10 @@ const ALLOW = [
   compile('POST', '/v1/knowledge/graph'),
   compile('GET', '/v1/memories/{seg}/graph'),
   compile('GET', '/v1/memories/{seg}/path'),
-  // NOTE: /v1/memories/{seg}/links is POST-only in the engine (link creation,
-  // lib.rs:449). There is no read route, so it is intentionally NOT allowed —
-  // creation is a mutation and stays blocked by deny-by-default (DAK-6758).
+  // KG link creation — POST-only in the engine (lib.rs:449 post(memory_link)).
+  // Required by all SDK quickstarts: py client.memory_link(), js memoryLink(),
+  // go MemoryLink(), rs memory_link() (DAK-6776).
+  compile('POST', '/v1/memories/{seg}/links'),
 ];
 
 // Endpoints that store one or more memories — used to apply the memory cap.
