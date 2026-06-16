@@ -21,7 +21,7 @@ DISK_COOLDOWN=3600      # 1h — disk doesn't change that fast
 MEM_COOLDOWN=1800       # 30min
 CONTAINER_COOLDOWN=300  # 5min — containers must stay up
 
-CONTAINERS=("dakera" "sandbox-proxy" "minio")
+CONTAINERS=("playground-dakera" "playground-sandbox-proxy" "playground-minio")
 
 mkdir -p "$STATE_DIR"
 
