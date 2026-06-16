@@ -35,19 +35,28 @@ const ALLOW = [
   compile('POST', '/v1/memories/recall/batch'),
   compile('POST', '/v1/memory/search'),
   compile('GET', '/v1/memory/get/{seg}'),
-  compile('GET', '/v1/memory/importance'),
+  // Scenario 5 (memory decay): importance update is a POST in the engine
+  // (lib.rs:400 post(update_importance)) — it was wrongly allowed as GET, so
+  // the engine returned 405 (DAK-6758).
+  compile('POST', '/v1/memory/importance'),
 
   // --- routing demo (read-only classifier) ---
   compile('POST', '/v1/route'),
 
   // --- knowledge graph scenario (read-only) ---
-  compile('POST', '/v1/knowledge/query'),
-  compile('GET', '/v1/knowledge/graph'),
+  // KG-2 query + path traversal are GET routes in the engine
+  // (lib.rs:455-456 get(kg_query) / get(kg_path)) — they were wrongly allowed
+  // as POST, so the proxy 403'd query and the engine 405'd path (DAK-6758).
+  compile('GET', '/v1/knowledge/query'),
+  compile('GET', '/v1/knowledge/path'),
+  // /v1/knowledge/graph is POST-only in the engine (lib.rs:483 post). The dead
+  // GET entry was removed (it could only ever 405).
   compile('POST', '/v1/knowledge/graph'),
-  compile('POST', '/v1/knowledge/path'),
   compile('GET', '/v1/memories/{seg}/graph'),
-  compile('GET', '/v1/memories/{seg}/links'),
   compile('GET', '/v1/memories/{seg}/path'),
+  // NOTE: /v1/memories/{seg}/links is POST-only in the engine (link creation,
+  // lib.rs:449). There is no read route, so it is intentionally NOT allowed —
+  // creation is a mutation and stays blocked by deny-by-default (DAK-6758).
 ];
 
 // Endpoints that store one or more memories — used to apply the memory cap.
