@@ -91,8 +91,29 @@ test('allow-list permits sandbox-safe endpoints', () => {
   assert.ok(isAllowed('POST', '/v1/memory/recall'));
   assert.ok(isAllowed('POST', '/v1/memory/search'));
   assert.ok(isAllowed('GET', '/v1/memory/get/mem_123'));
-  assert.ok(isAllowed('POST', '/v1/knowledge/query'));
+  assert.ok(isAllowed('GET', '/v1/knowledge/query'));
   assert.ok(isAllowed('GET', '/v1/memories/mem_9/graph'));
+});
+
+// DAK-6758: the allow-list methods must match the engine route table
+// (crates/api/src/lib.rs), or the proxy 403s (wrong proxy method) or the engine
+// 405s (wrong engine method) — breaking playground scenarios 4 and 5.
+test('allow-list methods match engine routes (DAK-6758)', () => {
+  // Scenario 4 knowledge query + path: engine has GET (lib.rs:455-456).
+  assert.ok(isAllowed('GET', '/v1/knowledge/query'));
+  assert.ok(isAllowed('GET', '/v1/knowledge/path'));
+  assert.ok(!isAllowed('POST', '/v1/knowledge/query')); // old wrong method 403'd
+  assert.ok(!isAllowed('POST', '/v1/knowledge/path'));
+  // Scenario 5 memory decay: engine has POST (lib.rs:400).
+  assert.ok(isAllowed('POST', '/v1/memory/importance'));
+  assert.ok(!isAllowed('GET', '/v1/memory/importance')); // old wrong method 405'd
+  // knowledge/graph is POST-only in the engine (lib.rs:483); GET was dead.
+  assert.ok(isAllowed('POST', '/v1/knowledge/graph'));
+  assert.ok(!isAllowed('GET', '/v1/knowledge/graph'));
+  // {id}/links is POST-only link creation (a mutation) — no read route exists,
+  // so it must stay blocked by deny-by-default.
+  assert.ok(!isAllowed('GET', '/v1/memories/mem_1/links'));
+  assert.ok(!isAllowed('POST', '/v1/memories/mem_1/links'));
 });
 
 test('allow-list denies admin/delete/bulk/forget by default', () => {
@@ -311,6 +332,33 @@ test('non-2xx store response does not consume the memory cap', async () => {
   // cap not consumed → a second (succeeding shape) request still allowed by cap
   const sess = p.store.resolve('pg_failtest', '127.0.0.1').session;
   assert.equal(sess.memoryCount, 0);
+  await p.close();
+});
+
+// DAK-6758: the remaining sandbox memory budget must be surfaced on every store
+// response (success too), not only on the cap-exceeded 403, so the playground UI
+// can show usage during normal stores.
+test('successful store returns X-Sandbox-Memory-Remaining (DAK-6758)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000, memoryCapPerSession: 50 });
+  const headers = { 'content-type': 'application/json', 'x-playground-session': 'pg_remaintest' };
+  const r1 = await request(p.port, { method: 'POST', path: '/v1/memory/store', headers, body: JSON.stringify({ content: 'a' }) });
+  assert.equal(r1.status, 200);
+  assert.equal(r1.headers['x-sandbox-memory-remaining'], '49'); // 50 - 1 committed
+  const r2 = await request(p.port, { method: 'POST', path: '/v1/memories/store/batch', headers, body: JSON.stringify({ memories: [1, 2, 3] }) });
+  assert.equal(r2.status, 200);
+  assert.equal(r2.headers['x-sandbox-memory-remaining'], '46'); // 49 - 3 committed
+  await p.close();
+});
+
+test('failed store reports unchanged X-Sandbox-Memory-Remaining (DAK-6758)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000, memoryCapPerSession: 10 }, (req, res) => {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad' }));
+  });
+  const headers = { 'content-type': 'application/json', 'x-playground-session': 'pg_remainfail' };
+  const r = await request(p.port, { method: 'POST', path: '/v1/memory/store', headers, body: '{}' });
+  assert.equal(r.status, 400);
+  assert.equal(r.headers['x-sandbox-memory-remaining'], '10'); // nothing stored → budget intact
   await p.close();
 });
 

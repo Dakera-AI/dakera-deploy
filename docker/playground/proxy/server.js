@@ -302,9 +302,11 @@ function createServer(config, store) {
     // req #2: memory cap (pre-check before forwarding so we never store past it).
     const kind = storeKind(method, path);
     let storeCount = 0;
+    let memRemainingBefore = 0; // sandbox memory budget available before this store
     if (kind !== 'none') {
       storeCount = countMemories(kind, bodyBuf);
       const cap = store.checkMemoryCap(resolved.session, storeCount);
+      memRemainingBefore = cap.remaining;
       if (!cap.ok) {
         sendJson(
           res,
@@ -339,11 +341,23 @@ function createServer(config, store) {
       }
     }
 
-    // Commit the memory count when the engine confirms success (2xx).
+    // Commit the memory count when the engine confirms success (2xx) and surface
+    // the remaining sandbox memory budget on EVERY store response (DAK-6758), not
+    // just on cap-exceeded 403s — so the playground UI can show usage during
+    // normal use. On success the budget reflects the just-committed memories; on
+    // a non-2xx response nothing was stored, so the budget is unchanged.
     if (storeCount > 0) {
       const origWriteHead = res.writeHead.bind(res);
       res.writeHead = (status, ...rest) => {
-        if (status >= 200 && status < 300) store.commitMemory(resolved.session, storeCount);
+        let remaining = memRemainingBefore;
+        if (status >= 200 && status < 300) {
+          store.commitMemory(resolved.session, storeCount);
+          remaining = memRemainingBefore - storeCount;
+        }
+        const headers = rest.length && rest[rest.length - 1] && typeof rest[rest.length - 1] === 'object'
+          ? rest[rest.length - 1]
+          : null;
+        if (headers) headers['X-Sandbox-Memory-Remaining'] = String(Math.max(0, remaining));
         return origWriteHead(status, ...rest);
       };
     }
