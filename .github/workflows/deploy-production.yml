@@ -33,11 +33,16 @@ jobs:
       - name: Verify Docker image exists
         run: |
           echo "Checking ghcr.io/dakera-ai/dakera:${{ inputs.version }}..."
-          docker manifest inspect ghcr.io/dakera-ai/dakera:${{ inputs.version }} > /dev/null 2>&1 || {
-            echo "❌ Image ghcr.io/dakera-ai/dakera:${{ inputs.version }} not found in registry"
-            exit 1
-          }
-          echo "✅ Image exists"
+          for i in $(seq 1 10); do
+            if docker manifest inspect ghcr.io/dakera-ai/dakera:${{ inputs.version }} > /dev/null 2>&1; then
+              echo "✅ Image exists (attempt $i/10)"
+              exit 0
+            fi
+            echo "⏳ Attempt $i/10: image not yet available, waiting 60s (ARM build lag)..."
+            sleep 60
+          done
+          echo "❌ Image ghcr.io/dakera-ai/dakera:${{ inputs.version }} not found after 10 minutes"
+          exit 1
 
       - name: Checkout deploy config
         uses: actions/checkout@v6
