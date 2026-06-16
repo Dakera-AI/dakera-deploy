@@ -6,6 +6,7 @@ const http = require('http');
 const { SessionStore } = require('./sessions');
 const { isAllowed, storeKind } = require('./allowlist');
 const { createServer, corsHeaders, countMemories } = require('./server');
+const { sessionNamespace, rewriteRequestAgentId, restoreResponseAgentId } = require('./namespace');
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -310,5 +311,167 @@ test('non-2xx store response does not consume the memory cap', async () => {
   // cap not consumed → a second (succeeding shape) request still allowed by cap
   const sess = p.store.resolve('pg_failtest', '127.0.0.1').session;
   assert.equal(sess.memoryCount, 0);
+  await p.close();
+});
+
+// ---------------------------------------------------------------------------
+// unit: per-session agent_id namespacing (DAK-6757)
+// ---------------------------------------------------------------------------
+
+test('sessionNamespace is deterministic, prefixed, and per-session unique (DAK-6757)', () => {
+  const a = sessionNamespace('pg_abcdefgh');
+  const b = sessionNamespace('pg_abcdefgh');
+  const c = sessionNamespace('pg_zzzzzzzz');
+  assert.equal(a, b); // deterministic — a session can recall its own stores
+  assert.notEqual(a, c); // different sessions -> different namespaces
+  assert.match(a, /^playground-demo-[0-9a-f]{12}$/);
+});
+
+test('rewriteRequestAgentId rewrites top-level + nested and captures original (DAK-6757)', () => {
+  const ns = sessionNamespace('pg_session1');
+  const r = rewriteRequestAgentId(
+    Buffer.from(JSON.stringify({ agent_id: 'playground-demo', memories: [{ agent_id: 'playground-demo', content: 'x' }, { content: 'y' }] })),
+    ns,
+  );
+  const parsed = JSON.parse(r.body.toString());
+  assert.equal(parsed.agent_id, ns); // top-level rewritten
+  assert.equal(parsed.memories[0].agent_id, ns); // nested rewritten when present
+  assert.equal(parsed.memories[1].agent_id, undefined); // nested without agent_id inherits top-level
+  assert.equal(r.clientAgentId, 'playground-demo');
+});
+
+test('rewriteRequestAgentId forces namespace when agent_id omitted (DAK-6757)', () => {
+  const ns = sessionNamespace('pg_session2');
+  const r = rewriteRequestAgentId(Buffer.from(JSON.stringify({ query: 'bank account' })), ns);
+  assert.equal(JSON.parse(r.body.toString()).agent_id, ns); // forced — cannot fall back to shared default
+  assert.equal(r.clientAgentId, 'playground-demo'); // restore to public placeholder
+});
+
+test('rewriteRequestAgentId leaves non-JSON and custom agent_id intact (DAK-6757)', () => {
+  const ns = sessionNamespace('pg_session3');
+  const bad = rewriteRequestAgentId(Buffer.from('not json'), ns);
+  assert.equal(bad.body.toString(), 'not json');
+  assert.equal(bad.clientAgentId, null); // not rewritten
+  const custom = rewriteRequestAgentId(Buffer.from(JSON.stringify({ agent_id: 'demo', content: 'z' })), ns);
+  assert.equal(custom.clientAgentId, 'demo'); // original preserved for response restore
+});
+
+test('restoreResponseAgentId swaps the namespace back to the client value (DAK-6757)', () => {
+  const ns = sessionNamespace('pg_session4');
+  const body = Buffer.from(JSON.stringify({ agent_id: ns, results: [`${ns} stored`] }));
+  const restored = JSON.parse(restoreResponseAgentId(body, ns, 'playground-demo').toString());
+  assert.equal(restored.agent_id, 'playground-demo');
+  assert.equal(restored.results[0], 'playground-demo stored'); // every occurrence swapped
+  // unrelated body untouched
+  const plain = Buffer.from('{"ok":true}');
+  assert.equal(restoreResponseAgentId(plain, ns, 'playground-demo').toString(), '{"ok":true}');
+});
+
+// ---------------------------------------------------------------------------
+// integration: cross-session isolation end-to-end (DAK-6757 acceptance)
+// ---------------------------------------------------------------------------
+
+// Stateful mock engine: a per-agent_id memory store, mirroring how the real
+// engine isolates by agent_id. Lets us prove a session cannot read another's.
+function memoryEngine() {
+  const byAgent = new Map();
+  return (req, res, captured) => {
+    let parsed = {};
+    try {
+      parsed = JSON.parse(captured[captured.length - 1].body);
+    } catch {
+      /* ignore */
+    }
+    const agent = parsed.agent_id || 'default';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    if (req.url.includes('/store')) {
+      const arr = byAgent.get(agent) || [];
+      arr.push(parsed.content);
+      byAgent.set(agent, arr);
+      res.end(JSON.stringify({ ok: true, agent_id: agent }));
+    } else if (req.url.includes('/recall')) {
+      res.end(JSON.stringify({ agent_id: agent, results: byAgent.get(agent) || [] }));
+    } else {
+      res.end(JSON.stringify({ agent_id: agent }));
+    }
+  };
+}
+
+function storeReq(port, session, content) {
+  return request(port, {
+    method: 'POST',
+    path: '/v1/memory/store',
+    headers: { 'content-type': 'application/json', 'x-playground-session': session },
+    body: JSON.stringify({ agent_id: 'playground-demo', content }),
+  });
+}
+
+function recallReq(port, session, query) {
+  return request(port, {
+    method: 'POST',
+    path: '/v1/memory/recall',
+    headers: { 'content-type': 'application/json', 'x-playground-session': session },
+    body: JSON.stringify({ agent_id: 'playground-demo', query }),
+  });
+}
+
+test('a fresh session cannot recall another session PII (DAK-6757 AC#1)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000 }, memoryEngine());
+  await storeReq(p.port, 'pg_sessionAAA1', 'Alice Chen is a software engineer');
+  await storeReq(p.port, 'pg_sessionBBB1', 'SECRET bank account 1234-5678-9012');
+
+  // Session C — brand new — tries to recall the bank account.
+  const c = await recallReq(p.port, 'pg_sessionCCC1', 'bank account');
+  const cj = JSON.parse(c.body);
+  assert.deepEqual(cj.results, []); // isolated — sees nothing from A or B
+  assert.equal(cj.agent_id, 'playground-demo'); // response restored, no namespace leak
+
+  // Session B can still recall its OWN memory (deterministic namespace).
+  const b = await recallReq(p.port, 'pg_sessionBBB1', 'bank account');
+  assert.deepEqual(JSON.parse(b.body).results, ['SECRET bank account 1234-5678-9012']);
+  await p.close();
+});
+
+test('agent_id is namespaced per session before forwarding (DAK-6757)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000 });
+  await storeReq(p.port, 'pg_nsOne0001', 'hello one');
+  await storeReq(p.port, 'pg_nsTwo0002', 'hello two');
+  const a1 = JSON.parse(p.upstream.captured[0].body).agent_id;
+  const a2 = JSON.parse(p.upstream.captured[1].body).agent_id;
+  assert.notEqual(a1, 'playground-demo'); // client value never reaches the engine verbatim
+  assert.ok(a1.startsWith('playground-demo-'));
+  assert.notEqual(a1, a2); // distinct sessions -> distinct engine namespaces
+  await p.close();
+});
+
+test('header-less clients are isolated by IP bucket namespace (DAK-6757)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000 }, memoryEngine());
+  // No X-Playground-Session header -> falls back to ip: bucket; still namespaced.
+  const store = await request(p.port, {
+    method: 'POST',
+    path: '/v1/memory/store',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ agent_id: 'playground-demo', content: 'ip-bucket secret' }),
+  });
+  assert.equal(store.status, 200);
+  const seen = JSON.parse(p.upstream.captured[0].body).agent_id;
+  assert.ok(seen.startsWith('playground-demo-'));
+  assert.notEqual(seen, 'playground-demo');
+  await p.close();
+});
+
+test('batch store namespaces every item against the session (DAK-6757)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000, memoryCapPerSession: 50 });
+  const ns = sessionNamespace('pg_batchns01');
+  const res = await request(p.port, {
+    method: 'POST',
+    path: '/v1/memories/store/batch',
+    headers: { 'content-type': 'application/json', 'x-playground-session': 'pg_batchns01' },
+    body: JSON.stringify({ agent_id: 'playground-demo', memories: [{ agent_id: 'playground-demo', content: 'a' }, { content: 'b' }] }),
+  });
+  assert.equal(res.status, 200);
+  const body = JSON.parse(p.upstream.captured[0].body);
+  assert.equal(body.agent_id, ns);
+  assert.equal(body.memories[0].agent_id, ns); // per-item agent_id rewritten too
   await p.close();
 });
