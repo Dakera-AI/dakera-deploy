@@ -68,6 +68,11 @@ const config = {
   // How often to sweep expired sessions out of memory.
   sweepIntervalMs: intEnv('SANDBOX_SWEEP_INTERVAL_SEC', 60) * 1000,
 
+  // LLM comparison endpoint (DAK-6845) — OpenRouter free-model side-by-side.
+  openRouterApiKey: process.env.OPENROUTER_API_KEY || '',
+  llmCompareTimeoutMs: intEnv('LLM_COMPARE_TIMEOUT_SEC', 30) * 1000,
+  llmRateLimitPer10Min: intEnv('SANDBOX_LLM_RATE_LIMIT', 5),
+
   version: process.env.PROXY_VERSION || 'dak6713-1',
 };
 

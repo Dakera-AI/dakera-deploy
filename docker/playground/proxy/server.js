@@ -5,6 +5,7 @@ const { URL } = require('url');
 const { isAllowed, storeKind } = require('./allowlist');
 const { SessionStore } = require('./sessions');
 const { sessionNamespace, rewriteRequestAgentId, restoreResponseAgentId } = require('./namespace');
+const { handleLlmCompare } = require('./llm-compare');
 
 // =============================================================================
 // Dakera Playground Sandbox Proxy (DAK-6713)
@@ -248,6 +249,59 @@ function createServer(config, store) {
       return;
     }
     const sessionHeaders = { ...cors, 'X-Playground-Session': resolved.id };
+
+    // LLM side-by-side comparison (DAK-6845) — handled internally by the proxy,
+    // not forwarded to the engine. Must come before the deny-by-default allow-list
+    // because the endpoint is not a Dakera engine route.
+    if (path === '/v1/playground/llm-compare' && method === 'POST') {
+      // Apply the general per-session rate limit first — LLM calls count toward
+      // the 30/min cap to prevent API-level abuse.
+      const rate = store.checkRate(resolved.session);
+      if (!rate.ok) {
+        sendJson(
+          res,
+          429,
+          { error: 'rate_limit_exceeded', message: `Sandbox limit is ${config.rateLimitPerMin} requests/min per session.`, retry_after: rate.retryAfterSec },
+          { ...sessionHeaders, 'Retry-After': String(rate.retryAfterSec) },
+        );
+        return;
+      }
+
+      let llmBodyBuf = Buffer.alloc(0);
+      try {
+        llmBodyBuf = await readBody(req, config.maxBodyBytes);
+      } catch (err) {
+        if (err && err.tooLarge) {
+          sendJson(res, 413, { error: 'payload_too_large', message: `Request body exceeds the sandbox limit of ${config.maxBodyBytes} bytes.` }, sessionHeaders);
+        } else {
+          sendJson(res, 400, { error: 'bad_request', message: 'Could not read request body.' }, sessionHeaders);
+        }
+        return;
+      }
+
+      let llmResult;
+      try {
+        llmResult = await handleLlmCompare(config, store, resolved, llmBodyBuf);
+      } catch {
+        sendJson(res, 500, { error: 'internal_error', message: 'LLM comparison failed unexpectedly.' }, sessionHeaders);
+        return;
+      }
+
+      const llmHeaders = { ...sessionHeaders, 'X-Sandbox-Rate-Remaining': String(rate.remaining) };
+      if (llmResult.status === 200) {
+        sendJson(
+          res,
+          200,
+          { without_memory: llmResult.without_memory, with_memory: llmResult.with_memory, processing_time_ms: llmResult.processing_time_ms },
+          llmHeaders,
+        );
+      } else if (llmResult.retryAfterSec) {
+        sendJson(res, llmResult.status, { error: llmResult.error, message: llmResult.message }, { ...llmHeaders, 'Retry-After': String(llmResult.retryAfterSec) });
+      } else {
+        sendJson(res, llmResult.status, { error: llmResult.error, message: llmResult.message }, llmHeaders);
+      }
+      return;
+    }
 
     // req #4: deny-by-default endpoint allow-list.
     if (!isAllowed(method, path)) {

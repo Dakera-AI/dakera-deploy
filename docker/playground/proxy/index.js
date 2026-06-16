@@ -22,6 +22,7 @@ function main() {
     memoryCap: config.memoryCapPerSession,
     ttlMs: config.sessionTtlMs,
     maxSessionsPerIp: config.maxSessionsPerIp,
+    llmRateLimit: config.llmRateLimitPer10Min,
   });
 
   const sweep = setInterval(() => {
