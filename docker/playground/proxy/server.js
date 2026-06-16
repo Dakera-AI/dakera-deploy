@@ -4,6 +4,7 @@ const http = require('http');
 const { URL } = require('url');
 const { isAllowed, storeKind } = require('./allowlist');
 const { SessionStore } = require('./sessions');
+const { sessionNamespace, rewriteRequestAgentId, restoreResponseAgentId } = require('./namespace');
 
 // =============================================================================
 // Dakera Playground Sandbox Proxy (DAK-6713)
@@ -119,7 +120,7 @@ function countMemories(kind, body) {
   }
 }
 
-function forward(config, req, res, path, bodyBuf, baseHeaders) {
+function forward(config, req, res, path, bodyBuf, baseHeaders, rewrite) {
   const upstream = new URL(config.upstreamUrl + path);
   const headers = {};
   for (const [k, v] of Object.entries(req.headers)) {
@@ -127,6 +128,9 @@ function forward(config, req, res, path, bodyBuf, baseHeaders) {
     if (HOP_BY_HOP.has(lk)) continue;
     if (lk === 'authorization' || lk === 'x-api-key') continue; // strip client creds
     if (lk === 'host' || lk === 'content-length') continue;
+    // When restoring agent_id in the response we must read a plaintext body, so
+    // ask the engine not to compress it (DAK-6757).
+    if (rewrite && lk === 'accept-encoding') continue;
     headers[k] = v;
   }
   headers['host'] = upstream.host;
@@ -151,8 +155,33 @@ function forward(config, req, res, path, bodyBuf, baseHeaders) {
         if (HOP_BY_HOP.has(k.toLowerCase())) continue;
         outHeaders[k] = v;
       }
-      res.writeHead(upRes.statusCode || 502, outHeaders);
-      upRes.pipe(res);
+
+      // Fast path: no agent_id was injected — stream straight through.
+      if (!rewrite) {
+        res.writeHead(upRes.statusCode || 502, outHeaders);
+        upRes.pipe(res);
+        return;
+      }
+
+      // Namespaced request: buffer the response so we can restore the client's
+      // original agent_id before returning it (DAK-6757). Sandbox payloads are
+      // small, so buffering here is cheap.
+      const chunks = [];
+      upRes.on('data', (c) => chunks.push(c));
+      upRes.on('end', () => {
+        const buf = restoreResponseAgentId(Buffer.concat(chunks), rewrite.namespace, rewrite.restoreTo);
+        outHeaders['content-length'] = String(buf.length);
+        delete outHeaders['transfer-encoding'];
+        res.writeHead(upRes.statusCode || 502, outHeaders);
+        res.end(buf);
+      });
+      upRes.on('error', () => {
+        if (!res.headersSent) {
+          sendJson(res, 502, { error: 'upstream_error', message: 'Could not reach the engine.' }, baseHeaders);
+        } else {
+          res.destroy();
+        }
+      });
     },
   );
 
@@ -296,6 +325,20 @@ function createServer(config, store) {
       'X-Sandbox-Rate-Remaining': String(rate.remaining),
     };
 
+    // Per-session namespace isolation (DAK-6757): rewrite the request body's
+    // agent_id to this session's private namespace so no session can recall
+    // another session's memories. The original agent_id is restored in the
+    // response so the client sees no change.
+    let rewrite = null;
+    if (bodyBuf && bodyBuf.length) {
+      const namespace = sessionNamespace(resolved.id);
+      const rewritten = rewriteRequestAgentId(bodyBuf, namespace);
+      if (rewritten.clientAgentId !== null) {
+        bodyBuf = rewritten.body;
+        rewrite = { namespace, restoreTo: rewritten.clientAgentId };
+      }
+    }
+
     // Commit the memory count when the engine confirms success (2xx).
     if (storeCount > 0) {
       const origWriteHead = res.writeHead.bind(res);
@@ -305,7 +348,7 @@ function createServer(config, store) {
       };
     }
 
-    forward(config, req, res, path, bodyBuf, outHeaders);
+    forward(config, req, res, path, bodyBuf, outHeaders, rewrite);
   });
 }
 
