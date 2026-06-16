@@ -1,0 +1,10 @@
+[Unit]
+Description=Dakera Playground Health Monitor — DAK-6745
+After=network.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/playground-monitor.sh
+User=root
+StandardOutput=journal
+StandardError=journal
