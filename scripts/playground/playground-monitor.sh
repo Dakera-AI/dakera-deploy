@@ -1,15 +1,15 @@
 #!/bin/bash
 # playground-monitor.sh — DAK-6745
 # Monitors Dakera Playground health: HTTP endpoint, Docker containers, disk, memory.
-# Runs every 5min via systemd timer on playground server (5.75.177.31).
+# Runs every 5min via systemd timer on the playground server.
 # Alerts Telegram on failure with 5-min cooldown per check type.
 
 set -euo pipefail
 
-TELEGRAM_BOT_TOKEN="8559576881:AAHBV3sZHL1KzJ_Lwwij00aalitnRpxP4uc"
-TELEGRAM_CHAT_ID="1170826474"
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN must be set}"
+TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID must be set}"
 STATE_DIR="/var/lib/playground-health"
-PLAYGROUND_URL="https://5-75-177-31.sslip.io/health"
+PLAYGROUND_URL="${PLAYGROUND_URL:-https://localhost/health}"
 DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Thresholds

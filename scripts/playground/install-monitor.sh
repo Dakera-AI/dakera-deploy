@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # install-monitor.sh — installs playground-monitor on playground server via SSH
-# Usage: SSH_KEY=~/.ssh/id_ed25519 PLAYGROUND_IP=5.75.177.31 ./install-monitor.sh
+# Usage: SSH_KEY=~/.ssh/id_ed25519 PLAYGROUND_IP=<server-ip> ./install-monitor.sh
 # DAK-6745
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLAYGROUND_IP="${PLAYGROUND_IP:-5.75.177.31}"
+PLAYGROUND_IP="${PLAYGROUND_IP:?PLAYGROUND_IP must be set}"
 SSH_KEY="${SSH_KEY:-${HOME}/.ssh/id_ed25519}"
 SSH="ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@${PLAYGROUND_IP}"
 

@@ -29,7 +29,7 @@
 
 set -euo pipefail
 
-DAKERA_API_URL="${DAKERA_API_URL:-http://178.104.45.161:3300}"
+DAKERA_API_URL="${DAKERA_API_URL:?DAKERA_API_URL must be set}"
 DAKERA_API_KEY="${DAKERA_API_KEY:?DAKERA_API_KEY must be set}"
 DRY_RUN="${DRY_RUN:-0}"
 

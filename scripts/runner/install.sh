@@ -2,7 +2,7 @@
 # install.sh — Deploy runner health monitor and disk cleanup automation
 # DAK-5764: Platform reliability — deploy pipeline hardening + runner health automation
 #
-# Run on each GitHub Actions runner host (ARM: 168.119.60.30, x64: 178.104.227.173)
+# Run on each GitHub Actions runner host.
 # Requires: root, systemd, TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in environment
 
 set -euo pipefail

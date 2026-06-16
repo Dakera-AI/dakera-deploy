@@ -4,6 +4,7 @@ After=network.target
 
 [Service]
 Type=oneshot
+EnvironmentFile=/etc/dakera/telegram.env
 ExecStart=/usr/local/bin/runner-health-monitor.sh
 User=root
 StandardOutput=journal

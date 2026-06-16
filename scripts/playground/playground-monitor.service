@@ -4,6 +4,7 @@ After=network.target docker.service
 
 [Service]
 Type=oneshot
+EnvironmentFile=/etc/dakera/telegram.env
 ExecStart=/usr/local/bin/playground-monitor.sh
 User=root
 StandardOutput=journal
