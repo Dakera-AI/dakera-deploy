@@ -1,0 +1,235 @@
+name: Playground - Create DNS Record + Enable SSL
+
+# DAK-6756: One-shot workflow that creates the Cloudflare A record for
+# playground.dakera.ai → 5.75.177.31, waits for propagation, then issues
+# a Let's Encrypt cert and reloads nginx.
+#
+# Prerequisites:
+#   1. Add CLOUDFLARE_DNS_TOKEN secret to dakera-ai/dakera-deploy:
+#        CF dashboard → My Profile → API Tokens → Create Token
+#        Template: Edit zone DNS → Zone: dakera.ai → Permission: Zone.DNS.Edit
+#        gh secret set CLOUDFLARE_DNS_TOKEN -R dakera-ai/dakera-deploy --body '<token>'
+#   2. Run this workflow via: gh workflow run playground-dns-and-ssl.yml -R dakera-ai/dakera-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Subdomain to create (A record name)"
+        required: false
+        default: "playground"
+      target_ip:
+        description: "IPv4 address the A record should point to"
+        required: false
+        default: "5.75.177.31"
+      zone_name:
+        description: "Cloudflare zone (root domain)"
+        required: false
+        default: "dakera.ai"
+      skip_dns:
+        description: "Skip DNS creation (DNS already exists)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  dns-and-ssl:
+    name: "CF DNS + Let's Encrypt for ${{ inputs.domain || 'playground' }}.${{ inputs.zone_name || 'dakera.ai' }}"
+    runs-on: ubuntu-latest
+    env:
+      SUBDOMAIN: ${{ inputs.domain || 'playground' }}
+      TARGET_IP: ${{ inputs.target_ip || '5.75.177.31' }}
+      ZONE_NAME: ${{ inputs.zone_name || 'dakera.ai' }}
+      SKIP_DNS: ${{ inputs.skip_dns || 'false' }}
+
+    steps:
+      # -------------------------------------------------------------------------
+      # Step 1: Derive the full domain from inputs
+      # -------------------------------------------------------------------------
+      - name: Set derived vars
+        id: vars
+        run: |
+          FULL_DOMAIN="${SUBDOMAIN}.${ZONE_NAME}"
+          echo "full_domain=${FULL_DOMAIN}" >> "$GITHUB_OUTPUT"
+          echo "Full domain: ${FULL_DOMAIN} → ${TARGET_IP}"
+
+      # -------------------------------------------------------------------------
+      # Step 2: Create Cloudflare A record (skip if already exists)
+      # -------------------------------------------------------------------------
+      - name: Create Cloudflare DNS A record
+        if: env.SKIP_DNS == 'false'
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_DNS_TOKEN }}
+          FULL_DOMAIN: ${{ steps.vars.outputs.full_domain }}
+        run: |
+          if [ -z "$CF_TOKEN" ]; then
+            echo "::error::CLOUDFLARE_DNS_TOKEN secret is not set."
+            echo "Add it: gh secret set CLOUDFLARE_DNS_TOKEN -R dakera-ai/dakera-deploy --body '<token>'"
+            echo "Token needs Zone.DNS.Edit permission for ${ZONE_NAME}."
+            exit 1
+          fi
+
+          echo "Looking up Zone ID for ${ZONE_NAME}..."
+          ZONE_ID=$(curl -sf "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}&status=active" \
+            -H "Authorization: Bearer ${CF_TOKEN}" \
+            -H "Content-Type: application/json" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else '')")
+
+          if [ -z "$ZONE_ID" ]; then
+            echo "::error::Could not find Cloudflare zone for ${ZONE_NAME}. Check token permissions."
+            exit 1
+          fi
+          echo "Zone ID: ${ZONE_ID}"
+
+          # Check if record already exists
+          EXISTING=$(curl -sf "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?type=A&name=${FULL_DOMAIN}" \
+            -H "Authorization: Bearer ${CF_TOKEN}" \
+            -H "Content-Type: application/json" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else '')" 2>/dev/null || echo "")
+
+          if [ -n "$EXISTING" ]; then
+            echo "A record for ${FULL_DOMAIN} already exists (id: ${EXISTING}). Skipping creation."
+          else
+            echo "Creating A record: ${FULL_DOMAIN} → ${TARGET_IP} (DNS only, TTL=auto)"
+            RESULT=$(curl -sf -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
+              -H "Authorization: Bearer ${CF_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"type\": \"A\",
+                \"name\": \"${SUBDOMAIN}\",
+                \"content\": \"${TARGET_IP}\",
+                \"ttl\": 1,
+                \"proxied\": false
+              }")
+            echo "$RESULT" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          if d.get('success'):
+              rec = d['result']
+              print(f'Created DNS record: {rec[\"name\"]} → {rec[\"content\"]} (id: {rec[\"id\"]})')
+          else:
+              errors = d.get('errors', [])
+              print('::error::DNS creation failed:', errors)
+              sys.exit(1)
+          "
+          fi
+
+      # -------------------------------------------------------------------------
+      # Step 3: Wait for DNS propagation (up to 5 min via 1.1.1.1)
+      # -------------------------------------------------------------------------
+      - name: Wait for DNS propagation
+        env:
+          FULL_DOMAIN: ${{ steps.vars.outputs.full_domain }}
+        run: |
+          echo "Waiting for ${FULL_DOMAIN} to resolve to ${TARGET_IP} via 1.1.1.1..."
+          for i in $(seq 1 30); do
+            RESOLVED=$(dig +short "${FULL_DOMAIN}" @1.1.1.1 A | head -1)
+            echo "Attempt $i/30: ${FULL_DOMAIN} → '${RESOLVED}' (want: ${TARGET_IP})"
+            if [ "$RESOLVED" = "$TARGET_IP" ]; then
+              echo "DNS propagated."
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "::error::DNS did not propagate to ${TARGET_IP} within 5 minutes."
+              echo "Current value: '${RESOLVED}'"
+              exit 1
+            fi
+            sleep 10
+          done
+
+      # -------------------------------------------------------------------------
+      # Step 4: SSH to server + issue Let's Encrypt cert via webroot
+      # -------------------------------------------------------------------------
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$TARGET_IP" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Issue Let's Encrypt cert + update nginx
+        env:
+          FULL_DOMAIN: ${{ steps.vars.outputs.full_domain }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@${TARGET_IP}" bash << REMOTE
+          set -euo pipefail
+
+          DOMAIN="${FULL_DOMAIN}"
+          echo "=== Issuing cert for \$DOMAIN ==="
+
+          # Webroot method: works with existing nginx config
+          certbot certonly --webroot \
+            -w /var/www/certbot \
+            -d "\$DOMAIN" \
+            --agree-tos \
+            --non-interactive \
+            --email ops@dakera.ai
+
+          echo "Cert issued. Updating nginx config..."
+
+          # Swap cert paths: sslip.io → playground.dakera.ai
+          SITE=/etc/nginx/sites-enabled/playground
+          sed -i "s|/etc/letsencrypt/live/5-75-177-31.sslip.io/fullchain.pem|/etc/letsencrypt/live/\$DOMAIN/fullchain.pem|g" "\$SITE"
+          sed -i "s|/etc/letsencrypt/live/5-75-177-31.sslip.io/privkey.pem|/etc/letsencrypt/live/\$DOMAIN/privkey.pem|g" "\$SITE"
+
+          # Add playground.dakera.ai to server_name
+          sed -i "s|server_name _;|server_name \$DOMAIN _;|g" "\$SITE"
+
+          echo "Testing nginx config..."
+          nginx -t
+
+          echo "Reloading nginx..."
+          nginx -s reload
+
+          echo "nginx updated and reloaded."
+          REMOTE
+
+      # -------------------------------------------------------------------------
+      # Step 5: Verify HTTPS
+      # -------------------------------------------------------------------------
+      - name: Verify HTTPS health endpoint
+        env:
+          FULL_DOMAIN: ${{ steps.vars.outputs.full_domain }}
+        run: |
+          echo "Verifying https://${FULL_DOMAIN}/health ..."
+          sleep 5
+          for i in $(seq 1 6); do
+            HTTP_CODE=$(curl -sf --max-time 15 -o /dev/null -w "%{http_code}" "https://${FULL_DOMAIN}/health" 2>/dev/null || echo "000")
+            echo "Attempt $i/6: HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "HTTPS health check PASSED — https://${FULL_DOMAIN} is live!"
+              break
+            fi
+            if [ "$i" -eq 6 ]; then
+              echo "::error::HTTPS health check failed after 30s (got HTTP $HTTP_CODE)"
+              exit 1
+            fi
+            sleep 5
+          done
+
+      # -------------------------------------------------------------------------
+      # Step 6: Telegram notification
+      # -------------------------------------------------------------------------
+      - name: Notify Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FULL_DOMAIN: ${{ steps.vars.outputs.full_domain }}
+          STATUS: ${{ job.status }}
+          RUN_URL: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: |
+          if [ "$STATUS" = "success" ]; then
+            ICON="✅"
+            MSG="[Platform] playground.dakera.ai DNS + SSL LIVE\n\nURL: https://${FULL_DOMAIN}\nCert: Let's Encrypt (90 days, auto-renew)\nRun: ${RUN_URL}"
+          else
+            ICON="❌"
+            MSG="[Platform] playground.dakera.ai DNS/SSL setup FAILED\n\nRun: ${RUN_URL}\nCheck logs above for error details."
+          fi
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${ICON} ${MSG}\"}" \
+            > /dev/null || true
