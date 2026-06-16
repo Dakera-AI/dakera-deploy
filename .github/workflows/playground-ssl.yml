@@ -38,14 +38,13 @@ jobs:
           echo "DNS: $DOMAIN -> $RESOLVED (expected $SERVER_IP)"
           if [ "$RESOLVED" != "$SERVER_IP" ]; then
             echo "ERROR: DNS not yet pointing to $SERVER_IP (got: $RESOLVED)"
-            echo "Add an A record in Cloudflare: $DOMAIN -> $SERVER_IP"
+            echo "Add an A record in Cloudflare: $DOMAIN -> $SERVER_IP then retry."
             exit 1
           fi
           echo "DNS verified."
 
       - name: Wait for SSH
         run: |
-          echo "Waiting for SSH on $SERVER_IP..."
           for i in $(seq 1 10); do
             if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 "root@$SERVER_IP" "echo ok" 2>/dev/null; then
               echo "SSH ready."
@@ -57,17 +56,13 @@ jobs:
 
       - name: Run certbot
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@$SERVER_IP" bash << "REMOTE"
-          set -e
-          certbot certonly --nginx -d "$DOMAIN" \
-            --non-interactive --agree-tos --email admin@dakera.ai
-          cp /etc/letsencrypt/live/"$DOMAIN"/fullchain.pem /etc/nginx/ssl/playground.crt
-          cp /etc/letsencrypt/live/"$DOMAIN"/privkey.pem /etc/nginx/ssl/playground.key
-          nginx -t && systemctl reload nginx
-          echo "SSL cert updated."
-REMOTE
-        env:
-          DOMAIN: ${{ env.DOMAIN }}
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@$SERVER_IP" \
+            "set -e && \
+             certbot certonly --nginx -d \"$DOMAIN\" --non-interactive --agree-tos --email admin@dakera.ai && \
+             cp /etc/letsencrypt/live/\"$DOMAIN\"/fullchain.pem /etc/nginx/ssl/playground.crt && \
+             cp /etc/letsencrypt/live/\"$DOMAIN\"/privkey.pem /etc/nginx/ssl/playground.key && \
+             nginx -t && systemctl reload nginx && \
+             echo SSL cert updated."
 
       - name: Verify HTTPS
         run: |
@@ -80,3 +75,23 @@ REMOTE
             echo "WARNING: HTTPS health check did not return healthy response"
             exit 1
           fi
+
+      - name: Notify Telegram on success
+        if: success()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG="✅ [Platform] playground.dakera.ai SSL cert issued. HTTPS live."
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${MSG}" > /dev/null
+
+      - name: Notify Telegram on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG="❌ [Platform] playground.dakera.ai SSL setup FAILED. Check https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${MSG}" > /dev/null
