@@ -24,7 +24,7 @@ tiny container, no supply-chain surface).
 
 | # | Limit | Default | Env var |
 |---|-------|---------|---------|
-| 1 | Rate limit per session | 10 req / 60s sliding window | `SANDBOX_RATE_LIMIT_PER_MIN` |
+| 1 | Rate limit per session | 30 req / 60s sliding window | `SANDBOX_RATE_LIMIT_PER_MIN` |
 | 2 | Memory cap per session | 50 (batch items counted) | `SANDBOX_MEMORY_CAP` |
 | 3 | Session TTL | 30 min auto-expiry | `SANDBOX_SESSION_TTL_SEC` |
 | 4 | Endpoint allow-list | deny-by-default | (see `allowlist.js`) |

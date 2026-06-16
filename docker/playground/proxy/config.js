@@ -41,7 +41,7 @@ const config = {
   rootApiKey: process.env.DAKERA_ROOT_API_KEY || '',
 
   // Sandbox limits (DAK-6713 acceptance criteria)
-  rateLimitPerMin: intEnv('SANDBOX_RATE_LIMIT_PER_MIN', 10), // req #1
+  rateLimitPerMin: intEnv('SANDBOX_RATE_LIMIT_PER_MIN', 30), // req #1
   memoryCapPerSession: intEnv('SANDBOX_MEMORY_CAP', 50), //      req #2
   sessionTtlMs: intEnv('SANDBOX_SESSION_TTL_SEC', 30 * 60) * 1000, // req #3
 
