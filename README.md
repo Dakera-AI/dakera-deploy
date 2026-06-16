@@ -36,6 +36,21 @@ Dakera is the **agent-native memory platform** — purpose-built for AI agents t
 
 ---
 
+## Used For
+
+| Use Case | What Dakera Provides |
+|----------|---------------------|
+| **Multi-agent pipelines** | Shared cross-agent memory, session isolation per agent, importance-ranked recall |
+| **RAG with long-term context** | Hybrid BM25 + vector search over agent history; knowledge graph for entity relationships |
+| **Code review / DevOps agents** | Persistent memory of past decisions, PR patterns, and repo-specific context across runs |
+| **Customer support bots** | Per-user session history, conversation continuity, semantic recall of past resolutions |
+| **Personal AI assistants** | Long-term preference and context storage, temporal decay, knowledge graph connections |
+| **Research / data agents** | Cross-session fact accumulation, importance-weighted memory, structured entity extraction |
+
+All use cases deploy identically — the profiles below configure storage backend and scale.
+
+---
+
 ## Zero to Running in 5 Minutes
 
 No config required. Dakera runs in-memory by default — great for local testing and development.
