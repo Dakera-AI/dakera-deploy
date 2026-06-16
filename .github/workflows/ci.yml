@@ -26,6 +26,7 @@ jobs:
       - name: Validate docker-compose.yml
         env:
           DAKERA_ROOT_API_KEY: ci-validation-placeholder
+          GRAFANA_PASSWORD: ci-validation-placeholder
         run: docker compose -f docker/docker-compose.yml config --quiet
 
       - name: Validate docker-compose.dev.yml
