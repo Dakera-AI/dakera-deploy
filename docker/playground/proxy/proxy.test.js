@@ -110,10 +110,10 @@ test('allow-list methods match engine routes (DAK-6758)', () => {
   // knowledge/graph is POST-only in the engine (lib.rs:483); GET was dead.
   assert.ok(isAllowed('POST', '/v1/knowledge/graph'));
   assert.ok(!isAllowed('GET', '/v1/knowledge/graph'));
-  // {id}/links is POST-only link creation (a mutation) — no read route exists,
-  // so it must stay blocked by deny-by-default.
+  // {id}/links: POST-only link creation (lib.rs:449). GET stays blocked (no
+  // read route). POST is now allowed — required by all SDK quickstarts (DAK-6776).
   assert.ok(!isAllowed('GET', '/v1/memories/mem_1/links'));
-  assert.ok(!isAllowed('POST', '/v1/memories/mem_1/links'));
+  assert.ok(isAllowed('POST', '/v1/memories/mem_1/links'));
 });
 
 test('allow-list denies admin/delete/bulk/forget by default', () => {
