@@ -594,7 +594,7 @@ const { handleLlmCompare, SEED_MEMORIES, DEFAULT_MODEL } = require('./llm-compar
 
 // Minimal noop mocks for the internal I/O helpers.
 function makeOrMock(response) {
-  return async () => ({ status: 200, body: JSON.stringify({ model: 'meta-llama/llama-4-maverick:free', choices: [{ message: { content: response } }] }) });
+  return async () => ({ status: 200, body: JSON.stringify({ model: 'google/gemma-4-26b-a4b-it:free', choices: [{ message: { content: response } }] }) });
 }
 const noopSeed = async () => ({ status: 200 });
 const emptyRecall = async () => ({ status: 200, body: JSON.stringify({ results: [] }) });
