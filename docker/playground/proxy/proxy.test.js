@@ -794,3 +794,27 @@ test('llm-compare endpoint accessible via HTTP proxy (integration, DAK-6845)', a
   assert.ok(json.without_memory !== undefined || json.error, 'response must be structured');
   await p.close();
 });
+
+test('agent_id in URL path segment is namespaced for /v1/agents/{id}/memories (DAK-6901)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000 });
+  // GET /v1/agents/playground-demo/memories — agent_id is in the URL path, not body/query
+  const res = await request(p.port, {
+    method: 'GET',
+    path: '/v1/agents/playground-demo/memories',
+    headers: { 'x-playground-session': 'pg_pathtest001' },
+  });
+  // Must reach the upstream (not 403 forbidden_endpoint)
+  assert.notEqual(res.status, 403, 'GET /v1/agents/{id}/memories must pass the allow-list');
+  // The forwarded URL path must have the session-namespaced agent_id, not the raw client value
+  const forwarded = p.upstream.captured[0];
+  assert.ok(forwarded, 'request must be forwarded to upstream');
+  assert.ok(
+    forwarded.url.includes('/v1/agents/playground-demo-'),
+    `agent_id in path must be namespaced, got: ${forwarded.url}`,
+  );
+  assert.ok(
+    !forwarded.url.includes('/v1/agents/playground-demo/'),
+    `raw client agent_id must not reach engine, got: ${forwarded.url}`,
+  );
+  await p.close();
+});
