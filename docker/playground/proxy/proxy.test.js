@@ -1088,3 +1088,42 @@ test('response agent_id is restored to the client original per scenario (DAK-692
 
   await p.close();
 });
+
+// ---------------------------------------------------------------------------
+// DAK-6950: proxy converts 404 NAMESPACE_NOT_FOUND to 200 empty results
+// ---------------------------------------------------------------------------
+
+test('404 NAMESPACE_NOT_FOUND from engine is converted to 200 with empty memories (DAK-6950)', async () => {
+  const p = await startProxy({}, (req, res) => {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Namespace not found', message: 'Namespace not found: sandbox_abc_cmp' }));
+  });
+  const session = 'pg_ns404test';
+  const res = await request(p.port, {
+    method: 'POST',
+    path: '/v1/memory/recall',
+    headers: { 'content-type': 'application/json', 'x-playground-session': session },
+    body: JSON.stringify({ agent_id: 'test_cmp', query: 'test', top_k: 5 }),
+  });
+  assert.equal(res.status, 200, 'proxy should convert 404 namespace-not-found to 200');
+  const json = JSON.parse(res.body);
+  assert.deepStrictEqual(json.memories, [], 'memories should be empty array');
+  assert.equal(json.note, 'namespace_initializing', 'note should indicate namespace is initializing');
+  await p.close();
+});
+
+test('404 for non-namespace errors is passed through unchanged (DAK-6950)', async () => {
+  const p = await startProxy({}, (req, res) => {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not_found', message: 'Route not found' }));
+  });
+  const session = 'pg_404passtest';
+  const res = await request(p.port, {
+    method: 'POST',
+    path: '/v1/memory/recall',
+    headers: { 'content-type': 'application/json', 'x-playground-session': session },
+    body: JSON.stringify({ agent_id: 'test_cmp', query: 'test', top_k: 5 }),
+  });
+  assert.equal(res.status, 404, 'non-namespace 404 should pass through');
+  await p.close();
+});
