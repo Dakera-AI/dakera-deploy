@@ -90,7 +90,7 @@ PLAYGROUND_IP="5.75.177.31"
 PROD_IP="178.104.45.161"
 
 ssh -i /tmp/deploy_key -o BatchMode=yes -o ConnectTimeout=5 root@${PLAYGROUND_IP} echo "playground OK"
-ssh -i /tmp/deploy_key -o BatchMode=yes -o ConnectTimeout=5 root@${PROD_IP} echo "production OK"
+ssh -i /tmp/deploy_key -o BatchMode=yes -o ConnectTimeout=5 dakera@${PROD_IP} echo "production OK"
 ```
 
 Both must print `OK`. If either fails with `Permission denied`, re-check Step 2 for that server.
