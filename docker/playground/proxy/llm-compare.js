@@ -77,7 +77,7 @@ const SEED_MEMORIES = [
   },
 ];
 
-const DEFAULT_MODEL = 'meta-llama/llama-4-maverick:free';
+const DEFAULT_MODEL = 'google/gemma-4-26b-a4b-it:free';
 const SEED_TIMEOUT_MS = 8_000;
 
 // ---------------------------------------------------------------------------
