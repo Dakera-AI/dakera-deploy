@@ -416,7 +416,19 @@ function createServer(config, store) {
       };
     }
 
-    forward(config, req, res, path, bodyBuf, outHeaders, rewrite);
+    // Also rewrite agent_id in URL query params for GET endpoints (DAK-6899)
+    let forwardPath = path;
+    try {
+      const qUrl = new URL(req.url, "http://localhost");
+      if (qUrl.searchParams.has("agent_id")) {
+        const namespace = sessionNamespace(resolved.id);
+        const qAgentId = qUrl.searchParams.get("agent_id");
+        qUrl.searchParams.set("agent_id", namespace);
+        forwardPath = qUrl.pathname + "?" + qUrl.searchParams.toString();
+        if (!rewrite) rewrite = { namespace, restoreTo: qAgentId };
+      }
+    } catch (_) {}
+    forward(config, req, res, forwardPath, bodyBuf, outHeaders, rewrite);
   });
 }
 
