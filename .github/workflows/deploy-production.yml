@@ -83,7 +83,8 @@ jobs:
           KNOWN_COMPOSE_DIR="/home/dakera/ops/repos/dakera-deploy/docker"
 
           # Find the running dakera container (exact name match to avoid matching dakera-minio, etc.)
-          CONTAINER=$(docker ps --format "{{.Names}}" | grep -E '^dakera$' | head -1)
+          # Use || true inside the subshell so grep exit-1 (no match) doesn't kill the script under set -o pipefail
+          CONTAINER=$(docker ps --format "{{.Names}}" | grep -E '^dakera$' || true)
           if [ -z "$CONTAINER" ]; then
             echo "WARNING: No running dakera container found — starting fresh via compose"
             COMPOSE_DIR="$KNOWN_COMPOSE_DIR"
