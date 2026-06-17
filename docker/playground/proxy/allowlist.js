@@ -74,6 +74,7 @@ const ALLOW = [
   // /v1/knowledge/graph is POST-only in the engine (lib.rs:483 post). The dead
   // GET entry was removed (it could only ever 405).
   compile('POST', '/v1/knowledge/graph'),
+  compile('POST', '/v1/knowledge/graph/full'),  // DAK-6899: KG Explorer
   compile('GET', '/v1/memories/{seg}/graph'),
   compile('GET', '/v1/memories/{seg}/path'),
   // NOTE: /v1/memories/{seg}/links is POST-only in the engine (link creation,
