@@ -775,6 +775,48 @@ test('llm-compare does NOT seed again on second call (DAK-6845)', async () => {
   assert.equal(seedCallCount, 1, 'seed should only fire once per session');
 });
 
+// DAK-6906: /v1/memory/hybrid must be rewritten to /v1/namespaces/{ns}/hybrid before forwarding.
+// The engine only exposes hybrid search under the namespaced route.
+test('hybrid path is rewritten to namespaced engine route (DAK-6906)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000 });
+  const sessionId = 'pg_hybridtest001';
+  const expectedNs = sessionNamespace(sessionId);
+
+  await request(p.port, {
+    method: 'POST',
+    path: '/v1/memory/hybrid',
+    headers: { 'content-type': 'application/json', 'x-playground-session': sessionId },
+    body: JSON.stringify({ agent_id: 'playground-demo', query: 'test', vector_weight: 0.7 }),
+  });
+
+  const seen = p.upstream.captured[0];
+  // Proxy must rewrite the path to the internal _dakera_agent_ namespaced engine route.
+  assert.equal(seen.url, `/v1/namespaces/_dakera_agent_${expectedNs}/hybrid`, 'path must use _dakera_agent_ internal namespace key');
+  // Body agent_id must also be rewritten to the session namespace.
+  const body = JSON.parse(seen.body);
+  assert.equal(body.agent_id, expectedNs, 'agent_id in body must be the session namespace');
+  await p.close();
+});
+
+test('hybrid path rewrite uses session namespace deterministically (DAK-6906)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000 });
+  const sessionId = 'pg_hybridtest002';
+
+  // Two requests with the same session should target the same namespace.
+  await request(p.port, { method: 'POST', path: '/v1/memory/hybrid',
+    headers: { 'content-type': 'application/json', 'x-playground-session': sessionId },
+    body: JSON.stringify({ agent_id: 'playground-demo', query: 'first' }) });
+  await request(p.port, { method: 'POST', path: '/v1/memory/hybrid',
+    headers: { 'content-type': 'application/json', 'x-playground-session': sessionId },
+    body: JSON.stringify({ agent_id: 'playground-demo', query: 'second' }) });
+
+  const url1 = p.upstream.captured[0].url;
+  const url2 = p.upstream.captured[1].url;
+  assert.equal(url1, url2, 'same session always maps to same namespace path');
+  assert.ok(url1.startsWith('/v1/namespaces/_dakera_agent_playground-demo-'), 'path must use _dakera_agent_ prefix with session namespace');
+  await p.close();
+});
+
 test('llm-compare endpoint accessible via HTTP proxy (integration, DAK-6845)', async () => {
   const p = await startProxy({ rateLimitPerMin: 1000, openRouterApiKey: 'fake-key', llmRateLimitPer10Min: 5, llmCompareTimeoutMs: 5000 });
   // The proxy will try to call OpenRouter (fake-key, won't succeed) and Dakera upstream.

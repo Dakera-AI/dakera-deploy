@@ -40,8 +40,8 @@ const ALLOW = [
   // the engine returned 405 (DAK-6758).
   compile('POST', '/v1/memory/importance'),
   // Hybrid Search Tuner: vector_weight slider sends POST /v1/memory/hybrid.
-  // Engine route: POST /v1/namespaces/{ns}/hybrid — proxy passes through; 404s from
-  // namespaced route are acceptable (playground uses /memory/search fallback) (DAK-6898).
+  // Engine route: POST /v1/namespaces/{ns}/hybrid — server.js rewrites the path
+  // to the session-namespaced route before forwarding (DAK-6906).
   compile('POST', '/v1/memory/hybrid'),
 
   // --- sessions (ChatMemorySession scenario: start, store, recall, end) ---
