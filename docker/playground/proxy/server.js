@@ -428,6 +428,17 @@ function createServer(config, store) {
         if (!rewrite) rewrite = { namespace, restoreTo: qAgentId };
       }
     } catch (_) {}
+
+    // Path rewrite: POST /v1/memory/hybrid → POST /v1/namespaces/_dakera_agent_{session-ns}/hybrid (DAK-6906).
+    // The engine stores memories under the internal namespace key _dakera_agent_{agent_id} and the
+    // hybrid search endpoint requires this full internal key in the URL path. The proxy translates
+    // the shorthand /v1/memory/hybrid path using the session namespace so the frontend doesn't need
+    // to know either the session namespace or the internal _dakera_agent_ prefix.
+    if (path === '/v1/memory/hybrid') {
+      const ns = rewrite ? rewrite.namespace : sessionNamespace(resolved.id);
+      forwardPath = `/v1/namespaces/_dakera_agent_${ns}/hybrid`;
+    }
+
     forward(config, req, res, forwardPath, bodyBuf, outHeaders, rewrite);
   });
 }
