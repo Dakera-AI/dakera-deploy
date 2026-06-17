@@ -31,7 +31,7 @@ const NS_PREFIX = 'playground-demo';
 // Frontend agent_ids follow the pattern `pg_XXXXXX_<suffix>` where the suffix
 // identifies the scenario.  We map suffixes to scenario keys so that:
 //   - each scenario gets its own isolated namespace
-//   - _agent_a and _agent_b share a namespace (multi-agent demo feature)
+//   - _agent_a, _agent_b, and _agent_c share a namespace (multi-agent demo feature)
 //   - all _llm_* variants share a namespace (they seed different agent_ids)
 //   - `playground-demo` (API Explorer auto-seed) maps to `default`
 
@@ -47,8 +47,8 @@ function scenarioKey(agentId) {
   // Exact match for the base playground-demo id (API Explorer / auto-seed)
   if (agentId === NS_PREFIX || agentId === 'playground-demo') return 'default';
 
-  // Multi-agent: _agent_a and _agent_b share a namespace
-  if (agentId.endsWith('_agent_a') || agentId.endsWith('_agent_b')) return 'multiagent';
+  // Multi-agent: _agent_a, _agent_b, and _agent_c share a namespace
+  if (agentId.endsWith('_agent_a') || agentId.endsWith('_agent_b') || agentId.endsWith('_agent_c')) return 'multiagent';
 
   // All LLM compare variants share one namespace
   if (/_llm_/.test(agentId)) return 'llm';
