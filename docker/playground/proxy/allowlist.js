@@ -39,6 +39,10 @@ const ALLOW = [
   // (lib.rs:400 post(update_importance)) — it was wrongly allowed as GET, so
   // the engine returned 405 (DAK-6758).
   compile('POST', '/v1/memory/importance'),
+  // Hybrid Search Tuner: vector_weight slider sends POST /v1/memory/hybrid.
+  // Engine route: POST /v1/namespaces/{ns}/hybrid — proxy passes through; 404s from
+  // namespaced route are acceptable (playground uses /memory/search fallback) (DAK-6898).
+  compile('POST', '/v1/memory/hybrid'),
 
   // --- sessions (ChatMemorySession scenario: start, store, recall, end) ---
   // Engine routes: POST /v1/sessions/start (lib.rs:421), POST /v1/sessions/{id}/end (lib.rs:422),
@@ -53,10 +57,10 @@ const ALLOW = [
   compile('POST', '/v1/memories/extract'),
 
   // --- agent memory listing (API explorer + multi-agent scenario) ---
-  // Engine route: GET /v1/agents/{agent_id}/memories.  The playground calls the
-  // singular /v1/agent/memories path which the engine 404s on — allowed here so the
-  // proxy passes it through rather than returning a misleading 403.
-  compile('GET', '/v1/agent/memories'),
+  // Engine route: GET /v1/agents/{agent_id}/memories (crates/api lib.rs).
+  // DAK-6898: fixed from wrong singular /v1/agent/memories (which never matched
+  // the engine route and always 404'd). {seg} wildcard matches the agent_id segment.
+  compile('GET', '/v1/agents/{seg}/memories'),
 
   // --- routing demo (read-only classifier) ---
   compile('POST', '/v1/route'),
