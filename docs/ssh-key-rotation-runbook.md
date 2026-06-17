@@ -9,6 +9,16 @@
 
 Both servers share the same `DEPLOY_SSH_KEY` secret. Rotate the key on **all servers at once**.
 
+> **⚠️ CRITICAL: Different SSH users per server**
+> - Playground workflows connect as **`root@5.75.177.31`**
+> - Production workflows connect as **`dakera@178.104.45.161`**
+>
+> You must add the new public key to `root`'s `authorized_keys` on playground
+> **AND** `dakera`'s `authorized_keys` on production. Missing one causes the
+> other server's deploy workflow to fail silently on next trigger.
+>
+> Incident: 2026-06-17 — CEO rotated key for playground only; prod broke (DAK-6947).
+
 ---
 
 ## When to rotate
@@ -38,21 +48,22 @@ Add the public key to **each server's** `authorized_keys`. Keep the old key unti
 PLAYGROUND_IP="5.75.177.31"
 PROD_IP="178.104.45.161"
 
-# Playground server
+# Playground server — SSH user is ROOT
 cat /tmp/deploy_key.pub | ssh root@${PLAYGROUND_IP} \
-  'cat >> ~/.ssh/authorized_keys && echo "added to playground"'
+  'cat >> ~/.ssh/authorized_keys && echo "added to playground (root)"'
 
-# Production server
-cat /tmp/deploy_key.pub | ssh root@${PROD_IP} \
-  'cat >> ~/.ssh/authorized_keys && echo "added to production"'
+# Production server — SSH user is DAKERA (not root!)
+cat /tmp/deploy_key.pub | ssh dakera@${PROD_IP} \
+  'cat >> ~/.ssh/authorized_keys && echo "added to production (dakera)"'
 ```
 
-If you don't have direct SSH access and need to use the existing DEPLOY_SSH_KEY:
+If you don't have your local key authorized and must use the existing DEPLOY_SSH_KEY to connect:
 
 ```bash
+# Only works if the OLD key is still valid (add BEFORE updating the secret)
 cat /tmp/deploy_key.pub | ssh -i ~/.ssh/existing_deploy_key root@${PLAYGROUND_IP} \
   'cat >> ~/.ssh/authorized_keys'
-cat /tmp/deploy_key.pub | ssh -i ~/.ssh/existing_deploy_key root@${PROD_IP} \
+cat /tmp/deploy_key.pub | ssh -i ~/.ssh/existing_deploy_key dakera@${PROD_IP} \
   'cat >> ~/.ssh/authorized_keys'
 ```
 
@@ -136,13 +147,14 @@ rm /tmp/deploy_key /tmp/deploy_key.pub
 ## Quick-reference (tl;dr)
 
 ```
+# Different users: playground=root, prod=dakera
 1. ssh-keygen -t ed25519 -C 'deploy@dakera-deploy' -f /tmp/deploy_key -N ''
 2. cat /tmp/deploy_key.pub | ssh root@5.75.177.31 'cat >> ~/.ssh/authorized_keys'
-   cat /tmp/deploy_key.pub | ssh root@178.104.45.161 'cat >> ~/.ssh/authorized_keys'
+   cat /tmp/deploy_key.pub | ssh dakera@178.104.45.161 'cat >> ~/.ssh/authorized_keys'
 3. gh secret set DEPLOY_SSH_KEY --repo dakera-ai/dakera-deploy < /tmp/deploy_key
-4. ssh -i /tmp/deploy_key root@5.75.177.31 echo OK && ssh -i /tmp/deploy_key root@178.104.45.161 echo OK
+4. ssh -i /tmp/deploy_key root@5.75.177.31 echo OK && ssh -i /tmp/deploy_key dakera@178.104.45.161 echo OK
 5. gh workflow run playground-proxy-deploy.yml -R dakera-ai/dakera-deploy --ref main
-   gh workflow run deploy-production.yml -R dakera-ai/dakera-deploy --ref main -f version=current
+   gh workflow run server-ops.yml -R dakera-ai/dakera-deploy --ref main -f action=inspect
 ```
 
 ---
