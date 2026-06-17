@@ -2,7 +2,7 @@
 # Dakera Playground — Resource-Limited Single-Node Stack (DAK-6706)
 # =============================================================================
 # Playground limits vs production:
-#   Dakera:  3.5 GB RAM / 3 vCPU (vs 8 GB / 4 vCPU)
+#   Dakera:  5 GB RAM / 3 vCPU (vs 8 GB / 4 vCPU)
 #   MinIO:   1.5 GB RAM / 1 vCPU (vs 4 GB / 2 vCPU)
 #   Body:    5 MB max (vs 500 MB)
 #   Timeout: 30 s (vs 600 s)
@@ -50,7 +50,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 3584M
+          memory: 5120M
           cpus: "3.0"
         reservations:
           memory: 512M
