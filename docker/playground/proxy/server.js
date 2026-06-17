@@ -157,20 +157,36 @@ function forward(config, req, res, path, bodyBuf, baseHeaders, rewrite) {
         outHeaders[k] = v;
       }
 
-      // Fast path: no agent_id was injected — stream straight through.
-      if (!rewrite) {
+      // DAK-6950: intercept 404 NAMESPACE_NOT_FOUND from the engine and convert
+      // to 200 with empty results. Avoids exposing engine-internal namespace errors
+      // to playground users whose seed data may not have landed yet.
+      const isNs404 = upRes.statusCode === 404;
+
+      // Fast path: no agent_id was injected — stream straight through (unless 404).
+      if (!rewrite && !isNs404) {
         res.writeHead(upRes.statusCode || 502, outHeaders);
         upRes.pipe(res);
         return;
       }
 
-      // Namespaced request: buffer the response so we can restore the client's
-      // original agent_id before returning it (DAK-6757). Sandbox payloads are
-      // small, so buffering here is cheap.
+      // Namespaced request (or potential 404): buffer the response so we can
+      // restore agent_id and/or intercept namespace-not-found (DAK-6757, DAK-6950).
       const chunks = [];
       upRes.on('data', (c) => chunks.push(c));
       upRes.on('end', () => {
-        const buf = restoreResponseAgentId(Buffer.concat(chunks), rewrite.namespace, rewrite.restoreTo);
+        let buf = Buffer.concat(chunks);
+        if (isNs404) {
+          const bodyStr = buf.toString('utf8');
+          if (bodyStr.indexOf('amespace not found') >= 0 || bodyStr.indexOf('NAMESPACE_NOT_FOUND') >= 0) {
+            const empty = JSON.stringify({ memories: [], note: 'namespace_initializing' });
+            outHeaders['content-length'] = String(Buffer.byteLength(empty));
+            delete outHeaders['transfer-encoding'];
+            res.writeHead(200, outHeaders);
+            res.end(empty);
+            return;
+          }
+        }
+        if (rewrite) buf = restoreResponseAgentId(buf, rewrite.namespace, rewrite.restoreTo);
         outHeaders['content-length'] = String(buf.length);
         delete outHeaders['transfer-encoding'];
         res.writeHead(upRes.statusCode || 502, outHeaders);
