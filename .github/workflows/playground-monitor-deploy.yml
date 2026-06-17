@@ -29,6 +29,24 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$PLAYGROUND_IP" >> ~/.ssh/known_hosts 2>/dev/null || true
 
+      # KEY ROTATION: if this step fails with "Permission denied (publickey)":
+      #   1. ssh-keygen -t ed25519 -C 'deploy-playground' -f /tmp/pg_deploy
+      #   2. ssh root@<PLAYGROUND_IP> 'cat >> ~/.ssh/authorized_keys' < /tmp/pg_deploy.pub
+      #   3. gh secret set DEPLOY_SSH_KEY --repo dakera-ai/dakera-deploy < /tmp/pg_deploy
+      #   4. rm /tmp/pg_deploy /tmp/pg_deploy.pub
+      - name: Verify SSH connectivity
+        run: |
+          if ! ssh -i ~/.ssh/deploy_key \
+               -o StrictHostKeyChecking=no \
+               -o ConnectTimeout=5 \
+               -o BatchMode=yes \
+               root@${PLAYGROUND_IP} echo ok 2>&1; then
+            echo "❌ SSH check failed — DEPLOY_SSH_KEY does not match playground server authorized_keys."
+            echo "Follow the KEY ROTATION procedure in the comments above this step."
+            exit 1
+          fi
+          echo "✅ SSH connectivity verified"
+
       - name: Upload monitor script
         run: |
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
