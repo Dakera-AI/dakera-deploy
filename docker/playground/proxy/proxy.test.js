@@ -6,7 +6,7 @@ const http = require('http');
 const { SessionStore } = require('./sessions');
 const { isAllowed, storeKind } = require('./allowlist');
 const { createServer, corsHeaders, countMemories } = require('./server');
-const { sessionNamespace, rewriteRequestAgentId, restoreResponseAgentId } = require('./namespace');
+const { sessionNamespace, scenarioKey, rewriteRequestAgentId, restoreResponseAgentId } = require('./namespace');
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -396,39 +396,47 @@ test('sessionNamespace is deterministic, prefixed, and per-session unique (DAK-6
   assert.equal(a, b); // deterministic — a session can recall its own stores
   assert.notEqual(a, c); // different sessions -> different namespaces
   assert.match(a, /^playground-demo-[0-9a-f]{12}$/);
+
+  // DAK-6929: backward compat — no agentId defaults to 'default' scenario,
+  // which produces the same hash as the original DAK-6757 behavior (no salt).
+  const d = sessionNamespace('pg_abcdefgh', undefined);
+  assert.equal(a, d); // undefined agentId = same as no agentId
+  const e = sessionNamespace('pg_abcdefgh', 'playground-demo');
+  assert.equal(a, e); // 'playground-demo' maps to 'default' scenario key = no salt
 });
 
 test('rewriteRequestAgentId rewrites top-level + nested and captures original (DAK-6757)', () => {
-  const ns = sessionNamespace('pg_session1');
+  // With playground-demo agent_id → 'default' scenario → same as sessionNamespace('pg_session1')
+  const ns = sessionNamespace('pg_session1', 'playground-demo');
   const r = rewriteRequestAgentId(
     Buffer.from(JSON.stringify({ agent_id: 'playground-demo', memories: [{ agent_id: 'playground-demo', content: 'x' }, { content: 'y' }] })),
-    ns,
+    'pg_session1',
   );
   const parsed = JSON.parse(r.body.toString());
   assert.equal(parsed.agent_id, ns); // top-level rewritten
   assert.equal(parsed.memories[0].agent_id, ns); // nested rewritten when present
   assert.equal(parsed.memories[1].agent_id, undefined); // nested without agent_id inherits top-level
   assert.equal(r.clientAgentId, 'playground-demo');
+  assert.equal(r.namespace, ns);
 });
 
 test('rewriteRequestAgentId forces namespace when agent_id omitted (DAK-6757)', () => {
-  const ns = sessionNamespace('pg_session2');
-  const r = rewriteRequestAgentId(Buffer.from(JSON.stringify({ query: 'bank account' })), ns);
+  const ns = sessionNamespace('pg_session2'); // no agentId → default scenario
+  const r = rewriteRequestAgentId(Buffer.from(JSON.stringify({ query: 'bank account' })), 'pg_session2');
   assert.equal(JSON.parse(r.body.toString()).agent_id, ns); // forced — cannot fall back to shared default
   assert.equal(r.clientAgentId, 'playground-demo'); // restore to public placeholder
 });
 
 test('rewriteRequestAgentId leaves non-JSON and custom agent_id intact (DAK-6757)', () => {
-  const ns = sessionNamespace('pg_session3');
-  const bad = rewriteRequestAgentId(Buffer.from('not json'), ns);
+  const bad = rewriteRequestAgentId(Buffer.from('not json'), 'pg_session3');
   assert.equal(bad.body.toString(), 'not json');
   assert.equal(bad.clientAgentId, null); // not rewritten
-  const custom = rewriteRequestAgentId(Buffer.from(JSON.stringify({ agent_id: 'demo', content: 'z' })), ns);
+  const custom = rewriteRequestAgentId(Buffer.from(JSON.stringify({ agent_id: 'demo', content: 'z' })), 'pg_session3');
   assert.equal(custom.clientAgentId, 'demo'); // original preserved for response restore
 });
 
 test('restoreResponseAgentId swaps the namespace back to the client value (DAK-6757)', () => {
-  const ns = sessionNamespace('pg_session4');
+  const ns = sessionNamespace('pg_session4'); // default scenario
   const body = Buffer.from(JSON.stringify({ agent_id: ns, results: [`${ns} stored`] }));
   const restored = JSON.parse(restoreResponseAgentId(body, ns, 'playground-demo').toString());
   assert.equal(restored.agent_id, 'playground-demo');
@@ -436,6 +444,111 @@ test('restoreResponseAgentId swaps the namespace back to the client value (DAK-6
   // unrelated body untouched
   const plain = Buffer.from('{"ok":true}');
   assert.equal(restoreResponseAgentId(plain, ns, 'playground-demo').toString(), '{"ok":true}');
+});
+
+// ---------------------------------------------------------------------------
+// unit: scenario key extraction (DAK-6929)
+// ---------------------------------------------------------------------------
+
+test('scenarioKey extracts correct keys from agent_ids (DAK-6929)', () => {
+  // Base playground-demo → default
+  assert.equal(scenarioKey('playground-demo'), 'default');
+  assert.equal(scenarioKey(null), 'default');
+  assert.equal(scenarioKey(undefined), 'default');
+  assert.equal(scenarioKey(''), 'default');
+
+  // Graph explorer
+  assert.equal(scenarioKey('pg_abcdef_graphex'), 'graphex');
+  assert.equal(scenarioKey('pg_12345678_graphex'), 'graphex');
+
+  // LLM compare variants all map to 'llm'
+  assert.equal(scenarioKey('pg_abcdef_llm_fintech'), 'llm');
+  assert.equal(scenarioKey('pg_abcdef_llm_medical'), 'llm');
+  assert.equal(scenarioKey('pg_abcdef_llm_org'), 'llm');
+  assert.equal(scenarioKey('pg_abcdef_llm_legal'), 'llm');
+  assert.equal(scenarioKey('pg_abcdef_llm_devops'), 'llm');
+
+  // Multi-agent: _agent_a and _agent_b both map to 'multiagent'
+  assert.equal(scenarioKey('pg_abcdef_agent_a'), 'multiagent');
+  assert.equal(scenarioKey('pg_abcdef_agent_b'), 'multiagent');
+
+  // Arbitrary suffix extraction — the regex `pg_[A-Za-z0-9_-]{6,}_(.+)$` is
+  // greedy, so `[A-Za-z0-9_-]{6,}` consumes as much as possible including
+  // underscores, leaving only the final segment as the captured suffix.
+  assert.equal(scenarioKey('pg_abcdef_hybrid'), 'hybrid');
+  assert.equal(scenarioKey('pg_abcdef_chat'), 'chat');
+  assert.equal(scenarioKey('pg_abcdef_entity'), 'entity');
+});
+
+test('sessionNamespace produces different namespaces for different scenarios (DAK-6929)', () => {
+  const session = 'pg_testtest';
+  const nsDefault = sessionNamespace(session, 'playground-demo');
+  const nsGraphex = sessionNamespace(session, 'pg_testtest_graphex');
+  const nsLlm = sessionNamespace(session, 'pg_testtest_llm_fintech');
+  const nsMulti = sessionNamespace(session, 'pg_testtest_agent_a');
+
+  // Each scenario has its own namespace
+  assert.notEqual(nsDefault, nsGraphex);
+  assert.notEqual(nsDefault, nsLlm);
+  assert.notEqual(nsDefault, nsMulti);
+  assert.notEqual(nsGraphex, nsLlm);
+  assert.notEqual(nsGraphex, nsMulti);
+  assert.notEqual(nsLlm, nsMulti);
+
+  // All follow the format
+  for (const ns of [nsDefault, nsGraphex, nsLlm, nsMulti]) {
+    assert.match(ns, /^playground-demo-[0-9a-f]{12}$/);
+  }
+});
+
+test('multi-agent _agent_a and _agent_b share the same namespace (DAK-6929)', () => {
+  const session = 'pg_multitest';
+  const nsA = sessionNamespace(session, 'pg_multitest_agent_a');
+  const nsB = sessionNamespace(session, 'pg_multitest_agent_b');
+  assert.equal(nsA, nsB, '_agent_a and _agent_b must share a namespace for cross-agent demo');
+});
+
+test('LLM variants all share the same namespace (DAK-6929)', () => {
+  const session = 'pg_llmshare1';
+  const nsFintech = sessionNamespace(session, 'pg_llmshare1_llm_fintech');
+  const nsMedical = sessionNamespace(session, 'pg_llmshare1_llm_medical');
+  const nsOrg = sessionNamespace(session, 'pg_llmshare1_llm_org');
+  assert.equal(nsFintech, nsMedical);
+  assert.equal(nsMedical, nsOrg);
+});
+
+test('rewriteRequestAgentId derives scenario-aware namespace from agent_id (DAK-6929)', () => {
+  const session = 'pg_scentest1';
+  // graphex scenario
+  const rGraph = rewriteRequestAgentId(
+    Buffer.from(JSON.stringify({ agent_id: 'pg_scentest1_graphex', query: 'find nodes' })),
+    session,
+  );
+  const nsGraph = sessionNamespace(session, 'pg_scentest1_graphex');
+  assert.equal(JSON.parse(rGraph.body.toString()).agent_id, nsGraph);
+  assert.equal(rGraph.clientAgentId, 'pg_scentest1_graphex');
+  assert.equal(rGraph.namespace, nsGraph);
+
+  // llm fintech scenario — different namespace
+  const rLlm = rewriteRequestAgentId(
+    Buffer.from(JSON.stringify({ agent_id: 'pg_scentest1_llm_fintech', content: 'portfolio data' })),
+    session,
+  );
+  const nsLlm = sessionNamespace(session, 'pg_scentest1_llm_fintech');
+  assert.equal(JSON.parse(rLlm.body.toString()).agent_id, nsLlm);
+  assert.notEqual(nsGraph, nsLlm, 'graphex and llm must have different namespaces');
+});
+
+test('rewriteRequestAgentId backward compat: pre-computed namespace override (DAK-6929)', () => {
+  // Callers that already computed a namespace can pass it as the third argument
+  const precomputed = 'playground-demo-aabbccddeeff';
+  const r = rewriteRequestAgentId(
+    Buffer.from(JSON.stringify({ agent_id: 'playground-demo', content: 'test' })),
+    'pg_ignored',
+    precomputed,
+  );
+  assert.equal(JSON.parse(r.body.toString()).agent_id, precomputed);
+  assert.equal(r.namespace, precomputed);
 });
 
 // ---------------------------------------------------------------------------
@@ -572,7 +685,8 @@ test('two clients without session headers get different namespaces (DAK-6783 cro
 
 test('batch store namespaces every item against the session (DAK-6757)', async () => {
   const p = await startProxy({ rateLimitPerMin: 1000, memoryCapPerSession: 50 });
-  const ns = sessionNamespace('pg_batchns01');
+  // DAK-6929: namespace now derived from session + agent_id scenario key
+  const ns = sessionNamespace('pg_batchns01', 'playground-demo');
   const res = await request(p.port, {
     method: 'POST',
     path: '/v1/memories/store/batch',
@@ -780,7 +894,8 @@ test('llm-compare does NOT seed again on second call (DAK-6845)', async () => {
 test('hybrid path is rewritten to namespaced engine route (DAK-6906)', async () => {
   const p = await startProxy({ rateLimitPerMin: 1000 });
   const sessionId = 'pg_hybridtest001';
-  const expectedNs = sessionNamespace(sessionId);
+  // DAK-6929: namespace derived from session + agent_id
+  const expectedNs = sessionNamespace(sessionId, 'playground-demo');
 
   await request(p.port, {
     method: 'POST',
@@ -858,5 +973,118 @@ test('agent_id in URL path segment is namespaced for /v1/agents/{id}/memories (D
     !forwarded.url.includes('/v1/agents/playground-demo/'),
     `raw client agent_id must not reach engine, got: ${forwarded.url}`,
   );
+  await p.close();
+});
+
+// ---------------------------------------------------------------------------
+// integration: cross-SCENARIO isolation end-to-end (DAK-6929 acceptance)
+// ---------------------------------------------------------------------------
+
+function scenarioStoreReq(port, session, agentId, content) {
+  return request(port, {
+    method: 'POST',
+    path: '/v1/memory/store',
+    headers: { 'content-type': 'application/json', 'x-playground-session': session },
+    body: JSON.stringify({ agent_id: agentId, content }),
+  });
+}
+
+function scenarioRecallReq(port, session, agentId, query) {
+  return request(port, {
+    method: 'POST',
+    path: '/v1/memory/recall',
+    headers: { 'content-type': 'application/json', 'x-playground-session': session },
+    body: JSON.stringify({ agent_id: agentId, query }),
+  });
+}
+
+test('different scenarios in same session get different engine namespaces (DAK-6929 AC#1)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000 }, memoryEngine());
+  const session = 'pg_sceniso001';
+
+  // Store data in Graph Explorer scenario
+  await scenarioStoreReq(p.port, session, `${session}_graphex`, 'Graph node: Alice knows Bob');
+  // Store data in LLM Compare scenario
+  await scenarioStoreReq(p.port, session, `${session}_llm_fintech`, 'Portfolio: 60% stocks, 40% bonds');
+
+  // Graph Explorer recall: the mock engine returns ALL memories for the agent_id,
+  // so we get graphex data but NOT LLM data — proving namespace isolation.
+  const graphRecall = await scenarioRecallReq(p.port, session, `${session}_graphex`, 'anything');
+  const graphResults = JSON.parse(graphRecall.body).results;
+  assert.deepEqual(graphResults, ['Graph node: Alice knows Bob'],
+    'Graph Explorer must only see its own data, not LLM data');
+  assert.ok(!graphResults.includes('Portfolio: 60% stocks, 40% bonds'),
+    'LLM data must NOT leak into Graph Explorer');
+
+  // LLM recall should see only its own data
+  const llmRecall = await scenarioRecallReq(p.port, session, `${session}_llm_fintech`, 'anything');
+  const llmResults = JSON.parse(llmRecall.body).results;
+  assert.deepEqual(llmResults, ['Portfolio: 60% stocks, 40% bonds'],
+    'LLM must only see its own data');
+  assert.ok(!llmResults.includes('Graph node: Alice knows Bob'),
+    'Graph data must NOT leak into LLM');
+
+  await p.close();
+});
+
+test('multi-agent _agent_a and _agent_b share data (DAK-6929 AC#2)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000 }, memoryEngine());
+  const session = 'pg_multiiso01';
+
+  // Agent A stores a memory
+  await scenarioStoreReq(p.port, session, `${session}_agent_a`, 'Shared context: project deadline is Friday');
+
+  // Agent B should be able to recall it (same namespace)
+  const bRecall = await scenarioRecallReq(p.port, session, `${session}_agent_b`, 'deadline');
+  const bResults = JSON.parse(bRecall.body).results;
+  assert.deepEqual(bResults, ['Shared context: project deadline is Friday'],
+    '_agent_b must see _agent_a memories (shared multiagent namespace)');
+
+  await p.close();
+});
+
+test('different scenarios use different engine agent_ids in forwarded requests (DAK-6929 AC#3)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000 });
+  const session = 'pg_fwdcheck1';
+
+  // Store via graphex scenario
+  await scenarioStoreReq(p.port, session, `${session}_graphex`, 'graph data');
+  // Store via default scenario
+  await scenarioStoreReq(p.port, session, 'playground-demo', 'default data');
+  // Store via llm scenario
+  await scenarioStoreReq(p.port, session, `${session}_llm_medical`, 'medical data');
+
+  const agents = p.upstream.captured.map(c => JSON.parse(c.body).agent_id);
+  // All three should be different namespaces
+  assert.notEqual(agents[0], agents[1], 'graphex vs default must differ');
+  assert.notEqual(agents[0], agents[2], 'graphex vs llm must differ');
+  assert.notEqual(agents[1], agents[2], 'default vs llm must differ');
+  // All should follow the namespace format
+  for (const a of agents) {
+    assert.match(a, /^playground-demo-[0-9a-f]{12}$/, `engine agent_id must be namespaced: ${a}`);
+  }
+
+  await p.close();
+});
+
+test('response agent_id is restored to the client original per scenario (DAK-6929 AC#4)', async () => {
+  const p = await startProxy({ rateLimitPerMin: 1000 }, (req, res, captured) => {
+    const parsed = JSON.parse(captured[captured.length - 1].body);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ agent_id: parsed.agent_id, status: 'ok' }));
+  });
+  const session = 'pg_restoretest';
+
+  const res = await request(p.port, {
+    method: 'POST',
+    path: '/v1/memory/store',
+    headers: { 'content-type': 'application/json', 'x-playground-session': session },
+    body: JSON.stringify({ agent_id: `${session}_graphex`, content: 'test' }),
+  });
+  const json = JSON.parse(res.body);
+  // The response should have the original client agent_id restored, not the engine namespace
+  assert.equal(json.agent_id, `${session}_graphex`,
+    'response must restore original client agent_id');
+
   await p.close();
 });
