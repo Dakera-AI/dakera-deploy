@@ -468,9 +468,10 @@ test('scenarioKey extracts correct keys from agent_ids (DAK-6929)', () => {
   assert.equal(scenarioKey('pg_abcdef_llm_legal'), 'llm');
   assert.equal(scenarioKey('pg_abcdef_llm_devops'), 'llm');
 
-  // Multi-agent: _agent_a and _agent_b both map to 'multiagent'
+  // Multi-agent: _agent_a, _agent_b, and _agent_c all map to 'multiagent'
   assert.equal(scenarioKey('pg_abcdef_agent_a'), 'multiagent');
   assert.equal(scenarioKey('pg_abcdef_agent_b'), 'multiagent');
+  assert.equal(scenarioKey('pg_abcdef_agent_c'), 'multiagent');
 
   // Arbitrary suffix extraction — the regex `pg_[A-Za-z0-9_-]{6,}_(.+)$` is
   // greedy, so `[A-Za-z0-9_-]{6,}` consumes as much as possible including
@@ -501,11 +502,13 @@ test('sessionNamespace produces different namespaces for different scenarios (DA
   }
 });
 
-test('multi-agent _agent_a and _agent_b share the same namespace (DAK-6929)', () => {
+test('multi-agent _agent_a, _agent_b, and _agent_c share the same namespace (DAK-6952)', () => {
   const session = 'pg_multitest';
   const nsA = sessionNamespace(session, 'pg_multitest_agent_a');
   const nsB = sessionNamespace(session, 'pg_multitest_agent_b');
+  const nsC = sessionNamespace(session, 'pg_multitest_agent_c');
   assert.equal(nsA, nsB, '_agent_a and _agent_b must share a namespace for cross-agent demo');
+  assert.equal(nsB, nsC, '_agent_c must also share the same namespace for 3-agent pipeline');
 });
 
 test('LLM variants all share the same namespace (DAK-6929)', () => {
