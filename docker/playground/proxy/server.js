@@ -416,16 +416,34 @@ function createServer(config, store) {
       };
     }
 
-    // Also rewrite agent_id in URL query params for GET endpoints (DAK-6899)
+    // Rewrite agent_id in URL path segments (/v1/agents/{id}/...) and query params.
+    // Body rewriting is handled above; path segments and query params need explicit
+    // treatment because rewriteRequestAgentId only touches JSON body fields (DAK-6901).
     let forwardPath = path;
     try {
-      const qUrl = new URL(req.url, "http://localhost");
-      if (qUrl.searchParams.has("agent_id")) {
-        const namespace = sessionNamespace(resolved.id);
-        const qAgentId = qUrl.searchParams.get("agent_id");
-        qUrl.searchParams.set("agent_id", namespace);
-        forwardPath = qUrl.pathname + "?" + qUrl.searchParams.toString();
+      const fUrl = new URL(req.url, "http://localhost");
+      const namespace = sessionNamespace(resolved.id);
+      let modified = false;
+
+      // Path-segment rewrite: /v1/agents/{agent_id}/... (DAK-6901)
+      const segMatch = fUrl.pathname.match(/^(\/v1\/agents\/)([^/]+)(\/.*)?$/);
+      if (segMatch) {
+        const clientId = segMatch[2];
+        fUrl.pathname = segMatch[1] + namespace + (segMatch[3] || '');
+        if (!rewrite) rewrite = { namespace, restoreTo: clientId };
+        modified = true;
+      }
+
+      // Query-param rewrite: ?agent_id=... (DAK-6899)
+      if (fUrl.searchParams.has("agent_id")) {
+        const qAgentId = fUrl.searchParams.get("agent_id");
+        fUrl.searchParams.set("agent_id", namespace);
         if (!rewrite) rewrite = { namespace, restoreTo: qAgentId };
+        modified = true;
+      }
+
+      if (modified) {
+        forwardPath = fUrl.pathname + (fUrl.search || '');
       }
     } catch (_) {}
     forward(config, req, res, forwardPath, bodyBuf, outHeaders, rewrite);
