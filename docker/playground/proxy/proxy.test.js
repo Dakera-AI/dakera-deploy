@@ -109,9 +109,12 @@ test('allow-list permits DAK-6891 new endpoints', () => {
   assert.ok(isAllowed('GET', '/v1/sessions/sess_abc123'));
   // Entity Extraction scenario
   assert.ok(isAllowed('POST', '/v1/memories/extract'));
-  // Agent Memory Listing (API explorer)
-  assert.ok(isAllowed('GET', '/v1/agent/memories'));
-  // Hybrid Search still uses /v1/memory/search (existing) — no separate /hybrid route
+  // Agent Memory Listing (API explorer) — DAK-6898: fixed to plural /agents/{id}/memories
+  assert.ok(isAllowed('GET', '/v1/agents/explorer-demo/memories'));
+  assert.ok(isAllowed('GET', '/v1/agents/my-agent/memories'));  // any agent_id
+  assert.notEqual(isAllowed('GET', '/v1/agent/memories'), true); // old wrong path blocked
+  // Hybrid Search pass-through (DAK-6898)
+  assert.ok(isAllowed('POST', '/v1/memory/hybrid'));
   assert.ok(isAllowed('POST', '/v1/memory/search'));
 });
 
