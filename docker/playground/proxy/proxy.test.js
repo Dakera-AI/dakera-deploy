@@ -100,6 +100,21 @@ test('allow-list permits sandbox-safe endpoints', () => {
   assert.ok(isAllowed('GET', '/v1/memories/mem_9/graph'));
 });
 
+// DAK-6891: new endpoints for PR#252 features (ChatMemorySession, Entity Extraction,
+// Agent Memory Listing).
+test('allow-list permits DAK-6891 new endpoints', () => {
+  // ChatMemorySession scenario
+  assert.ok(isAllowed('POST', '/v1/sessions/start'));
+  assert.ok(isAllowed('POST', '/v1/sessions/sess_abc123/end'));
+  assert.ok(isAllowed('GET', '/v1/sessions/sess_abc123'));
+  // Entity Extraction scenario
+  assert.ok(isAllowed('POST', '/v1/memories/extract'));
+  // Agent Memory Listing (API explorer)
+  assert.ok(isAllowed('GET', '/v1/agent/memories'));
+  // Hybrid Search still uses /v1/memory/search (existing) — no separate /hybrid route
+  assert.ok(isAllowed('POST', '/v1/memory/search'));
+});
+
 // DAK-6758: the allow-list methods must match the engine route table
 // (crates/api/src/lib.rs), or the proxy 403s (wrong proxy method) or the engine
 // 405s (wrong engine method) — breaking playground scenarios 4 and 5.
@@ -115,10 +130,10 @@ test('allow-list methods match engine routes (DAK-6758)', () => {
   // knowledge/graph is POST-only in the engine (lib.rs:483); GET was dead.
   assert.ok(isAllowed('POST', '/v1/knowledge/graph'));
   assert.ok(!isAllowed('GET', '/v1/knowledge/graph'));
-  // {id}/links: POST-only link creation (lib.rs:449). GET stays blocked (no
-  // read route). POST is now allowed — required by all SDK quickstarts (DAK-6776).
+  // {id}/links is POST-only link creation (a mutation) — no read route exists,
+  // so it must stay blocked by deny-by-default.
   assert.ok(!isAllowed('GET', '/v1/memories/mem_1/links'));
-  assert.ok(isAllowed('POST', '/v1/memories/mem_1/links'));
+  assert.ok(!isAllowed('POST', '/v1/memories/mem_1/links'));
 });
 
 test('allow-list denies admin/delete/bulk/forget by default', () => {

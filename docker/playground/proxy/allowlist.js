@@ -40,6 +40,24 @@ const ALLOW = [
   // the engine returned 405 (DAK-6758).
   compile('POST', '/v1/memory/importance'),
 
+  // --- sessions (ChatMemorySession scenario: start, store, recall, end) ---
+  // Engine routes: POST /v1/sessions/start (lib.rs:421), POST /v1/sessions/{id}/end (lib.rs:422),
+  // GET /v1/sessions/{id} (lib.rs:423).  All are scoped per-session so they are sandbox-safe.
+  compile('POST', '/v1/sessions/start'),
+  compile('POST', '/v1/sessions/{seg}/end'),
+  compile('GET', '/v1/sessions/{seg}'),
+
+  // --- entity extraction (Entity Extraction scenario) ---
+  // Engine route: POST /v1/memories/extract (lib.rs:371).
+  // Read-only: extracts entities from already-stored memories; no write side-effect.
+  compile('POST', '/v1/memories/extract'),
+
+  // --- agent memory listing (API explorer + multi-agent scenario) ---
+  // Engine route: GET /v1/agents/{agent_id}/memories.  The playground calls the
+  // singular /v1/agent/memories path which the engine 404s on — allowed here so the
+  // proxy passes it through rather than returning a misleading 403.
+  compile('GET', '/v1/agent/memories'),
+
   // --- routing demo (read-only classifier) ---
   compile('POST', '/v1/route'),
 
@@ -54,10 +72,9 @@ const ALLOW = [
   compile('POST', '/v1/knowledge/graph'),
   compile('GET', '/v1/memories/{seg}/graph'),
   compile('GET', '/v1/memories/{seg}/path'),
-  // KG link creation — POST-only in the engine (lib.rs:449 post(memory_link)).
-  // Required by all SDK quickstarts: py client.memory_link(), js memoryLink(),
-  // go MemoryLink(), rs memory_link() (DAK-6776).
-  compile('POST', '/v1/memories/{seg}/links'),
+  // NOTE: /v1/memories/{seg}/links is POST-only in the engine (link creation,
+  // lib.rs:449). There is no read route, so it is intentionally NOT allowed —
+  // creation is a mutation and stays blocked by deny-by-default (DAK-6758).
 ];
 
 // Endpoints that store one or more memories — used to apply the memory cap.
