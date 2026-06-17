@@ -1,0 +1,227 @@
+name: Playground - Set DNS + Enable SSL
+
+# Fixes DAK-6883: playground.dakera.ai had no DNS A record, causing Let's Encrypt
+# to fail twice (runs 27639387016, 27639388716). This workflow:
+#   1. Adds an A record in Cloudflare: playground.dakera.ai → 5.75.177.31 (DNS-only, no proxy)
+#   2. Waits for DNS propagation (up to 5 min)
+#   3. SSHes to the playground server and runs certbot --nginx
+#   4. Verifies HTTPS health
+#
+# Prerequisites (one-time setup):
+#   - CF_API_TOKEN secret in dakera-deploy GitHub repo (Cloudflare API token with
+#     Zone.DNS Edit permission on dakera.ai zone — see DAK-6883)
+#   - DEPLOY_SSH_KEY, PLAYGROUND_IP already present (confirmed present 2026-06-17)
+#
+# Safe to re-run: checks for existing DNS record before creating, certbot renews if cert exists.
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Subdomain to configure (default: playground.dakera.ai)"
+        required: false
+        default: "playground.dakera.ai"
+      server_ip:
+        description: "Playground server IP"
+        required: false
+        default: "5.75.177.31"
+      skip_dns:
+        description: "Skip DNS step (set true if A record already exists)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  dns-and-ssl:
+    name: "Set DNS + Issue cert for ${{ inputs.domain || 'playground.dakera.ai' }}"
+    runs-on: ubuntu-latest
+    env:
+      DOMAIN: ${{ inputs.domain || 'playground.dakera.ai' }}
+      SERVER_IP: ${{ inputs.server_ip || '5.75.177.31' }}
+      SKIP_DNS: ${{ inputs.skip_dns || 'false' }}
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Step 1: Add Cloudflare DNS A record (playground.dakera.ai → 5.75.177.31)
+      # -----------------------------------------------------------------------
+      - name: Add Cloudflare DNS A record
+        if: env.SKIP_DNS != 'true'
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: |
+          set -e
+
+          if [ -z "$CF_API_TOKEN" ]; then
+            echo "::error::CF_API_TOKEN secret is not set. Add it to dakera-deploy repo secrets."
+            echo "::error::Required: Cloudflare API token with Zone.DNS Edit permission for dakera.ai"
+            exit 1
+          fi
+
+          BASE_DOMAIN="dakera.ai"
+          SUBDOMAIN="${DOMAIN%%.$BASE_DOMAIN}"  # extracts "playground"
+
+          echo "Looking up Cloudflare Zone ID for $BASE_DOMAIN..."
+          ZONE_RESP=$(curl -sf -X GET \
+            "https://api.cloudflare.com/client/v4/zones?name=${BASE_DOMAIN}&status=active" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json")
+
+          ZONE_ID=$(echo "$ZONE_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else '')" 2>/dev/null)
+          if [ -z "$ZONE_ID" ]; then
+            echo "::error::Could not find Cloudflare zone for $BASE_DOMAIN. Check CF_API_TOKEN permissions."
+            exit 1
+          fi
+          echo "Zone ID: $ZONE_ID"
+
+          # Check if record already exists
+          EXISTING=$(curl -sf -X GET \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?type=A&name=${DOMAIN}" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); r=d.get('result',[]); print(r[0]['id']+'|'+r[0]['content'] if r else '')" 2>/dev/null)
+
+          if [ -n "$EXISTING" ]; then
+            RECORD_ID="${EXISTING%%|*}"
+            CURRENT_IP="${EXISTING##*|}"
+            echo "DNS record already exists: $DOMAIN → $CURRENT_IP (id: $RECORD_ID)"
+            if [ "$CURRENT_IP" = "$SERVER_IP" ]; then
+              echo "Record already correct — no update needed."
+            else
+              echo "Updating record from $CURRENT_IP to $SERVER_IP..."
+              curl -sf -X PUT \
+                "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${RECORD_ID}" \
+                -H "Authorization: Bearer ${CF_API_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d "{\"type\":\"A\",\"name\":\"${DOMAIN}\",\"content\":\"${SERVER_IP}\",\"ttl\":120,\"proxied\":false}" \
+                | python3 -c "import sys,json; d=json.load(sys.stdin); print('Updated:', d.get('result',{}).get('content','?'))"
+            fi
+          else
+            echo "Creating DNS A record: $DOMAIN → $SERVER_IP (TTL 120, DNS-only / no proxy)..."
+            RESULT=$(curl -sf -X POST \
+              "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
+              -H "Authorization: Bearer ${CF_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"type\":\"A\",\"name\":\"${DOMAIN}\",\"content\":\"${SERVER_IP}\",\"ttl\":120,\"proxied\":false}")
+            SUCCESS=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('success','false'))" 2>/dev/null)
+            if [ "$SUCCESS" != "True" ] && [ "$SUCCESS" != "true" ]; then
+              echo "::error::Cloudflare API returned error: $RESULT"
+              exit 1
+            fi
+            echo "DNS record created: $DOMAIN → $SERVER_IP"
+          fi
+
+      # -----------------------------------------------------------------------
+      # Step 2: Wait for DNS propagation
+      # -----------------------------------------------------------------------
+      - name: Wait for DNS propagation
+        run: |
+          echo "Polling DNS for $DOMAIN → $SERVER_IP (up to 5 min)..."
+          for i in $(seq 1 30); do
+            RESOLVED=$(dig +short "$DOMAIN" @1.1.1.1 | head -1)
+            echo "Attempt $i/30: $DOMAIN → ${RESOLVED:-<empty>}"
+            if [ "$RESOLVED" = "$SERVER_IP" ]; then
+              echo "DNS propagated."
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "::error::DNS did not propagate to $SERVER_IP within 5 minutes (got: $RESOLVED)"
+              echo "::error::Check Cloudflare dashboard — record may be pending or proxied."
+              exit 1
+            fi
+            sleep 10
+          done
+
+      # -----------------------------------------------------------------------
+      # Step 3: SSH setup
+      # -----------------------------------------------------------------------
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_IP" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Verify SSH connectivity
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=15 -o BatchMode=yes \
+            root@"$SERVER_IP" "echo 'SSH OK'"
+
+      # -----------------------------------------------------------------------
+      # Step 4: Ensure /var/www/certbot exists (ACME webroot)
+      # -----------------------------------------------------------------------
+      - name: Ensure ACME webroot exists
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@"$SERVER_IP" \
+            "mkdir -p /var/www/certbot && echo 'ACME webroot ready.'"
+
+      # -----------------------------------------------------------------------
+      # Step 5: Run certbot via the nginx plugin
+      # -----------------------------------------------------------------------
+      - name: Run certbot (nginx plugin)
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@"$SERVER_IP" bash << REMOTE
+          set -e
+
+          echo "Installing/upgrading certbot..."
+          apt-get install -y certbot python3-certbot-nginx -q 2>&1 | tail -5
+
+          echo "Running certbot for $DOMAIN..."
+          certbot --nginx -d "$DOMAIN" \
+            --non-interactive --agree-tos --email admin@dakera.ai \
+            --redirect 2>&1
+
+          # Copy certs to nginx ssl dir (for explicit ssl_certificate paths in nginx config)
+          mkdir -p /etc/nginx/ssl
+          cp /etc/letsencrypt/live/"$DOMAIN"/fullchain.pem /etc/nginx/ssl/playground.crt
+          cp /etc/letsencrypt/live/"$DOMAIN"/privkey.pem /etc/nginx/ssl/playground.key
+
+          nginx -t && systemctl reload nginx
+          echo "SSL configured and nginx reloaded."
+          REMOTE
+        env:
+          DOMAIN: ${{ env.DOMAIN }}
+
+      # -----------------------------------------------------------------------
+      # Step 6: Verify HTTPS health
+      # -----------------------------------------------------------------------
+      - name: Verify HTTPS health
+        run: |
+          sleep 5
+          echo "Checking https://$DOMAIN/health ..."
+          for i in 1 2 3; do
+            HTTP_CODE=$(curl -sf --max-time 15 -o /tmp/health.json -w "%{http_code}" "https://$DOMAIN/health" 2>/dev/null || echo "000")
+            echo "Attempt $i: HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "HTTPS health check PASSED."
+              cat /tmp/health.json
+              break
+            fi
+            sleep 5
+          done
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::HTTPS health returned $HTTP_CODE — cert may need a minute to propagate"
+          fi
+
+      # -----------------------------------------------------------------------
+      # Step 7: Notify Telegram
+      # -----------------------------------------------------------------------
+      - name: Telegram notification
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          STATUS: ${{ job.status }}
+        run: |
+          if [ "$STATUS" = "success" ]; then
+            ICON="✅"; MSG="playground.dakera.ai SSL FIXED — cert issued, HTTPS health passed."
+          else
+            ICON="❌"; MSG="playground.dakera.ai SSL workflow FAILED — check logs."
+          fi
+          TEXT="${ICON} [Deploy] ${MSG}\n\nDomain: ${DOMAIN}\nServer: ${SERVER_IP}\nRun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n\nDAK-6883"
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":$(printf '%s' "$TEXT" | jq -Rs .)}" > /dev/null || true
