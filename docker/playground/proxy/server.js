@@ -381,17 +381,17 @@ function createServer(config, store) {
       'X-Sandbox-Rate-Remaining': String(rate.remaining),
     };
 
-    // Per-session namespace isolation (DAK-6757): rewrite the request body's
-    // agent_id to this session's private namespace so no session can recall
-    // another session's memories. The original agent_id is restored in the
-    // response so the client sees no change.
+    // Per-session + per-scenario namespace isolation (DAK-6757, DAK-6929):
+    // rewrite the request body's agent_id to this session's private namespace
+    // so no session can recall another session's memories, and different
+    // playground scenarios (Graph Explorer, LLM Compare, etc.) are isolated
+    // from each other within the same session.
     let rewrite = null;
     if (bodyBuf && bodyBuf.length) {
-      const namespace = sessionNamespace(resolved.id);
-      const rewritten = rewriteRequestAgentId(bodyBuf, namespace);
+      const rewritten = rewriteRequestAgentId(bodyBuf, resolved.id);
       if (rewritten.clientAgentId !== null) {
         bodyBuf = rewritten.body;
-        rewrite = { namespace, restoreTo: rewritten.clientAgentId };
+        rewrite = { namespace: rewritten.namespace, restoreTo: rewritten.clientAgentId };
       }
     }
 
@@ -419,16 +419,17 @@ function createServer(config, store) {
     // Rewrite agent_id in URL path segments (/v1/agents/{id}/...) and query params.
     // Body rewriting is handled above; path segments and query params need explicit
     // treatment because rewriteRequestAgentId only touches JSON body fields (DAK-6901).
+    // DAK-6929: the namespace now includes the scenario key from the agent_id.
     let forwardPath = path;
     try {
       const fUrl = new URL(req.url, "http://localhost");
-      const namespace = sessionNamespace(resolved.id);
       let modified = false;
 
       // Path-segment rewrite: /v1/agents/{agent_id}/... (DAK-6901)
       const segMatch = fUrl.pathname.match(/^(\/v1\/agents\/)([^/]+)(\/.*)?$/);
       if (segMatch) {
         const clientId = segMatch[2];
+        const namespace = sessionNamespace(resolved.id, clientId);
         fUrl.pathname = segMatch[1] + namespace + (segMatch[3] || '');
         if (!rewrite) rewrite = { namespace, restoreTo: clientId };
         modified = true;
@@ -437,6 +438,7 @@ function createServer(config, store) {
       // Query-param rewrite: ?agent_id=... (DAK-6899)
       if (fUrl.searchParams.has("agent_id")) {
         const qAgentId = fUrl.searchParams.get("agent_id");
+        const namespace = sessionNamespace(resolved.id, qAgentId);
         fUrl.searchParams.set("agent_id", namespace);
         if (!rewrite) rewrite = { namespace, restoreTo: qAgentId };
         modified = true;
@@ -452,6 +454,7 @@ function createServer(config, store) {
     // hybrid search endpoint requires this full internal key in the URL path. The proxy translates
     // the shorthand /v1/memory/hybrid path using the session namespace so the frontend doesn't need
     // to know either the session namespace or the internal _dakera_agent_ prefix.
+    // DAK-6929: the namespace now reflects the scenario key from the body rewrite.
     if (path === '/v1/memory/hybrid') {
       const ns = rewrite ? rewrite.namespace : sessionNamespace(resolved.id);
       forwardPath = `/v1/namespaces/_dakera_agent_${ns}/hybrid`;
