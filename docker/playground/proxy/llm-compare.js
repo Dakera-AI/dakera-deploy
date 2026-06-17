@@ -77,7 +77,15 @@ const SEED_MEMORIES = [
   },
 ];
 
-const DEFAULT_MODEL = 'google/gemma-4-26b-a4b-it:free';
+// Model cascade (DAK-6944): 405B Hermes primary, then gpt-oss-120b, Nemotron Ultra, Llama 70b.
+const MODEL_CASCADE = [
+  'nousresearch/hermes-3-llama-3.1-405b:free',
+  'openai/gpt-oss-120b:free',
+  'nvidia/nemotron-3-ultra-550b-a55b:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
+];
+const DEFAULT_MODEL = MODEL_CASCADE[0];
+const LLM_MAX_TOKENS = 800;
 const SEED_TIMEOUT_MS = 8_000;
 
 // ---------------------------------------------------------------------------
@@ -86,7 +94,7 @@ const SEED_TIMEOUT_MS = 8_000;
 
 function _callOpenRouter(apiKey, model, messages, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ model, messages, max_tokens: 512 });
+    const body = JSON.stringify({ model, messages, max_tokens: LLM_MAX_TOKENS, temperature: 0.7 });
     const req = https.request(
       {
         hostname: 'openrouter.ai',
@@ -234,7 +242,7 @@ async function handleLlmCompare(config, store, resolved, bodyBuf, opts) {
   if (!question) {
     return { status: 400, error: 'bad_request', message: 'Field "question" is required and must be a non-empty string.' };
   }
-  const model = typeof parsed.model === 'string' && parsed.model.trim() ? parsed.model.trim() : DEFAULT_MODEL;
+  // Model selection is now handled by the cascade — client-specified model is ignored.
 
   const ns = sessionNamespace(resolved.id);
   const timeout = config.llmCompareTimeoutMs || 30_000;
@@ -271,56 +279,57 @@ async function handleLlmCompare(config, store, resolved, bodyBuf, opts) {
   }
 
   // Steps 2 + 3: OpenRouter calls — without and with memory context (parallel).
-  const withoutMessages = [{ role: 'user', content: question }];
+  const withoutMessages = [
+    {
+      role: 'system',
+      content: 'You are a general-purpose AI assistant. Answer the user\'s question based only on your training knowledge. Be helpful, thorough, and accurate. Where your answer would benefit from access to specific domain records, user history, or organizational context, acknowledge that gap naturally.',
+    },
+    { role: 'user', content: question },
+  ];
   const withMessages =
     memories.length > 0
       ? [
           {
             role: 'system',
             content:
-              'You have access to the following relevant records and memories:\n\n' +
-              memories.join('\n\n') +
-              '\n\nUse this context to provide an accurate, specific answer.',
+              'You are a knowledgeable AI assistant with access to the user\'s stored records. Here is the relevant context:\n\n' +
+              memories.map(m => `- ${m}`).join('\n') +
+              '\n\nInstructions:\n- Answer the question directly and confidently, weaving in specifics from the context above.\n- Write as if you naturally know this information — do NOT say "according to the records" or "based on stored memories."\n- Never list sources, show scores, or mention a memory system.\n- Be thorough: give actionable, specific details. If the context contains dates, numbers, or names, use them.\n- If the context doesn\'t fully answer the question, supplement with general knowledge but prioritize the stored context.',
           },
           { role: 'user', content: question },
         ]
       : withoutMessages;
 
-  const [withoutSettled, withSettled] = await Promise.allSettled([
-    callOR(config.openRouterApiKey, model, withoutMessages, timeout),
-    callOR(config.openRouterApiKey, model, withMessages, timeout),
+  // Model cascade: try each model in MODEL_CASCADE with 10s per attempt.
+  async function callCascade(messages) {
+    for (const m of MODEL_CASCADE) {
+      try {
+        const res = await callOR(config.openRouterApiKey, m, messages, 10000);
+        if (res.status === 429) continue;
+        if (res.status >= 400) continue;
+        const parsed = _parseOrResponse(res.body, m);
+        if (parsed.error) continue;
+        if (!parsed.response) continue;
+        return parsed;
+      } catch {
+        continue;
+      }
+    }
+    return { error: 'all_models_failed', message: 'All LLM models are currently unavailable. Please try again later.', model: DEFAULT_MODEL };
+  }
+
+  const [withoutResult, withResult] = await Promise.all([
+    callCascade(withoutMessages),
+    callCascade(withMessages),
   ]);
 
   const processingTimeMs = Date.now() - startMs;
 
-  function resolveResult(settled, includeMemories) {
-    if (settled.status === 'rejected') {
-      const base = { error: 'request_failed', message: 'Failed to call OpenRouter.', model };
-      return includeMemories ? { ...base, memories_used: memories } : base;
-    }
-    const { status: httpStatus, body } = settled.value;
-    if (httpStatus === 402) {
-      const base = { error: 'credits_exhausted', message: 'OpenRouter free-tier credits exhausted. Please try again later.', model };
-      return includeMemories ? { ...base, memories_used: memories } : base;
-    }
-    if (httpStatus >= 400) {
-      let msg = `OpenRouter returned HTTP ${httpStatus}.`;
-      try {
-        const p = JSON.parse(body);
-        if (p.error && p.error.message) msg = p.error.message;
-      } catch { /**/ }
-      const base = { error: 'openrouter_error', message: msg, model };
-      return includeMemories ? { ...base, memories_used: memories } : base;
-    }
-    const base = _parseOrResponse(body, model);
-    return includeMemories ? { ...base, memories_used: memories } : base;
-  }
-
-  const withoutMemory = resolveResult(withoutSettled, false);
-  let withMemory = resolveResult(withSettled, true);
+  const withoutMemory = withoutResult;
+  let withMemory = { ...withResult, memories_used: memories };
   if (recallWarning) withMemory = { ...withMemory, recall_warning: recallWarning };
 
   return { status: 200, without_memory: withoutMemory, with_memory: withMemory, processing_time_ms: processingTimeMs };
 }
 
-module.exports = { handleLlmCompare, SEED_MEMORIES, DEFAULT_MODEL };
+module.exports = { handleLlmCompare, SEED_MEMORIES, DEFAULT_MODEL, MODEL_CASCADE, LLM_MAX_TOKENS };

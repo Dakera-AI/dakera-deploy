@@ -704,11 +704,11 @@ test('batch store namespaces every item against the session (DAK-6757)', async (
 // unit + integration: LLM compare (DAK-6845)
 // ---------------------------------------------------------------------------
 
-const { handleLlmCompare, SEED_MEMORIES, DEFAULT_MODEL } = require('./llm-compare');
+const { handleLlmCompare, SEED_MEMORIES, DEFAULT_MODEL, MODEL_CASCADE } = require('./llm-compare');
 
 // Minimal noop mocks for the internal I/O helpers.
 function makeOrMock(response) {
-  return async () => ({ status: 200, body: JSON.stringify({ model: 'google/gemma-4-26b-a4b-it:free', choices: [{ message: { content: response } }] }) });
+  return async (_key, model) => ({ status: 200, body: JSON.stringify({ model: model || DEFAULT_MODEL, choices: [{ message: { content: response } }] }) });
 }
 const noopSeed = async () => ({ status: 200 });
 const emptyRecall = async () => ({ status: 200, body: JSON.stringify({ results: [] }) });
@@ -788,15 +788,15 @@ test('llm-compare successful call returns correct structure (DAK-6845)', async (
   assert.equal(typeof result.processing_time_ms, 'number');
   assert.ok(Array.isArray(result.with_memory.memories_used));
   assert.ok(result.with_memory.memories_used.length > 0);
-  assert.equal(result.without_memory.model, DEFAULT_MODEL);
+  assert.equal(result.without_memory.model, MODEL_CASCADE[0]);
   assert.equal(result.without_memory.response, 'Some medication answer');
 });
 
-test('llm-compare passes model override to OpenRouter (DAK-6845)', async () => {
+test('llm-compare uses model cascade — first successful model wins (DAK-6944)', async () => {
   const store = makeStore();
   const resolved = makeResolved(store);
   const capturedModels = [];
-  const result = await handleLlmCompare(makeConfig(), store, resolved, Buffer.from(JSON.stringify({ question: 'hello', model: 'google/gemma-3-27b-it:free' })), {
+  const result = await handleLlmCompare(makeConfig(), store, resolved, Buffer.from(JSON.stringify({ question: 'hello' })), {
     _callOpenRouter: async (key, model) => {
       capturedModels.push(model);
       return { status: 200, body: JSON.stringify({ model, choices: [{ message: { content: 'hi' } }] }) };
@@ -805,7 +805,7 @@ test('llm-compare passes model override to OpenRouter (DAK-6845)', async () => {
     _callDakeraStoreBatch: noopSeed,
   });
   assert.equal(result.status, 200);
-  assert.ok(capturedModels.every((m) => m === 'google/gemma-3-27b-it:free'));
+  assert.ok(capturedModels.every((m) => m === MODEL_CASCADE[0]));
 });
 
 test('llm-compare LLM-specific rate limit blocks after 5 calls per 10 min (DAK-6845)', async () => {
@@ -831,7 +831,7 @@ test('llm-compare LLM-specific rate limit blocks after 5 calls per 10 min (DAK-6
   assert.equal(allowed.status, 200);
 });
 
-test('llm-compare handles OpenRouter 402 gracefully (DAK-6845)', async () => {
+test('llm-compare handles all models failing gracefully via cascade (DAK-6944)', async () => {
   const store = makeStore();
   const resolved = makeResolved(store);
   const result = await handleLlmCompare(makeConfig(), store, resolved, Buffer.from(JSON.stringify({ question: 'test' })), {
@@ -840,8 +840,8 @@ test('llm-compare handles OpenRouter 402 gracefully (DAK-6845)', async () => {
     _callDakeraStoreBatch: noopSeed,
   });
   assert.equal(result.status, 200);
-  assert.equal(result.without_memory.error, 'credits_exhausted');
-  assert.equal(result.with_memory.error, 'credits_exhausted');
+  assert.equal(result.without_memory.error, 'all_models_failed');
+  assert.equal(result.with_memory.error, 'all_models_failed');
 });
 
 test('llm-compare proceeds when Dakera recall fails (DAK-6845)', async () => {
