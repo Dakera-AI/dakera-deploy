@@ -227,6 +227,64 @@ test('sweep removes expired sessions', () => {
   assert.equal(store.size, 0);
 });
 
+test('sweep calls onExpire with tracked namespaces (DAK-6975)', () => {
+  let now = 0;
+  const expired = [];
+  const store = new SessionStore({
+    rateLimitPerMin: 10, memoryCap: 50, ttlMs: 100, maxSessionsPerIp: 0, now: () => now,
+    onExpire: (id, session) => { expired.push({ id, namespaces: [...session.namespaces] }); },
+  });
+  const res = store.resolve('pg_testexpire', '5.5.5.5');
+  assert.equal(res.ok, true);
+  store.trackNamespace(res.session, 'playground-demo-abc123');
+  store.trackNamespace(res.session, 'playground-demo-def456');
+  now = 200;
+  assert.equal(store.sweep(), 1);
+  assert.equal(expired.length, 1);
+  assert.equal(expired[0].id, 'pg_testexpire');
+  assert.deepStrictEqual(expired[0].namespaces.sort(), ['playground-demo-abc123', 'playground-demo-def456']);
+});
+
+test('resolve calls onExpire when session is expired on re-resolve (DAK-6975)', () => {
+  let now = 0;
+  const expired = [];
+  const store = new SessionStore({
+    rateLimitPerMin: 10, memoryCap: 50, ttlMs: 100, maxSessionsPerIp: 0, now: () => now,
+    onExpire: (id, session) => { expired.push(id); },
+  });
+  const res = store.resolve('pg_resolveexp', '6.6.6.6');
+  store.trackNamespace(res.session, 'playground-demo-aaa');
+  now = 200;
+  const res2 = store.resolve('pg_resolveexp', '6.6.6.6');
+  assert.equal(res2.ok, true);
+  assert.equal(expired.length, 1);
+  assert.equal(expired[0], 'pg_resolveexp');
+});
+
+test('trackNamespace adds to session.namespaces set (DAK-6975)', () => {
+  let now = 0;
+  const store = new SessionStore({ rateLimitPerMin: 10, memoryCap: 50, ttlMs: 100, maxSessionsPerIp: 0, now: () => now });
+  const res = store.resolve('pg_tracktest1', '7.7.7.7');
+  assert.equal(res.session.namespaces, undefined);
+  store.trackNamespace(res.session, 'ns-a');
+  store.trackNamespace(res.session, 'ns-b');
+  store.trackNamespace(res.session, 'ns-a');
+  assert.equal(res.session.namespaces.size, 2);
+});
+
+test('sweep does not call onExpire when no namespaces tracked (DAK-6975)', () => {
+  let now = 0;
+  let called = false;
+  const store = new SessionStore({
+    rateLimitPerMin: 10, memoryCap: 50, ttlMs: 100, maxSessionsPerIp: 0, now: () => now,
+    onExpire: () => { called = true; },
+  });
+  store.resolve('pg_nonamespace', '8.8.8.8');
+  now = 200;
+  store.sweep();
+  assert.equal(called, false);
+});
+
 // ---------------------------------------------------------------------------
 // unit: CORS (req #5)
 // ---------------------------------------------------------------------------

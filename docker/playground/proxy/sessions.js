@@ -39,7 +39,8 @@ class SessionStore {
     this.maxSessionsPerIp = opts.maxSessionsPerIp;
     this.llmRateLimit = opts.llmRateLimit !== undefined ? opts.llmRateLimit : 5;
     this.now = opts.now || Date.now;
-    /** @type {Map<string, {createdAt:number, calls:number[], memoryCount:number, ip:string, generated:boolean, llmCalls?:number[], llmSeeded?:boolean}>} */
+    this.onExpire = opts.onExpire || null;
+    /** @type {Map<string, {createdAt:number, calls:number[], memoryCount:number, ip:string, generated:boolean, llmCalls?:number[], llmSeeded?:boolean, namespaces?:Set<string>}>} */
     this.sessions = new Map();
   }
 
@@ -63,6 +64,9 @@ class SessionStore {
     let s = this.sessions.get(key);
     if (s && this._expired(s)) {
       // req #3: 30-min auto-expiry — drop stale state, start fresh.
+      if (this.onExpire && s.namespaces && s.namespaces.size > 0) {
+        try { this.onExpire(key, s); } catch (_) {}
+      }
       this.sessions.delete(key);
       s = undefined;
     }
@@ -151,11 +155,20 @@ class SessionStore {
     return { ok: true, remaining: this.llmRateLimit - session.llmCalls.length };
   }
 
-  /** Evict expired sessions; returns the number removed. */
+  /** Track a namespace used by this session (for cleanup on expiry). */
+  trackNamespace(session, namespace) {
+    if (!session.namespaces) session.namespaces = new Set();
+    session.namespaces.add(namespace);
+  }
+
+  /** Evict expired sessions; calls onExpire for engine cleanup. Returns count removed. */
   sweep() {
     let removed = 0;
     for (const [k, s] of this.sessions) {
       if (this._expired(s)) {
+        if (this.onExpire && s.namespaces && s.namespaces.size > 0) {
+          try { this.onExpire(k, s); } catch (_) {}
+        }
         this.sessions.delete(k);
         removed += 1;
       }
