@@ -408,6 +408,7 @@ function createServer(config, store) {
       if (rewritten.clientAgentId !== null) {
         bodyBuf = rewritten.body;
         rewrite = { namespace: rewritten.namespace, restoreTo: rewritten.clientAgentId };
+        store.trackNamespace(resolved.session, rewritten.namespace);
       }
     }
 
