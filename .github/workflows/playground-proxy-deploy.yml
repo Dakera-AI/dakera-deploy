@@ -10,6 +10,7 @@ on:
     paths:
       - 'docker/playground/proxy/**'
       - 'docker/docker-compose.playground.yml'
+      - 'docker/nginx-playground.conf'
       - '.github/workflows/playground-proxy-deploy.yml'
   workflow_dispatch:
     inputs:
@@ -64,6 +65,48 @@ jobs:
             ${{ env.PROXY_SRC }}/package.json \
             root@${{ env.PLAYGROUND_IP }}:${{ env.PROXY_DEST }}/
 
+      - name: Deploy Nginx config (burst + rate limits)
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            docker/nginx-playground.conf \
+            root@${{ env.PLAYGROUND_IP }}:/tmp/nginx-playground.conf.new
+
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@${{ env.PLAYGROUND_IP }}" bash << 'REMOTE'
+          set -e
+          CURRENT=/etc/nginx/sites-available/playground
+
+          # Detect current SSL cert paths from the running config
+          CERT=$(grep -m1 'ssl_certificate ' "$CURRENT" 2>/dev/null | awk '{print $2}' | tr -d ';')
+          KEY=$(grep -m1 'ssl_certificate_key ' "$CURRENT" 2>/dev/null | awk '{print $2}' | tr -d ';')
+
+          if [ -z "$CERT" ] || [ -z "$KEY" ]; then
+            CERT="/etc/nginx/ssl/playground.crt"
+            KEY="/etc/nginx/ssl/playground.key"
+          fi
+
+          echo "SSL cert: $CERT"
+          echo "SSL key:  $KEY"
+
+          sed "s|SSL_CERT_PLACEHOLDER|${CERT}|g; s|SSL_KEY_PLACEHOLDER|${KEY}|g" \
+            /tmp/nginx-playground.conf.new > /tmp/nginx-playground-rendered.conf
+
+          cp "$CURRENT" "${CURRENT}.bak"
+          cp /tmp/nginx-playground-rendered.conf "$CURRENT"
+
+          if nginx -t 2>&1; then
+            nginx -s reload
+            BURST=$(grep -o 'burst=[0-9]*' "$CURRENT" | head -1)
+            echo "✅ Nginx config deployed — $BURST active"
+          else
+            echo "❌ Nginx config test failed — rolling back"
+            cp "${CURRENT}.bak" "$CURRENT"
+            nginx -s reload
+            exit 1
+          fi
+
+          rm -f /tmp/nginx-playground.conf.new /tmp/nginx-playground-rendered.conf "${CURRENT}.bak"
+          REMOTE
+
       - name: Rebuild and restart proxy
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@${{ env.PLAYGROUND_IP }}" bash << 'REMOTE'
@@ -85,7 +128,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          MSG="✅ [Platform] Playground proxy deployed — $(git log -1 --format='%s')"
+          MSG="✅ [Platform] Playground proxy + Nginx deployed — $(git log -1 --format='%s')"
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}&text=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$MSG")" > /dev/null
 
