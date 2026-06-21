@@ -1,0 +1,56 @@
+name: Playground Uptime Check — DAK-7020
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  uptime-check:
+    name: Check playground.dakera.ai health
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Health check
+        id: health
+        run: |
+          HTTP_STATUS=$(curl -sf --max-time 15 -o /tmp/health_body.json \
+            -w "%{http_code}" https://playground.dakera.ai/health 2>/dev/null || echo "000")
+          echo "http_status=$HTTP_STATUS" >> "$GITHUB_OUTPUT"
+
+          if [ "$HTTP_STATUS" = "200" ]; then
+            STATUS_JSON=$(cat /tmp/health_body.json 2>/dev/null || echo "{}")
+            DAKERA_STATUS=$(echo "$STATUS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unknown'))" 2>/dev/null || echo "unknown")
+            VERSION=$(echo "$STATUS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('version','unknown'))" 2>/dev/null || echo "unknown")
+            echo "dakera_status=$DAKERA_STATUS" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "✅ playground.dakera.ai healthy — HTTP $HTTP_STATUS, dakera $DAKERA_STATUS, v$VERSION"
+          else
+            echo "dakera_status=unreachable" >> "$GITHUB_OUTPUT"
+            echo "version=unknown" >> "$GITHUB_OUTPUT"
+            echo "❌ playground.dakera.ai FAILED — HTTP $HTTP_STATUS"
+          fi
+
+      - name: Alert on failure
+        if: steps.health.outputs.http_status != '200' || steps.health.outputs.dakera_status != 'healthy'
+        run: |
+          HTTP_STATUS="${{ steps.health.outputs.http_status }}"
+          DAKERA_STATUS="${{ steps.health.outputs.dakera_status }}"
+          VERSION="${{ steps.health.outputs.version }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          MSG="🔴 *[Platform] Playground DOWN*
+
+URL: \`https://playground.dakera.ai/health\`
+HTTP: \`${HTTP_STATUS}\`
+Dakera status: \`${DAKERA_STATUS}\`
+Version: \`${VERSION}\`
+Run: ${RUN_URL}
+
+Check playground server containers and proxy."
+
+          curl -sf -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${{ secrets.TELEGRAM_CHAT_ID }}\",\"text\":\"$(echo "$MSG" | sed 's/"/\\"/g')\",\"parse_mode\":\"Markdown\"}" \
+            > /dev/null || true
+          echo "Telegram alert sent"
+          exit 1
