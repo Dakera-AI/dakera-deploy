@@ -125,7 +125,9 @@ test('allow-list methods match engine routes (DAK-6758)', () => {
   // Scenario 4 knowledge query + path: engine has GET (lib.rs:455-456).
   assert.ok(isAllowed('GET', '/v1/knowledge/query'));
   assert.ok(isAllowed('GET', '/v1/knowledge/path'));
-  assert.ok(!isAllowed('POST', '/v1/knowledge/query')); // old wrong method 403'd
+  // DAK-6919: POST is now a convenience alias — server.js converts POST body →
+  // GET query string before forwarding (engine only has GET for this route).
+  assert.ok(isAllowed('POST', '/v1/knowledge/query'));
   assert.ok(!isAllowed('POST', '/v1/knowledge/path'));
   // Scenario 5 memory decay: engine has POST (lib.rs:400).
   assert.ok(isAllowed('POST', '/v1/memory/importance'));
