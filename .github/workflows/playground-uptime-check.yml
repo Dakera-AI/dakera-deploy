@@ -37,20 +37,14 @@ jobs:
           DAKERA_STATUS="${{ steps.health.outputs.dakera_status }}"
           VERSION="${{ steps.health.outputs.version }}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-          MSG="🔴 *[Platform] Playground DOWN*
-
-URL: \`https://playground.dakera.ai/health\`
-HTTP: \`${HTTP_STATUS}\`
-Dakera status: \`${DAKERA_STATUS}\`
-Version: \`${VERSION}\`
-Run: ${RUN_URL}
-
-Check playground server containers and proxy."
-
+          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+          MSG=$(printf "🔴 *[Platform] Playground DOWN*\n\nURL: \`https://playground.dakera.ai/health\`\nHTTP: \`%s\`\nDakera status: \`%s\`\nVersion: \`%s\`\nRun: %s\n\nCheck playground server containers and proxy." \
+            "$HTTP_STATUS" "$DAKERA_STATUS" "$VERSION" "$RUN_URL")
+          BODY=$(jq -n --arg chat_id "$CHAT_ID" --arg text "$MSG" \
+            '{chat_id: $chat_id, text: $text, parse_mode: "Markdown"}')
           curl -sf -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${{ secrets.TELEGRAM_CHAT_ID }}\",\"text\":\"$(echo "$MSG" | sed 's/"/\\"/g')\",\"parse_mode\":\"Markdown\"}" \
+            -d "$BODY" \
             > /dev/null || true
           echo "Telegram alert sent"
           exit 1
