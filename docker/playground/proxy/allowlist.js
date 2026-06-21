@@ -70,6 +70,10 @@ const ALLOW = [
   // (lib.rs:455-456 get(kg_query) / get(kg_path)) — they were wrongly allowed
   // as POST, so the proxy 403'd query and the engine 405'd path (DAK-6758).
   compile('GET', '/v1/knowledge/query'),
+  // POST /v1/knowledge/query is a convenience alias (DAK-6919): server.js converts
+  // the POST body (KgQueryParams as JSON) → GET query string before forwarding so
+  // clients that send a JSON body (QA E2E, direct fetch) work without engine changes.
+  compile('POST', '/v1/knowledge/query'),
   compile('GET', '/v1/knowledge/path'),
   // /v1/knowledge/graph is POST-only in the engine (lib.rs:483 post). The dead
   // GET entry was removed (it could only ever 405).

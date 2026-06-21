@@ -477,6 +477,24 @@ function createServer(config, store) {
       forwardPath = `/v1/namespaces/_dakera_agent_${ns}/hybrid`;
     }
 
+    // Method rewrite: POST /v1/knowledge/query → GET with query-string params (DAK-6919).
+    // The engine only registers GET for this route (lib.rs:455 get(kg_query)). Some clients
+    // (QA E2E, direct fetch) POST a JSON body with KgQueryParams instead of using GET query
+    // params. We convert: parse the already-namespaced body, build URL query string, forward
+    // as GET with an empty body. Agent_id has already been namespaced by the body-rewrite step.
+    if (path === '/v1/knowledge/query' && method === 'POST' && bodyBuf.length) {
+      try {
+        const parsed = JSON.parse(bodyBuf.toString('utf8'));
+        const qs = Object.entries(parsed)
+          .filter(([, v]) => v !== undefined && v !== null)
+          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+          .join('&');
+        forwardPath = qs ? `/v1/knowledge/query?${qs}` : '/v1/knowledge/query';
+        bodyBuf = Buffer.alloc(0);
+        req.method = 'GET';
+      } catch (_) { /* malformed body — fall through, engine will reject with 400 */ }
+    }
+
     forward(config, req, res, forwardPath, bodyBuf, outHeaders, rewrite);
   });
 }
