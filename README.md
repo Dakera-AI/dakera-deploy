@@ -15,7 +15,7 @@
   <a href="https://dakera.ai"><img src="https://img.shields.io/badge/dakera.ai-website-22c55e?style=for-the-badge" alt="Website" /></a>
   <a href="https://dakera.ai/docs"><img src="https://img.shields.io/badge/docs-dakera.ai%2Fdocs-3b82f6?style=for-the-badge" alt="Docs" /></a>
   <a href="https://dakera.ai/benchmark"><img src="https://img.shields.io/badge/benchmark-88.2%25_LoCoMo-D4A843?style=for-the-badge" alt="Benchmark" /></a>
-  <a href="https://playground.dakera.ai"><img src="https://img.shields.io/badge/playground-try%20it-ff6b35?style=for-the-badge" alt="Playground" /></a>
+  <a href="https://dakera.ai/playground"><img src="https://img.shields.io/badge/playground-try%20it-ff6b35?style=for-the-badge" alt="Playground" /></a>
 </p>
 
 <p align="center">
