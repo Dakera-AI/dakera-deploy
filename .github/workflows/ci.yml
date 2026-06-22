@@ -21,7 +21,7 @@ jobs:
     # authenticated GHCR access; GitHub-hosted runners have ambient auth, self-hosted ARM do not.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Validate docker-compose.yml
         env:
@@ -42,7 +42,7 @@ jobs:
     name: Kustomize Validate
     runs-on: [self-hosted, linux, arm64]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up kubectl (includes kustomize)
         uses: azure/setup-kubectl@v5
