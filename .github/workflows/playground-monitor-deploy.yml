@@ -20,7 +20,7 @@ jobs:
     env:
       PLAYGROUND_IP: ${{ github.event.inputs.playground_ip || secrets.PLAYGROUND_IP }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up SSH key
         run: |
