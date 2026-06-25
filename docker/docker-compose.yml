@@ -17,7 +17,7 @@ services:
   # Dakera - AI Agent Memory Platform
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:optA-baked-ec6ef91}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:latest}
     container_name: dakera
     ports:
       - "${DAKERA_PORT:-3000}:3000"
@@ -41,7 +41,7 @@ services:
       - DAKERA_WARM_TO_COLD_SECS=86400
       - DAKERA_AUTO_TIER=true
       - DAKERA_TIER_CHECK_INTERVAL_SECS=300
-      # DAK-6209/DAK-6284: TIERED ON — optA-baked-ec6ef91 has ONNX baked in (DAK-6272 cold-boot guard).
+      # Tiered storage: L1 hot memory → L2 warm RocksDB → L3 cold S3.
       - DAKERA_TIERED=1
       - DAKERA_SEARCH_MODE=hybrid
       - DAKERA_MAX_BODY_SIZE=524288000
