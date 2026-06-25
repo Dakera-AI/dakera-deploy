@@ -4,6 +4,18 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-25
+
+### Changed
+
+- **Bump default Dakera image to `:latest` across all deployment configs** — removes the stale pinned tags (`optA-baked-ec6ef91` and `0.11.81`) that were 13–30+ server releases behind. All files now default to `ghcr.io/dakera-ai/dakera:latest` which tracks the current stable release automatically. CTO confirmed: all official images since `v0.11.89+` (DAK-6224) include ONNX embedding files — the cold-boot concern that motivated the original pin is resolved.
+  - `docker/docker-compose.yml`: `optA-baked-ec6ef91` → `:latest` ([#243](https://github.com/Dakera-AI/dakera-deploy/pull/243))
+  - `docker/docker-compose.ha.yml`: `optA-baked-ec6ef91` → `:latest`
+  - `docker/docker-compose.local.yml`: `0.11.81` → `:latest`
+  - `k8s/dakera/deployment.yaml`: `optA-baked-ec6ef91` → `:latest`
+
+  Operators who need a pinned version can still override via `DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:v0.11.94` in their `.env` file. The `${DAKERA_IMAGE:-...}` pattern is preserved in all compose files.
+
 ## [0.8.0] - 2026-05-29
 
 ### Changed
