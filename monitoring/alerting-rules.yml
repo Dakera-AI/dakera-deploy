@@ -1,0 +1,368 @@
+# =============================================================================
+# Dakera — Prometheus Alerting Rules
+# =============================================================================
+# Production-ready alert rules for the Dakera AI agent memory platform.
+#
+# Severity levels:
+#   critical  — Service degraded or down, immediate action required
+#   warning   — Approaching thresholds, action needed soon
+#   info      — Notable events, no immediate action required
+#
+# Tuning notes:
+#   - "for" durations prevent alert flapping on transient spikes.
+#   - Resource alerts depend on container_spec_memory_limit_bytes being set
+#     via deploy.resources.limits.memory in docker-compose. Without limits,
+#     these alerts will not fire.
+#   - Cluster alerts (DakeraClusterDegraded) assume HA mode (3 nodes).
+#     Single-node deployments should silence these via Alertmanager.
+#
+# Used by:
+#   - monitoring/docker-compose.yml  (standalone monitoring stack)
+#   - docker/docker-compose.yml      (--profile monitoring)
+#   - docker/docker-compose.ha.yml   (--profile monitoring)
+# =============================================================================
+
+groups:
+  - name: dakera_availability
+    rules:
+      - alert: DakeraDown
+        expr: up{job="dakera"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dakera instance {{ $labels.instance }} is down"
+          description: "Prometheus cannot scrape the Dakera instance at {{ $labels.instance }} for more than 1 minute."
+
+      - alert: DakeraHighErrorRate
+        expr: >
+          (
+            sum(rate(dakera_http_requests_total{status=~"5.."}[5m])) by (instance)
+            /
+            sum(rate(dakera_http_requests_total[5m])) by (instance)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dakera 5xx error rate above 5% on {{ $labels.instance }}"
+          description: >
+            Error rate is {{ $value | humanizePercentage }} on {{ $labels.instance }}
+            over the last 5 minutes. Threshold is 5%.
+
+      - alert: DakeraHighErrorRateWarning
+        expr: >
+          (
+            sum(rate(dakera_http_requests_total{status=~"5.."}[5m])) by (instance)
+            /
+            sum(rate(dakera_http_requests_total[5m])) by (instance)
+          ) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dakera 5xx error rate above 1% on {{ $labels.instance }}"
+          description: >
+            Error rate is {{ $value | humanizePercentage }} on {{ $labels.instance }}
+            over the last 10 minutes. Threshold is 1%.
+
+      - alert: DakeraNoTraffic
+        expr: sum(rate(dakera_http_requests_total[5m])) == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No traffic to Dakera for 15 minutes"
+          description: >
+            No HTTP requests received by any Dakera instance for 15 minutes.
+            The service may be unreachable or traffic routing may be broken.
+
+  - name: dakera_performance
+    rules:
+      - alert: DakeraHighLatencyP95
+        expr: >
+          histogram_quantile(0.95, sum(rate(dakera_http_request_duration_seconds_bucket[5m])) by (le))
+          > 2.0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dakera p95 latency above 2s"
+          description: >
+            The 95th percentile request latency is {{ $value | humanizeDuration }}
+            across all endpoints. Threshold is 2 seconds.
+
+      - alert: DakeraHighLatencyP99
+        expr: >
+          histogram_quantile(0.99, sum(rate(dakera_http_request_duration_seconds_bucket[5m])) by (le))
+          > 5.0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dakera p99 latency above 5s"
+          description: >
+            The 99th percentile request latency is {{ $value | humanizeDuration }}
+            across all endpoints. Threshold is 5 seconds.
+
+      - alert: DakeraMemoryApiHighLatency
+        expr: >
+          histogram_quantile(0.95, sum(rate(dakera_http_request_duration_seconds_bucket{path=~"/v1/memory.*"}[5m])) by (le))
+          > 3.0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory API p95 latency above 3s"
+          description: >
+            The 95th percentile latency for memory API endpoints is
+            {{ $value | humanizeDuration }}. Threshold is 3 seconds.
+
+      - alert: DakeraInferenceSlow
+        expr: >
+          histogram_quantile(0.95, sum(rate(dakera_inference_duration_seconds_bucket[5m])) by (le, operation))
+          > 10.0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Inference operation {{ $labels.operation }} p95 above 10s"
+          description: >
+            The 95th percentile inference duration for {{ $labels.operation }}
+            is {{ $value | humanizeDuration }}. Threshold is 10 seconds.
+
+  - name: dakera_resources
+    rules:
+      - alert: DakeraHighMemoryUsage
+        expr: >
+          process_resident_memory_bytes{job="dakera"}
+          / on(instance) group()
+          container_spec_memory_limit_bytes{job="dakera"} > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dakera memory usage above 85% of limit on {{ $labels.instance }}"
+          description: >
+            Memory usage is {{ $value | humanizePercentage }} of the container
+            limit on {{ $labels.instance }}. Threshold is 85%.
+
+      - alert: DakeraCriticalMemoryUsage
+        expr: >
+          process_resident_memory_bytes{job="dakera"}
+          / on(instance) group()
+          container_spec_memory_limit_bytes{job="dakera"} > 0.95
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dakera memory usage above 95% of limit on {{ $labels.instance }}"
+          description: >
+            Memory usage is {{ $value | humanizePercentage }} of the container
+            limit on {{ $labels.instance }}. The OOM killer may terminate the
+            process. Threshold is 95%.
+
+      - alert: DakeraHighCpuUsage
+        expr: >
+          rate(process_cpu_seconds_total{job="dakera"}[5m]) > 3.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dakera CPU usage sustained above 3.5 cores on {{ $labels.instance }}"
+          description: >
+            CPU usage is {{ $value | humanize }} cores on {{ $labels.instance }}
+            for the last 15 minutes. The container limit is 4 cores.
+
+      - alert: DakeraHighActiveRequests
+        expr: dakera_active_requests > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dakera active requests above 50"
+          description: >
+            There are {{ $value }} active requests across all Dakera instances
+            for more than 10 minutes. This may indicate slow requests or
+            capacity issues.
+
+      - alert: DakeraCriticalActiveRequests
+        expr: dakera_active_requests > 200
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dakera active requests above 200"
+          description: >
+            There are {{ $value }} active requests across all Dakera instances
+            for more than 5 minutes. The service is likely overloaded.
+
+  - name: dakera_cache
+    rules:
+      - alert: DakeraCacheHitRateLow
+        expr: >
+          (
+            sum(rate(dakera_cache_hits_total[5m]))
+            /
+            (sum(rate(dakera_cache_hits_total[5m])) + sum(rate(dakera_cache_misses_total[5m])))
+          ) < 0.3
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dakera L1 cache hit rate below 30%"
+          description: >
+            L1 cache hit rate is {{ $value | humanizePercentage }} for the last
+            30 minutes. Low cache hit rates increase latency and storage load.
+            Consider increasing DAKERA_L1_CACHE_SIZE.
+
+      - alert: DakeraL2CacheHitRateLow
+        expr: >
+          (
+            sum(rate(dakera_l2_cache_hits_total[5m]))
+            /
+            (sum(rate(dakera_l2_cache_hits_total[5m])) + sum(rate(dakera_l2_cache_misses_total[5m])))
+          ) < 0.5
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "Dakera L2 cache hit rate below 50%"
+          description: >
+            L2 (RocksDB) cache hit rate is {{ $value | humanizePercentage }} for
+            the last 30 minutes. This may indicate excessive cold storage reads.
+
+  - name: dakera_decay_engine
+    rules:
+      - alert: DakeraDecayEngineStalled
+        expr: rate(dakera_decay_run_total[10m]) == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dakera decay engine has not run for 30 minutes"
+          description: >
+            The decay engine has not executed any cycles in the last 30 minutes.
+            Memory decay and TTL expiry may be stalled.
+
+      - alert: DakeraDecayCycleSlow
+        expr: max_over_time(dakera_decay_cycle_duration_seconds[10m]) > 300
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dakera decay cycle taking over 5 minutes"
+          description: >
+            The decay cycle duration is {{ $value | humanizeDuration }}.
+            Cycles should complete in under 5 minutes. This may indicate
+            storage performance issues or excessive memory counts.
+
+      - alert: DakeraHighMemoryExpiryRate
+        expr: increase(dakera_decay_memories_expired_total[1h]) > 10000
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "High memory expiry rate: {{ $value }} memories expired in the last hour"
+          description: >
+            More than 10,000 memories expired in the last hour. This may be
+            expected behavior or could indicate misconfigured TTLs.
+
+  - name: dakera_storage
+    rules:
+      - alert: MinIODown
+        expr: up{job="minio"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MinIO instance {{ $labels.instance }} is down"
+          description: >
+            Prometheus cannot scrape the MinIO instance at {{ $labels.instance }}
+            for more than 1 minute. Dakera cannot read or write memories.
+
+      - alert: MinIOHighLatency
+        expr: >
+          histogram_quantile(0.95, sum(rate(minio_s3_request_duration_seconds_bucket[5m])) by (le, API))
+          > 1.0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MinIO S3 API {{ $labels.API }} p95 latency above 1s"
+          description: >
+            MinIO S3 API {{ $labels.API }} p95 latency is
+            {{ $value | humanizeDuration }}. Threshold is 1 second.
+
+  - name: dakera_cluster
+    rules:
+      - alert: DakeraClusterDegraded
+        expr: dakera_cluster_nodes_total < 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dakera cluster has only {{ $value }} nodes"
+          description: >
+            The Dakera cluster reports {{ $value }} nodes. Expected cluster size
+            is 3 nodes. The cluster may be operating in a degraded state.
+
+      - alert: DakeraClusterOffline
+        expr: dakera_cluster_nodes_total == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dakera cluster reports 0 nodes"
+          description: >
+            The Dakera cluster reports 0 nodes. The cluster is fully offline
+            and cannot serve requests.
+
+      - alert: DakeraReplicaCountLow
+        expr: dakera_replica_count < 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dakera replica count is {{ $value }}"
+          description: >
+            The Dakera replica count is below 2. The service may not have
+            sufficient redundancy for high availability.
+
+  - name: dakera_prometheus
+    rules:
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus target {{ $labels.job }}/{{ $labels.instance }} is down"
+          description: >
+            The Prometheus target {{ $labels.job }}/{{ $labels.instance }}
+            has been unreachable for 5 minutes.
+
+      - alert: PrometheusHighScrapeErrors
+        expr: rate(prometheus_target_scrapes_exceeded_body_size_limit_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus scrape errors for {{ $labels.job }}"
+          description: >
+            Prometheus is encountering errors scraping target {{ $labels.job }}.
+            Metrics may be incomplete.
+
+      - alert: PrometheusStorageNearLimit
+        expr: >
+          prometheus_tsdb_storage_blocks_bytes
+          / (1024 * 1024 * 1024) > 10
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "Prometheus storage usage above 10GB"
+          description: >
+            Prometheus TSDB storage is using {{ $value | humanize1024 }}B.
+            Current retention is configured and old data will be pruned
+            automatically.

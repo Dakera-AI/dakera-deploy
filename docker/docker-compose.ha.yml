@@ -290,6 +290,7 @@ services:
       - "${HA_PROMETHEUS_PORT:-9190}:9090"
     volumes:
       - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
