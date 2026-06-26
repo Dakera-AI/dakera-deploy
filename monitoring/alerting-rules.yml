@@ -12,9 +12,12 @@
 #   - "for" durations prevent alert flapping on transient spikes.
 #   - Resource alerts depend on container_spec_memory_limit_bytes being set
 #     via deploy.resources.limits.memory in docker-compose. Without limits,
-#     these alerts will not fire.
+#     these alerts will not fire. Requires cAdvisor to be scraped by
+#     Prometheus (add a cadvisor service to docker-compose if needed).
 #   - Cluster alerts (DakeraClusterDegraded) assume HA mode (3 nodes).
 #     Single-node deployments should silence these via Alertmanager.
+#   - Some alerts reference metrics not yet emitted by all Dakera versions
+#     (marked "future-ready"). These stay dormant until the server emits them.
 #
 # Used by:
 #   - monitoring/docker-compose.yml  (standalone monitoring stack)
@@ -136,8 +139,8 @@ groups:
       - alert: DakeraHighMemoryUsage
         expr: >
           process_resident_memory_bytes{job="dakera"}
-          / on(instance) group()
-          container_spec_memory_limit_bytes{job="dakera"} > 0.85
+          / on(instance) group_left()
+          container_spec_memory_limit_bytes > 0.85
         for: 10m
         labels:
           severity: warning
@@ -150,8 +153,8 @@ groups:
       - alert: DakeraCriticalMemoryUsage
         expr: >
           process_resident_memory_bytes{job="dakera"}
-          / on(instance) group()
-          container_spec_memory_limit_bytes{job="dakera"} > 0.95
+          / on(instance) group_left()
+          container_spec_memory_limit_bytes > 0.95
         for: 5m
         labels:
           severity: critical
@@ -216,6 +219,7 @@ groups:
             30 minutes. Low cache hit rates increase latency and storage load.
             Consider increasing DAKERA_L1_CACHE_SIZE.
 
+      # Future-ready: dakera_l2_cache_hits/misses_total not yet emitted
       - alert: DakeraL2CacheHitRateLow
         expr: >
           (
@@ -245,6 +249,7 @@ groups:
             The decay engine has not executed any cycles in the last 30 minutes.
             Memory decay and TTL expiry may be stalled.
 
+      # Future-ready: dakera_decay_cycle_duration_seconds not yet emitted
       - alert: DakeraDecayCycleSlow
         expr: max_over_time(dakera_decay_cycle_duration_seconds[10m]) > 300
         for: 10m
@@ -297,25 +302,25 @@ groups:
   - name: dakera_cluster
     rules:
       - alert: DakeraClusterDegraded
-        expr: dakera_cluster_nodes_total < 3
+        expr: dakera_replica_count < 3
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Dakera cluster has only {{ $value }} nodes"
+          summary: "Dakera cluster has only {{ $value }} replicas"
           description: >
-            The Dakera cluster reports {{ $value }} nodes. Expected cluster size
-            is 3 nodes. The cluster may be operating in a degraded state.
+            The Dakera cluster reports {{ $value }} replicas. Expected cluster
+            size is 3 replicas. The cluster may be operating in a degraded state.
 
       - alert: DakeraClusterOffline
-        expr: dakera_cluster_nodes_total == 0
+        expr: dakera_replica_count == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "Dakera cluster reports 0 nodes"
+          summary: "Dakera cluster reports 0 replicas"
           description: >
-            The Dakera cluster reports 0 nodes. The cluster is fully offline
+            The Dakera cluster reports 0 replicas. The cluster is fully offline
             and cannot serve requests.
 
       - alert: DakeraReplicaCountLow
