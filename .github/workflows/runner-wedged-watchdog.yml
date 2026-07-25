@@ -1,0 +1,260 @@
+name: Wedged Runner Auto-Heal (DAK-7528)
+
+# Detects self-hosted runners that are busy=true with no active job (wedged state)
+# and auto-restarts them. Runs on GitHub-hosted ubuntu-latest so it works even when
+# all self-hosted runners are wedged.
+#
+# Wedged signature:
+#   - Runner shows busy=true in GitHub API
+#   - Zero CI runs are in_progress across the runner-sharing repos
+#   - At least one run has been queued for > STALL_THRESHOLD_MIN minutes
+#
+# Restart target: SSH into the affected host and restart 'actions.runner.*' units.
+# Rate-limited: cooldown between restarts via concurrency group + RESTART_COOLDOWN_MIN.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run — detect and alert but do not restart'
+        required: false
+        default: 'false'
+
+permissions: {}
+
+concurrency:
+  group: wedged-runner-watchdog
+  cancel-in-progress: true
+
+env:
+  # Repos that share the same self-hosted runner fleet (all mapped to same hosts)
+  RUNNER_REPOS: "dakera-ai/dakera dakera-ai/dakera-cli dakera-ai/dakera-mcp dakera-ai/dakera-bench"
+  # Minimum queue stall time before treating a wedged runner as actionable
+  STALL_THRESHOLD_MIN: "10"
+  # SSH user on runner hosts
+  SSH_USER: "root"
+
+jobs:
+  detect-and-heal:
+    name: Detect + auto-heal wedged runners
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check runner busy state and CI queue
+        id: runner-check
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_PACKAGES }}
+        run: |
+          set -euo pipefail
+
+          NOW=$(date +%s)
+          STALL_THRESHOLD_SECS=$(( STALL_THRESHOLD_MIN * 60 ))
+
+          echo "=== Phase 1: Collect busy runners ==="
+          BUSY_RUNNERS=""
+          for REPO in $RUNNER_REPOS; do
+            RUNNERS=$(gh api "repos/${REPO}/actions/runners" \
+              --jq '.runners[] | select(.busy == true and .status == "online") | .name' 2>/dev/null || true)
+            if [ -n "$RUNNERS" ]; then
+              echo "  BUSY in ${REPO}: $(echo "$RUNNERS" | tr '\n' ' ')"
+              BUSY_RUNNERS="${BUSY_RUNNERS} ${RUNNERS}"
+            fi
+          done
+          BUSY_RUNNERS=$(echo "$BUSY_RUNNERS" | tr ' ' '\n' | sort -u | grep -v '^$' | tr '\n' ' ')
+
+          if [ -z "$BUSY_RUNNERS" ]; then
+            echo "No busy runners — fleet healthy"
+            echo "wedged=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Busy runners: ${BUSY_RUNNERS}"
+
+          echo "=== Phase 2: Check for in_progress jobs ==="
+          IN_PROGRESS=0
+          for REPO in $RUNNER_REPOS; do
+            COUNT=$(gh run list -R "$REPO" --status in_progress \
+              --json databaseId --jq 'length' 2>/dev/null || echo 0)
+            echo "  ${REPO}: ${COUNT} in_progress"
+            IN_PROGRESS=$((IN_PROGRESS + COUNT))
+          done
+          echo "Total in_progress: ${IN_PROGRESS}"
+
+          if [ "$IN_PROGRESS" -gt 0 ]; then
+            echo "Runners are legitimately busy (${IN_PROGRESS} active job(s)) — no action"
+            echo "wedged=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "=== Phase 3: Check queue stall duration ==="
+          OLDEST_STALL_SECS=0
+          OLDEST_STALL_REPO=""
+          for REPO in $RUNNER_REPOS; do
+            while IFS= read -r CREATED_AT; do
+              [ -z "$CREATED_AT" ] && continue
+              QUEUED_TS=$(date -d "$CREATED_AT" +%s 2>/dev/null || echo "$NOW")
+              STALL_SECS=$(( NOW - QUEUED_TS ))
+              if [ "$STALL_SECS" -gt "$OLDEST_STALL_SECS" ]; then
+                OLDEST_STALL_SECS=$STALL_SECS
+                OLDEST_STALL_REPO=$REPO
+              fi
+            done < <(gh run list -R "$REPO" --status queued \
+              --json createdAt --jq '.[].createdAt' 2>/dev/null || true)
+          done
+
+          OLDEST_STALL_MIN=$(( OLDEST_STALL_SECS / 60 ))
+          echo "Oldest queue stall: ${OLDEST_STALL_MIN}min (repo: ${OLDEST_STALL_REPO:-none})"
+
+          if [ "$OLDEST_STALL_SECS" -lt "$STALL_THRESHOLD_SECS" ]; then
+            echo "Queue stall ${OLDEST_STALL_MIN}min < threshold ${STALL_THRESHOLD_MIN}min — may be transient, no action"
+            echo "wedged=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "=== WEDGED CONDITION CONFIRMED ==="
+          echo "Runners busy=true: ${BUSY_RUNNERS}"
+          echo "in_progress jobs: 0"
+          echo "Queue stalled: ${OLDEST_STALL_MIN}min (threshold: ${STALL_THRESHOLD_MIN}min)"
+
+          echo "wedged=true" >> "$GITHUB_OUTPUT"
+          echo "busy_runners=${BUSY_RUNNERS}" >> "$GITHUB_OUTPUT"
+          echo "stall_min=${OLDEST_STALL_MIN}" >> "$GITHUB_OUTPUT"
+          echo "stall_repo=${OLDEST_STALL_REPO}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup SSH for runner hosts
+        if: steps.runner-check.outputs.wedged == 'true'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Trust ARM and x64 runner hosts
+          ssh-keyscan -H "${{ secrets.ARM_RUNNER_IP }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H "${{ secrets.X64_RUNNER_IP }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Auto-restart wedged runners
+        id: restart
+        if: steps.runner-check.outputs.wedged == 'true' && github.event.inputs.dry_run != 'true'
+        env:
+          BUSY_RUNNERS: ${{ steps.runner-check.outputs.busy_runners }}
+          ARM_IP: ${{ secrets.ARM_RUNNER_IP }}
+          X64_IP: ${{ secrets.X64_RUNNER_IP }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
+
+          restart_host() {
+            local HOST="$1"
+            local LABEL="$2"
+            echo "Restarting runners on ${LABEL} (${HOST})..."
+            if ssh $SSH_OPTS "${SSH_USER}@${HOST}" '
+              set -e
+              echo "Current runner states:"
+              systemctl list-units "actions.runner.*" --no-pager --no-legend | head -20
+
+              echo "Restarting all actions.runner.* units..."
+              systemctl restart "actions.runner.*" 2>/dev/null || true
+              sleep 8
+
+              echo "Post-restart states:"
+              systemctl list-units "actions.runner.*" --no-pager --no-legend
+
+              ACTIVE=$(systemctl list-units "actions.runner.*" --no-pager --no-legend --state=active 2>/dev/null | wc -l)
+              TOTAL=$(systemctl list-units "actions.runner.*" --no-pager --no-legend 2>/dev/null | wc -l)
+              echo "RESULT: ${ACTIVE}/${TOTAL} runner units active"
+              if [ "$ACTIVE" -eq "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+                echo "HEAL_SUCCESS=true"
+              else
+                echo "HEAL_SUCCESS=false"
+              fi
+            '; then
+              return 0
+            else
+              echo "SSH FAILED for ${LABEL} (${HOST})"
+              return 1
+            fi
+          }
+
+          RESTARTED_HOSTS=""
+          FAILED_HOSTS=""
+
+          for RUNNER in $BUSY_RUNNERS; do
+            if echo "$RUNNER" | grep -qi "x64\|amd64\|x86"; then
+              if restart_host "$X64_IP" "x64-runner"; then
+                RESTARTED_HOSTS="${RESTARTED_HOSTS} ${RUNNER}(x64)"
+              else
+                FAILED_HOSTS="${FAILED_HOSTS} ${RUNNER}(x64)"
+              fi
+            else
+              if restart_host "$ARM_IP" "arm-runner"; then
+                RESTARTED_HOSTS="${RESTARTED_HOSTS} ${RUNNER}(arm)"
+              else
+                FAILED_HOSTS="${FAILED_HOSTS} ${RUNNER}(arm)"
+              fi
+            fi
+          done
+
+          echo "restarted=${RESTARTED_HOSTS}" >> "$GITHUB_OUTPUT"
+          echo "failed=${FAILED_HOSTS}" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$FAILED_HOSTS" ]; then
+            echo "RESTART_PARTIAL=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Dry run report
+        if: steps.runner-check.outputs.wedged == 'true' && github.event.inputs.dry_run == 'true'
+        run: |
+          echo "=== DRY RUN — would restart ==="
+          echo "Busy runners: ${{ steps.runner-check.outputs.busy_runners }}"
+          echo "Queue stalled: ${{ steps.runner-check.outputs.stall_min }}min in ${{ steps.runner-check.outputs.stall_repo }}"
+
+      - name: Telegram alert — auto-healed
+        if: steps.runner-check.outputs.wedged == 'true' && steps.restart.outputs.restarted != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          STALL="${{ steps.runner-check.outputs.stall_min }}"
+          REPO="${{ steps.runner-check.outputs.stall_repo }}"
+          RUNNERS="${{ steps.runner-check.outputs.busy_runners }}"
+          RESTARTED="${{ steps.restart.outputs.restarted }}"
+          RUN_URL="https://github.com/dakera-ai/dakera-deploy/actions/runs/${GITHUB_RUN_ID}"
+
+          MSG="🔄 [Platform] Wedged Runner Auto-Healed"$'\n\n'"Condition: ${RUNNERS} busy=true, 0 jobs in_progress, CI stalled ${STALL}min (${REPO})"$'\n'"Action: Restarted runner services on affected host(s) (${RESTARTED})"$'\n'"Runners should reconnect within ~30s and queued jobs resume automatically."$'\n'"Run: ${RUN_URL}"
+
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${MSG}\"}" > /dev/null 2>&1 || true
+
+      - name: Telegram alert — restart failed
+        if: steps.runner-check.outputs.wedged == 'true' && steps.restart.outputs.failed != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          STALL="${{ steps.runner-check.outputs.stall_min }}"
+          RUNNERS="${{ steps.runner-check.outputs.busy_runners }}"
+          FAILED="${{ steps.restart.outputs.failed }}"
+          RUN_URL="https://github.com/dakera-ai/dakera-deploy/actions/runs/${GITHUB_RUN_ID}"
+
+          MSG="🔴 [Platform ALERT] Wedged Runner Restart FAILED"$'\n\n'"Condition: ${RUNNERS} busy=true, 0 jobs in_progress, CI stalled ${STALL}min"$'\n'"SSH restart FAILED for: ${FAILED}"$'\n'"Manual intervention required — SSH into runner host and restart actions.runner.* services."$'\n'"Run: ${RUN_URL}"
+
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${MSG}\"}" > /dev/null 2>&1 || true
+
+      - name: Telegram alert — dry run detection
+        if: steps.runner-check.outputs.wedged == 'true' && github.event.inputs.dry_run == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          STALL="${{ steps.runner-check.outputs.stall_min }}"
+          RUNNERS="${{ steps.runner-check.outputs.busy_runners }}"
+          RUN_URL="https://github.com/dakera-ai/dakera-deploy/actions/runs/${GITHUB_RUN_ID}"
+
+          MSG="⚠️ [Platform] Wedged Runner Detected (DRY RUN — no restart)"$'\n\n'"Runners: ${RUNNERS} busy=true, 0 jobs in_progress, stalled ${STALL}min"$'\n'"Dry run active — restart NOT performed."$'\n'"Run: ${RUN_URL}"
+
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${MSG}\"}" > /dev/null 2>&1 || true
