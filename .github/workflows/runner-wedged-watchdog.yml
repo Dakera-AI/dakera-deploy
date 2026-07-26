@@ -61,7 +61,9 @@ jobs:
               BUSY_RUNNERS="${BUSY_RUNNERS} ${RUNNERS}"
             fi
           done
-          BUSY_RUNNERS=$(echo "$BUSY_RUNNERS" | tr ' ' '\n' | sort -u | grep -v '^$' | tr '\n' ' ')
+          # (grep -v '^$' || true) guards against exit-1 when all runners are idle and
+          # grep has no non-empty lines to match — set -euo pipefail would otherwise kill the script
+          BUSY_RUNNERS=$(echo "$BUSY_RUNNERS" | tr ' ' '\n' | sort -u | (grep -v '^$' || true) | tr '\n' ' ')
 
           if [ -z "$BUSY_RUNNERS" ]; then
             echo "No busy runners — fleet healthy"
