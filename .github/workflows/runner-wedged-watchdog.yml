@@ -127,7 +127,9 @@ jobs:
         if: steps.runner-check.outputs.wedged == 'true'
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          # RUNNER_SSH_KEY (ops@dakera.ai ED25519) is authorized on both runner hosts.
+          # DEPLOY_SSH_KEY is the prod-server key — different key, do not use here.
+          echo "${{ secrets.RUNNER_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           # Trust ARM and x64 runner hosts
           ssh-keyscan -H "${{ secrets.ARM_RUNNER_IP }}" >> ~/.ssh/known_hosts 2>/dev/null || true
@@ -239,7 +241,7 @@ jobs:
           FAILED="${{ steps.restart.outputs.failed }}"
           RUN_URL="https://github.com/dakera-ai/dakera-deploy/actions/runs/${GITHUB_RUN_ID}"
 
-          MSG="🔴 [Platform ALERT] Wedged Runner Restart FAILED"$'\n\n'"Condition: ${RUNNERS} busy=true, 0 jobs in_progress, CI stalled ${STALL}min"$'\n'"SSH restart FAILED for: ${FAILED}"$'\n'"Manual intervention required — SSH into runner host and restart actions.runner.* services."$'\n'"Run: ${RUN_URL}"
+          MSG="🔴 [Platform ALERT] Wedged Runner Restart FAILED"$'\n\n'"Condition: ${RUNNERS} busy=true, 0 jobs in_progress, CI stalled ${STALL}min"$'\n'"SSH restart FAILED for: ${FAILED}"$'\n'"⚠️ SSH key mismatch or connectivity issue — Platform agent will investigate and self-heal."$'\n'"Run: ${RUN_URL}"
 
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
