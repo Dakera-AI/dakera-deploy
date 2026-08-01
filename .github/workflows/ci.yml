@@ -17,11 +17,21 @@ permissions:
 jobs:
   validate:
     name: Validate Docker Configs
-    # GitHub-hosted: hadolint-action pulls ghcr.io/hadolint/hadolint which needs
-    # authenticated GHCR access; GitHub-hosted runners have ambient auth, self-hosted ARM do not.
-    runs-on: ubuntu-latest
+    # Self-hosted ARM64 (DAK-7665): explicit GHCR login before hadolint-action so
+    # the runner can pull ghcr.io/hadolint/hadolint without ambient GitHub auth.
+    runs-on: [self-hosted, linux, arm64]
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v7
+
+      - name: Authenticate to GHCR (for hadolint image pull)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate docker-compose.yml
         env:
