@@ -21,7 +21,7 @@ env:
 jobs:
   health-check:
     name: Check Server Health
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64]
     outputs:
       healthy: ${{ steps.final-status.outputs.healthy }}
     steps:
@@ -207,7 +207,7 @@ jobs:
 
   report-healthy:
     name: Log Healthy Status
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64]
     needs: health-check
     if: needs.health-check.outputs.healthy == 'true'
     steps:

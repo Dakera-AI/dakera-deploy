@@ -7,7 +7,7 @@ on:
 jobs:
   uptime-check:
     name: Check playground.dakera.ai health
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64]
     timeout-minutes: 3
     steps:
       - name: Health check

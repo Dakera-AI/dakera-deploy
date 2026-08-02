@@ -1,8 +1,11 @@
 name: Wedged Runner Auto-Heal (DAK-7528)
 
 # Detects self-hosted runners that are busy=true with no active job (wedged state)
-# and auto-restarts them. Runs on GitHub-hosted ubuntu-latest so it works even when
-# all self-hosted runners are wedged.
+# and auto-restarts them. Runs on the x64 self-hosted runner (DAK-7665) so it
+# survives GitHub-hosted billing outages. Partial self-reference trade-off: if the
+# x64 runner itself is wedged, this job cannot run — but ARM is still monitored.
+# Full coverage requires an independent monitor; partial coverage beats zero during
+# a GitHub Actions billing lock.
 #
 # Wedged signature:
 #   - Runner shows busy=true in GitHub API
@@ -39,7 +42,7 @@ env:
 jobs:
   detect-and-heal:
     name: Detect + auto-heal wedged runners
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Check runner busy state and CI queue
         id: runner-check
