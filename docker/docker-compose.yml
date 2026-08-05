@@ -61,6 +61,10 @@ services:
         reservations:
           memory: 512M
           cpus: "0.5"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 1048576
     depends_on:
       minio-setup:
         condition: service_completed_successfully

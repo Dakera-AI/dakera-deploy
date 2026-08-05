@@ -37,6 +37,10 @@ name: dakera-ha
 x-dakera-common: &dakera-common
   image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:latest}
   restart: unless-stopped
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 1048576
   networks:
     - dakera-ha-net
   expose:
