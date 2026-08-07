@@ -1,0 +1,245 @@
+name: Auto-Merge Bot (DAK-7785)
+# Polls every 15 min for labeled+green PRs across engineering repos and squash-merges
+# them. Interim solution until GitHub Team branch-protection lands (fd94c1e5).
+#
+# INVARIANT: never merges a red or pending PR. Explicit allowlist only — no wildcards.
+#
+# CRITICAL EXCLUSIONS (hard gates, never bypassed):
+#   type:ce      → requires full 1540Q judged bench + CEO schema approval
+#   do-not-merge → human hold
+#   needs-bench  → awaiting bench gate
+#
+# Adding new repos: update REPOS env only. Do not change the safety logic.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run — detect candidates but do not merge'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: auto-merge-bot
+  cancel-in-progress: true
+
+env:
+  # Explicit allowlist — every repo here must be intentional
+  REPOS: |
+    dakera-ai/dakera
+    dakera-ai/dakera-dashboard
+    dakera-ai/dakera-cortex
+    dakera-ai/dakera-mcp
+    dakera-ai/dakera-cli
+    dakera-ai/dakera-py
+    dakera-ai/dakera-js
+    dakera-ai/dakera-rs
+    dakera-ai/dakera-go
+    dakera-ai/dakera-docs
+    dakera-ai/dakera-deploy
+    dakera-ai/dakera-paperclip
+    dakera-ai/dakera-bench
+  TRIGGER_LABEL: "auto-merge"
+  # Any of these labels on a PR → skip unconditionally
+  EXCLUDE_LABELS: "type:ce,do-not-merge,needs-bench"
+
+jobs:
+  auto-merge:
+    name: Poll and merge green labeled PRs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Process all repos
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_PACKAGES }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: https://github.com/dakera-ai/dakera-deploy/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          MERGED=""
+          SKIPPED=""
+          ERRORS=""
+
+          tg_notify() {
+            local MSG="$1"
+            curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -H "Content-Type: application/json" \
+              -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":$(echo "$MSG" | jq -Rs .)}" \
+              > /dev/null 2>&1 || true
+          }
+
+          process_repo() {
+            local REPO="$1"
+            echo ""
+            echo "=== ${REPO} ==="
+
+            local PRS_JSON
+            PRS_JSON=$(gh pr list -R "$REPO" \
+              --label "$TRIGGER_LABEL" \
+              --state open \
+              --json number,title,isDraft,mergeable,headRefOid,labels,mergeStateStatus \
+              2>/dev/null || echo "[]")
+
+            local PR_COUNT
+            PR_COUNT=$(echo "$PRS_JSON" | jq 'length')
+
+            if [ "$PR_COUNT" -eq 0 ]; then
+              echo "  No open PRs with '${TRIGGER_LABEL}' label"
+              return 0
+            fi
+
+            # Write to temp file — avoids subshell variable scope issue
+            local TMP_PRS
+            TMP_PRS=$(mktemp)
+            echo "$PRS_JSON" | jq -c '.[]' > "$TMP_PRS"
+
+            while IFS= read -r PR; do
+              local PR_NUM TITLE IS_DRAFT MERGEABLE LABELS_RAW
+              PR_NUM=$(echo "$PR" | jq -r '.number')
+              TITLE=$(echo "$PR" | jq -r '.title')
+              IS_DRAFT=$(echo "$PR" | jq -r '.isDraft')
+              MERGEABLE=$(echo "$PR" | jq -r '.mergeable')
+              LABELS_RAW=$(echo "$PR" | jq -r '[.labels[].name] | join(",")')
+
+              echo ""
+              echo "  PR#${PR_NUM}: ${TITLE}"
+              echo "    labels=${LABELS_RAW} draft=${IS_DRAFT} mergeable=${MERGEABLE}"
+
+              # Gate 1: not a draft
+              if [ "$IS_DRAFT" = "true" ]; then
+                echo "    SKIP: draft PR"
+                SKIPPED="${SKIPPED}  ${REPO}#${PR_NUM}: draft\n"
+                continue
+              fi
+
+              # Gate 2: excluded labels (type:ce, do-not-merge, needs-bench)
+              local EXCLUDED=false
+              IFS=',' read -ra EXCL_ARR <<< "$EXCLUDE_LABELS"
+              for EXCL in "${EXCL_ARR[@]}"; do
+                # Match whole label name — prepend/append comma to avoid partial matches
+                if echo ",${LABELS_RAW}," | grep -qF ",${EXCL},"; then
+                  echo "    SKIP: excluded label '${EXCL}'"
+                  SKIPPED="${SKIPPED}  ${REPO}#${PR_NUM}: label=${EXCL}\n"
+                  EXCLUDED=true
+                  break
+                fi
+              done
+              [ "$EXCLUDED" = "true" ] && continue
+
+              # Gate 3: mergeable state (MERGEABLE | CONFLICTING | UNKNOWN)
+              if [ "$MERGEABLE" = "CONFLICTING" ]; then
+                echo "    SKIP: merge conflicts"
+                SKIPPED="${SKIPPED}  ${REPO}#${PR_NUM}: merge-conflicts\n"
+                continue
+              fi
+              if [ "$MERGEABLE" = "UNKNOWN" ]; then
+                echo "    SKIP: mergeable=UNKNOWN (GitHub computing — will retry next poll)"
+                SKIPPED="${SKIPPED}  ${REPO}#${PR_NUM}: mergeable=UNKNOWN\n"
+                continue
+              fi
+
+              # Gate 4: every check run must be complete and non-failing
+              # Uses gh pr checks which covers both GitHub Checks API and legacy Status API
+              local CHECKS
+              CHECKS=$(gh pr checks "$PR_NUM" -R "$REPO" --json name,state 2>/dev/null || echo "[]")
+
+              local PASS_COUNT
+              PASS_COUNT=$(echo "$CHECKS" | jq '[.[] | select(.state == "PASS")] | length')
+
+              # Blocking = anything that isn't PASS or SKIP (neutral/skipped)
+              local BLOCKING
+              BLOCKING=$(echo "$CHECKS" | jq -r \
+                '.[] | select(.state != "PASS" and .state != "SKIP") | "      \(.state): \(.name)"')
+
+              if [ -n "$BLOCKING" ]; then
+                echo "    SKIP: checks not all green:"
+                echo "$BLOCKING"
+                SKIPPED="${SKIPPED}  ${REPO}#${PR_NUM}: checks-not-green\n"
+                continue
+              fi
+
+              if [ "$PASS_COUNT" -eq 0 ]; then
+                echo "    SKIP: no successful checks (no CI ran yet, or all checks skipped)"
+                SKIPPED="${SKIPPED}  ${REPO}#${PR_NUM}: no-passing-checks\n"
+                continue
+              fi
+
+              # All gates cleared
+              echo "    ✅ All gates passed (no excluded labels, MERGEABLE, ${PASS_COUNT} checks PASS)"
+
+              if [ "${DRY_RUN}" = "true" ]; then
+                echo "    DRY RUN — would squash-merge"
+                MERGED="${MERGED}  ${REPO}#${PR_NUM} [DRY RUN]: ${TITLE}\n"
+                continue
+              fi
+
+              if gh pr merge "$PR_NUM" -R "$REPO" \
+                --squash \
+                --delete-branch \
+                2>&1; then
+                echo "    ✅ MERGED"
+                MERGED="${MERGED}  ${REPO}#${PR_NUM}: ${TITLE}\n"
+              else
+                echo "    ❌ MERGE FAILED"
+                ERRORS="${ERRORS}  ${REPO}#${PR_NUM}: merge-command-failed\n"
+              fi
+
+            done < "$TMP_PRS"
+            rm -f "$TMP_PRS"
+          }
+
+          # Iterate repos — here-string avoids subshell, preserving MERGED/SKIPPED/ERRORS
+          while IFS= read -r REPO; do
+            REPO="${REPO## }"
+            REPO="${REPO%% }"
+            [ -z "$REPO" ] && continue
+            process_repo "$REPO" || true
+          done <<< "$REPOS"
+
+          echo ""
+          echo "=============================="
+          echo "AUTO-MERGE SUMMARY"
+          echo "=============================="
+
+          if [ -n "$MERGED" ]; then
+            echo "MERGED:"
+            echo -e "$MERGED"
+          else
+            echo "MERGED: none this cycle"
+          fi
+
+          if [ -n "$SKIPPED" ]; then
+            echo "SKIPPED (reason):"
+            echo -e "$SKIPPED"
+          fi
+
+          if [ -n "$ERRORS" ]; then
+            echo "ERRORS:"
+            echo -e "$ERRORS"
+          fi
+
+          # Telegram: only on merges or errors (silent on quiet cycles)
+          if [ -n "$MERGED" ]; then
+            DRY_TAG=""
+            [ "${DRY_RUN}" = "true" ] && DRY_TAG=" (DRY RUN)"
+            MSG=$(printf '%s\n\nMerged:\n%sRun: %s' \
+              "🤖 [Platform] Auto-Merge Bot${DRY_TAG}" \
+              "$(printf '%b' "$MERGED")" \
+              "${RUN_URL}")
+            tg_notify "$MSG"
+          fi
+
+          if [ -n "$ERRORS" ]; then
+            MSG=$(printf '%s\n\nErrors:\n%sRun: %s' \
+              "⚠️ [Platform] Auto-Merge Bot — merge errors" \
+              "$(printf '%b' "$ERRORS")" \
+              "${RUN_URL}")
+            tg_notify "$MSG"
+          fi
