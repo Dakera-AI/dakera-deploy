@@ -19,6 +19,12 @@ services:
   dakera:
     image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:latest}
     container_name: dakera
+    # FW-b5ad5a7f / DAK-9814: place the container under a systemd slice that
+    # sets memory.high=7G (soft cgroup-v2 backpressure). The kernel throttles &
+    # reclaims before the 8G hard wall (deploy.resources.limits.memory), giving
+    # graceful degradation instead of an OOM kill. Requires dakera-mem.slice on
+    # the host (see scripts/install-dakera-mem-slice.sh). No-op if absent.
+    cgroup_parent: dakera-mem.slice
     ports:
       - "${DAKERA_PORT:-3000}:3000"
       - "${DAKERA_GRPC_PORT:-50051}:50051"
@@ -50,6 +56,10 @@ services:
       - DAKERA_ROOT_API_KEY=${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.example)}
       - HF_TOKEN=${HF_TOKEN:-}
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+      # FW-b5ad5a7f / DAK-9814: mimalloc returns freed pages to the OS
+      # immediately (purge delay 0ms) so container RSS returns to baseline
+      # after allocation peaks instead of retaining decommitted heap.
+      - MIMALLOC_PURGE_DELAY=0
     volumes:
       - dakera-cache:/data/cache
       - dakera-rocksdb:/data/rocksdb
