@@ -26,8 +26,8 @@ services:
     # the host (see scripts/install-dakera-mem-slice.sh). No-op if absent.
     cgroup_parent: dakera-mem.slice
     ports:
-      - "${DAKERA_PORT:-3000}:3000"
-      - "${DAKERA_GRPC_PORT:-50051}:50051"
+      - "127.0.0.1:${DAKERA_PORT:-3000}:3000"
+      - "127.0.0.1:${DAKERA_GRPC_PORT:-50051}:50051"
     environment:
       - RUST_LOG=${RUST_LOG:-info}
       - DAKERA_HOST=0.0.0.0
@@ -96,8 +96,8 @@ services:
     container_name: dakera-minio
     command: server /data --console-address ":9001"
     ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -151,7 +151,7 @@ services:
     container_name: dakera-prometheus
     profiles: ["monitoring", "full"]
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../monitoring/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
@@ -170,7 +170,7 @@ services:
     container_name: dakera-grafana
     profiles: ["monitoring", "full"]
     ports:
-      - "${GRAFANA_PORT:-3003}:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3003}:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
@@ -194,7 +194,7 @@ services:
     container_name: dakera-dashboard
     profiles: ["dashboard", "full"]
     ports:
-      - "${DASHBOARD_PORT:-3002}:3000"
+      - "127.0.0.1:${DASHBOARD_PORT:-3002}:3000"
     environment:
       - DAKERA_API_UPSTREAM=http://dakera:3000
       - DAKERA_API_KEY=${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.example)}
@@ -220,7 +220,7 @@ services:
     container_name: dakera-ode
     profiles: ["ode", "full"]
     ports:
-      - "${ODE_PORT:-8080}:8080"
+      - "127.0.0.1:${ODE_PORT:-8080}:8080"
     environment:
       - LOG_LEVEL=${ODE_LOG_LEVEL:-info}
     deploy:
