@@ -19,11 +19,12 @@ services:
   dakera:
     image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:latest}
     container_name: dakera
-    # FW-b5ad5a7f / DAK-9814: place the container under a systemd slice that
-    # sets memory.high=7G (soft cgroup-v2 backpressure). The kernel throttles &
-    # reclaims before the 8G hard wall (deploy.resources.limits.memory), giving
-    # graceful degradation instead of an OOM kill. Requires dakera-mem.slice on
-    # the host (see scripts/install-dakera-mem-slice.sh). No-op if absent.
+    # DAK-9890 / FW-b5ad5a7f / DAK-9814: place the container under a systemd
+    # slice that sets memory.high=10G (soft cgroup-v2 backpressure). The kernel
+    # throttles & reclaims before the 12G hard wall (deploy.resources.limits.memory),
+    # giving graceful degradation instead of an OOM kill. Requires dakera-mem.slice
+    # on the host (see scripts/install-dakera-mem-slice.sh — re-run after update).
+    # No-op if the slice is absent.
     cgroup_parent: dakera-mem.slice
     ports:
       - "127.0.0.1:${DAKERA_PORT:-3000}:3000"
@@ -66,7 +67,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 8G
+          # DAK-9890: raised 8G→12G — fleet load showed 7.14GiB under full agent
+          # fleet. Hot tier + lazy HNSW cache grow past 8G; 12G gives 4G headroom.
+          # Soft limit (memory.high) set to 10G in dakera-mem.slice (re-run
+          # scripts/install-dakera-mem-slice.sh to apply).
+          memory: 12G
           cpus: "4.0"
         reservations:
           memory: 512M
@@ -82,7 +87,9 @@ services:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      # Reduced 5→3: mark unhealthy faster (30s vs 50s) so watchdog triggers
+      # sooner. The dakera-watchdog sidecar auto-restarts on streak ≥ 5 (50s).
+      retries: 3
       start_period: 10s
     restart: unless-stopped
     networks:
@@ -102,6 +109,10 @@ services:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
       - MINIO_API_REQUESTS_MAX=${MINIO_API_REQUESTS_MAX:-6000}
+      # DAK-9890: cap per-request lifetime so stalled S3 connections (seen as
+      # 'connection closed before message completed') fail fast rather than
+      # accumulating and exhausting the connection pool.
+      - MINIO_API_REQUESTS_DEADLINE=${MINIO_API_REQUESTS_DEADLINE:-2m}
     volumes:
       - minio-data:/data
     deploy:
@@ -117,6 +128,43 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+    networks:
+      - dakera-net
+
+  # ==========================================================================
+  # Dakera Health Watchdog — auto-restart + Telegram alerting (DAK-9890)
+  # ==========================================================================
+  # Monitors the dakera container every DAKERA_WATCHDOG_POLL_SECS seconds.
+  # - Health failingStreak ≥ DAKERA_WATCHDOG_RESTART_AFTER (default 5) →
+  #     `docker restart dakera` + Telegram alert.
+  # - Memory ≥ DAKERA_WATCHDOG_MEM_ALERT_PCT (default 90%) of 12G limit →
+  #     Telegram warning (re-alerts every 10 cycles, not every poll).
+  #
+  # Fixes the core gap from DAK-9890: Docker's `restart: unless-stopped` only
+  # triggers on process exit — NOT on healthcheck failure. The watchdog fills
+  # that gap. Without it an unhealthy container can sit stuck for days.
+  #
+  # Set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in .env to enable Telegram.
+  # Alerts are logged to container stdout even without Telegram credentials.
+  #
+  # Security: Docker socket mounted read-write (needed for `docker restart`).
+  # Scope: only ever touches the container named 'dakera'.
+  dakera-watchdog:
+    image: docker:27-cli
+    container_name: dakera-watchdog
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./scripts/dakera-watchdog.sh:/usr/local/bin/dakera-watchdog.sh:ro
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - DAKERA_WATCHDOG_RESTART_AFTER=${DAKERA_WATCHDOG_RESTART_AFTER:-5}
+      - DAKERA_WATCHDOG_MEM_ALERT_PCT=${DAKERA_WATCHDOG_MEM_ALERT_PCT:-90}
+      - DAKERA_WATCHDOG_POLL_SECS=${DAKERA_WATCHDOG_POLL_SECS:-30}
+    command: ["sh", "-c", "chmod +x /usr/local/bin/dakera-watchdog.sh && /usr/local/bin/dakera-watchdog.sh"]
+    depends_on:
+      - dakera
     restart: unless-stopped
     networks:
       - dakera-net

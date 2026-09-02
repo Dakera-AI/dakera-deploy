@@ -7,17 +7,19 @@
 #
 # Why: the Dakera container's RSS did not return to baseline after allocation
 # peaks and pegged the 8G hard cap, exhausting host swap (same precondition as
-# the 2026-07-11 UI-hang). memory.high=7G lets the kernel throttle & reclaim the
-# cgroup gracefully BEFORE the 8G hard wall (memory.max) triggers an OOM kill.
-# The root fix (mimalloc returning pages to the OS) is MIMALLOC_PURGE_DELAY=0 in
-# the compose env; this slice is the safety net.
+# the 2026-07-11 UI-hang). DAK-9814 set memory.high=7G with an 8G hard wall.
+# DAK-9890 raised the hard wall to 12G (fleet load reached 7.14GiB under full
+# agent load); the soft limit follows at 10G. memory.high lets the kernel
+# throttle & reclaim the cgroup gracefully BEFORE the 12G hard wall triggers
+# an OOM kill. The root fix (mimalloc returning pages to the OS) is
+# MIMALLOC_PURGE_DELAY=0 in the compose env; this slice is the safety net.
 #
 # Idempotent. Requires root (systemd unit + daemon-reload). Persists across
 # reboots and CI redeploys (deploys scp only docker-compose.yml, not units).
 # =============================================================================
 set -euo pipefail
 
-MEM_HIGH="${DAKERA_MEM_HIGH:-7G}"
+MEM_HIGH="${DAKERA_MEM_HIGH:-10G}"  # DAK-9890: raised 7G→10G to match new 12G hard limit
 UNIT=/etc/systemd/system/dakera-mem.slice
 
 if [[ $EUID -ne 0 ]]; then
