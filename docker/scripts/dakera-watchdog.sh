@@ -88,14 +88,17 @@ while true; do
   echo "[watchdog] cycle=${CYCLE} health=${STATUS} failingStreak=${STREAK}"
 
   if [ "$STREAK" != "-1" ] && [ "$STREAK" -ge "$RESTART_AFTER" ] 2>/dev/null; then
-    echo "[watchdog] ⚠ Health streak ${STREAK} ≥ ${RESTART_AFTER}. Restarting ${CONTAINER}."
-    docker restart "$CONTAINER" 2>&1 && echo "[watchdog] ✅ Restart issued." || echo "[watchdog] ❌ Restart failed."
-    tg_send "⚠️ <b>[Platform] dakera container auto-restarted</b>
+    echo "[watchdog] ⚠ Health streak ${STREAK} ≥ ${RESTART_AFTER} — alerting (no auto-restart: PR#872 fixes root cause)."
+    # DAK-9890: auto-restart removed — it masked the access_info zombie leak
+    # root cause (PR#872). Alert so humans can investigate and act deliberately.
+    # Re-enable auto-restart here only after confirming root cause is fixed in prod.
+    tg_send "⚠️ <b>[Platform] dakera healthcheck degraded — investigation required</b>
 Host: $(hostname)
 Reason: healthcheck failingStreak=${STREAK} ≥ threshold ${RESTART_AFTER}
 Health: ${STATUS}
-Action: <code>docker restart ${CONTAINER}</code> issued by watchdog
-Next step: Monitor for recurrence — if memory pressure is root cause, check fleet load."
+Root cause: access_info zombie leak — see https://github.com/Dakera-AI/dakera/pull/872
+Action: Check <code>docker exec dakera curl -s localhost:3000/admin/storage/stats | jq .hot_count</code>
+If memory pressure: <code>docker restart ${CONTAINER}</code> (manual, deliberate)"
   fi
 
   # ── Memory threshold check ───────────────────────────────────────────────
