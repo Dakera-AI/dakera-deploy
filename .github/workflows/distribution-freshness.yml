@@ -24,7 +24,7 @@ jobs:
         id: server
         run: |
           RESPONSE=$(curl -sf https://api.github.com/repos/dakera-ai/dakera/releases/latest \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}")
+            -H "Authorization: Bearer ${{ secrets.GH_PAT_PACKAGES }}")
           TAG=$(echo "$RESPONSE" | jq -r '.tag_name')
           VERSION="${TAG#v}"
           PUBLISHED=$(echo "$RESPONSE" | jq -r '.published_at')
