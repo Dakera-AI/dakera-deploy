@@ -48,6 +48,30 @@ jobs:
           dockerfile: docker/Dockerfile
           failure-threshold: warning
 
+  validate-workflows:
+    name: Validate Workflow YAML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Parse all workflow YAML files
+        run: |
+          python3 - <<'EOF'
+          import yaml, glob, sys
+          errors = []
+          for f in sorted(glob.glob(".github/workflows/*.yml")):
+              try:
+                  yaml.safe_load(open(f))
+              except yaml.YAMLError as e:
+                  errors.append(f"{f}: {e}")
+          if errors:
+              print("YAML parse errors found:")
+              for e in errors:
+                  print(f"  {e}")
+              sys.exit(1)
+          print(f"All {len(glob.glob('.github/workflows/*.yml'))} workflow files parse cleanly.")
+          EOF
+
   kustomize-validate:
     name: Kustomize Validate
     runs-on: [self-hosted, linux, arm64]

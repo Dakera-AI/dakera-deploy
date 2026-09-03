@@ -230,14 +230,15 @@ jobs:
           SERVER_VERSION: ${{ steps.server.outputs.version }}
           STALE_COUNT: ${{ steps.report.outputs.stale_count }}
         run: |
-          MSG="⚠️ [Platform] Distribution Freshness ALERT
-
-Server: v${SERVER_VERSION}
-Stale channels (${STALE_COUNT}): ${STALE_NAMES}
-
-These distribution channels have not been updated within ${LAG_THRESHOLD_DAYS} days of the server release. Review and cut releases or update formulas/packages.
-
-Full report: https://github.com/dakera-ai/dakera-deploy/actions/runs/${{ github.run_id }}"
+          MSG=$(printf '%s\n' \
+            "⚠️ [Platform] Distribution Freshness ALERT" \
+            "" \
+            "Server: v${SERVER_VERSION}" \
+            "Stale channels (${STALE_COUNT}): ${STALE_NAMES}" \
+            "" \
+            "These distribution channels have not been updated within ${LAG_THRESHOLD_DAYS} days of the server release. Review and cut releases or update formulas/packages." \
+            "" \
+            "Full report: https://github.com/dakera-ai/dakera-deploy/actions/runs/${{ github.run_id }}")
 
           curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
