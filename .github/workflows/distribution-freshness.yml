@@ -1,0 +1,258 @@
+name: Distribution Freshness Monitor
+
+on:
+  schedule:
+    # Daily at 09:30 UTC
+    - cron: '30 9 * * *'
+  workflow_dispatch:
+    inputs:
+      lag_days_threshold:
+        description: 'Alert if a channel lags by more than this many days (default: 7)'
+        required: false
+        default: '7'
+
+env:
+  # Days a distribution channel may lag behind the server release before alerting
+  LAG_THRESHOLD_DAYS: ${{ github.event.inputs.lag_days_threshold || '7' }}
+
+jobs:
+  check-freshness:
+    name: Check distribution channel freshness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve latest dakera server release
+        id: server
+        run: |
+          RESPONSE=$(curl -sf https://api.github.com/repos/dakera-ai/dakera/releases/latest \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}")
+          TAG=$(echo "$RESPONSE" | jq -r '.tag_name')
+          VERSION="${TAG#v}"
+          PUBLISHED=$(echo "$RESPONSE" | jq -r '.published_at')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "published=$PUBLISHED" >> "$GITHUB_OUTPUT"
+          echo "Server release: $TAG (published $PUBLISHED)"
+
+      - name: Resolve latest dakera-cli release
+        id: cli
+        run: |
+          RESPONSE=$(curl -sf https://api.github.com/repos/dakera-ai/dakera-cli/releases/latest \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" 2>/dev/null || echo '{}')
+          TAG=$(echo "$RESPONSE" | jq -r '.tag_name // "unknown"')
+          PUBLISHED=$(echo "$RESPONSE" | jq -r '.published_at // "1970-01-01T00:00:00Z"')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "published=$PUBLISHED" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve latest dakera-mcp release
+        id: mcp
+        run: |
+          RESPONSE=$(curl -sf https://api.github.com/repos/dakera-ai/dakera-mcp/releases/latest \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" 2>/dev/null || echo '{}')
+          TAG=$(echo "$RESPONSE" | jq -r '.tag_name // "unknown"')
+          PUBLISHED=$(echo "$RESPONSE" | jq -r '.published_at // "1970-01-01T00:00:00Z"')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "published=$PUBLISHED" >> "$GITHUB_OUTPUT"
+
+      - name: Check Homebrew tap (dk + dakera-mcp)
+        id: homebrew
+        run: |
+          # dk formula
+          DK_RAW=$(curl -sf \
+            "https://api.github.com/repos/dakera-ai/homebrew-tap/contents/Formula/dk.rb" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" 2>/dev/null || echo '{}')
+          DK_VERSION=$(echo "$DK_RAW" | jq -r '.content // ""' | base64 -d 2>/dev/null \
+            | grep -m1 'version\s*"' | sed 's/.*version\s*"\([^"]*\)".*/\1/' || echo "unknown")
+          DK_COMMIT_DATE=$(echo "$DK_RAW" | jq -r '."_links".self // ""' 2>/dev/null || echo "")
+
+          # dakera-mcp formula
+          MCP_RAW=$(curl -sf \
+            "https://api.github.com/repos/dakera-ai/homebrew-tap/contents/Formula/dakera-mcp.rb" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" 2>/dev/null || echo '{}')
+          MCP_VERSION=$(echo "$MCP_RAW" | jq -r '.content // ""' | base64 -d 2>/dev/null \
+            | grep -m1 'version\s*"' | sed 's/.*version\s*"\([^"]*\)".*/\1/' || echo "unknown")
+
+          echo "dk_version=$DK_VERSION" >> "$GITHUB_OUTPUT"
+          echo "mcp_version=$MCP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Homebrew dk: $DK_VERSION | dakera-mcp: $MCP_VERSION"
+
+      - name: Check npm (dakera-mcp)
+        id: npm
+        run: |
+          NPM_DATA=$(curl -sf "https://registry.npmjs.org/dakera-mcp/latest" 2>/dev/null || echo '{}')
+          NPM_VERSION=$(echo "$NPM_DATA" | jq -r '.version // "unknown"')
+          NPM_TIME=$(echo "$NPM_DATA" | jq -r '.time.modified // "1970-01-01T00:00:00Z"' 2>/dev/null || echo "1970-01-01T00:00:00Z")
+          echo "version=$NPM_VERSION" >> "$GITHUB_OUTPUT"
+          echo "published=$NPM_TIME" >> "$GITHUB_OUTPUT"
+          echo "npm dakera-mcp: $NPM_VERSION"
+
+      - name: Check Helm chart (dakera-helm)
+        id: helm
+        run: |
+          INDEX=$(curl -sf "https://dakera-ai.github.io/dakera-helm/index.yaml" 2>/dev/null || echo "")
+          HELM_VERSION=$(echo "$INDEX" | grep "^    appVersion:" | head -1 | awk '{print $2}' | tr -d '"')
+          HELM_CREATED=$(echo "$INDEX" | grep "^    created:" | head -1 | awk '{print $2}' | tr -d '"')
+          echo "version=$HELM_VERSION" >> "$GITHUB_OUTPUT"
+          echo "published=$HELM_CREATED" >> "$GITHUB_OUTPUT"
+          echo "Helm chart appVersion: $HELM_VERSION"
+
+      - name: Check apt-repo (latest dakera-cli deb)
+        id: apt
+        run: |
+          # Check GitHub Releases for .deb assets on dakera-cli
+          RELEASE=$(curl -sf https://api.github.com/repos/dakera-ai/dakera-cli/releases/latest \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" 2>/dev/null || echo '{}')
+          DEB_ASSET=$(echo "$RELEASE" | jq -r '.assets[]? | select(.name | endswith(".deb")) | .name' | head -1 || echo "")
+          DEB_VERSION=$(echo "$DEB_ASSET" | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "unknown")
+          APT_DATE=$(echo "$RELEASE" | jq -r '.published_at // "1970-01-01T00:00:00Z"')
+          echo "version=$DEB_VERSION" >> "$GITHUB_OUTPUT"
+          echo "published=$APT_DATE" >> "$GITHUB_OUTPUT"
+          echo "apt/deb: $DEB_VERSION"
+
+      - name: Check rpm-repo (latest dakera-cli rpm)
+        id: rpm
+        run: |
+          RELEASE=$(curl -sf https://api.github.com/repos/dakera-ai/dakera-cli/releases/latest \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" 2>/dev/null || echo '{}')
+          RPM_ASSET=$(echo "$RELEASE" | jq -r '.assets[]? | select(.name | endswith(".rpm")) | .name' | head -1 || echo "")
+          RPM_VERSION=$(echo "$RPM_ASSET" | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "unknown")
+          RPM_DATE=$(echo "$RELEASE" | jq -r '.published_at // "1970-01-01T00:00:00Z"')
+          echo "version=$RPM_VERSION" >> "$GITHUB_OUTPUT"
+          echo "published=$RPM_DATE" >> "$GITHUB_OUTPUT"
+          echo "rpm: $RPM_VERSION"
+
+      - name: Check snap (dakera-cli)
+        id: snap
+        run: |
+          # Snap store API
+          SNAP_DATA=$(curl -sf \
+            -H "Snap-Device-Series: 16" \
+            "https://api.snapcraft.io/v2/snaps/info/dakera" 2>/dev/null || echo '{}')
+          SNAP_VERSION=$(echo "$SNAP_DATA" | jq -r '.["channel-map"][]? | select(.channel.name=="stable") | .version' | head -1 || echo "unknown")
+          echo "version=$SNAP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "snap: $SNAP_VERSION"
+
+      - name: Compute lag and build report
+        id: report
+        env:
+          SERVER_VERSION: ${{ steps.server.outputs.version }}
+          SERVER_PUBLISHED: ${{ steps.server.outputs.published }}
+          CLI_PUBLISHED: ${{ steps.cli.outputs.published }}
+          CLI_TAG: ${{ steps.cli.outputs.tag }}
+          MCP_PUBLISHED: ${{ steps.mcp.outputs.published }}
+          MCP_TAG: ${{ steps.mcp.outputs.tag }}
+          HOMEBREW_DK: ${{ steps.homebrew.outputs.dk_version }}
+          HOMEBREW_MCP: ${{ steps.homebrew.outputs.mcp_version }}
+          NPM_VERSION: ${{ steps.npm.outputs.version }}
+          NPM_PUBLISHED: ${{ steps.npm.outputs.published }}
+          HELM_VERSION: ${{ steps.helm.outputs.version }}
+          HELM_PUBLISHED: ${{ steps.helm.outputs.published }}
+          APT_VERSION: ${{ steps.apt.outputs.version }}
+          APT_PUBLISHED: ${{ steps.apt.outputs.published }}
+          RPM_VERSION: ${{ steps.rpm.outputs.version }}
+          SNAP_VERSION: ${{ steps.snap.outputs.version }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, datetime, sys
+
+          threshold_days = int(os.environ.get("LAG_THRESHOLD_DAYS", "7"))
+          server_version = os.environ["SERVER_VERSION"]
+          now = datetime.datetime.utcnow()
+
+          def parse_dt(s):
+              if not s or s in ("unknown", "null", ""):
+                  return None
+              for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S.%fZ"):
+                  try:
+                      return datetime.datetime.strptime(s, fmt)
+                  except ValueError:
+                      pass
+              return None
+
+          server_dt = parse_dt(os.environ["SERVER_PUBLISHED"])
+
+          channels = [
+              ("homebrew-dk", os.environ["HOMEBREW_DK"], parse_dt(os.environ["CLI_PUBLISHED"])),
+              ("homebrew-mcp", os.environ["HOMEBREW_MCP"], parse_dt(os.environ["MCP_PUBLISHED"])),
+              ("npm-mcp", os.environ["NPM_VERSION"], parse_dt(os.environ["NPM_PUBLISHED"])),
+              ("helm-chart", os.environ["HELM_VERSION"], parse_dt(os.environ["HELM_PUBLISHED"])),
+              ("apt/deb-cli", os.environ["APT_VERSION"], parse_dt(os.environ["APT_PUBLISHED"])),
+              ("rpm-cli", os.environ["RPM_VERSION"], None),
+              ("snap-cli", os.environ["SNAP_VERSION"], None),
+          ]
+
+          stale = []
+          report_lines = ["Distribution Freshness Report", "=" * 40]
+          report_lines.append(f"Server: v{server_version} (released {os.environ['SERVER_PUBLISHED'][:10]})")
+          report_lines.append(f"Threshold: >{threshold_days} days lag = STALE")
+          report_lines.append("")
+
+          for name, version, channel_dt in channels:
+              if channel_dt and server_dt:
+                  lag = (now - channel_dt).days
+                  lag_str = f"{lag}d lag"
+                  status = "STALE" if lag > threshold_days else "OK"
+              else:
+                  lag = -1
+                  lag_str = "date unknown"
+                  status = "UNKNOWN"
+
+              line = f"  [{status}] {name}: v{version} ({lag_str})"
+              report_lines.append(line)
+              if status == "STALE":
+                  stale.append({"name": name, "version": version, "lag_days": lag})
+
+          report_lines.append("")
+          if stale:
+              report_lines.append(f"ALERT: {len(stale)} stale channel(s) detected!")
+          else:
+              report_lines.append("All channels fresh.")
+
+          report = "\n".join(report_lines)
+          print(report)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              # Escape newlines for GITHUB_OUTPUT
+              safe_report = report.replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D")
+              f.write(f"report={safe_report}\n")
+              f.write(f"stale_count={len(stale)}\n")
+              stale_names = ",".join(s['name'] for s in stale)
+              f.write(f"stale_names={stale_names}\n")
+              alert = "true" if stale else "false"
+              f.write(f"alert={alert}\n")
+          PYEOF
+
+      - name: Send Telegram alert on stale channels
+        if: steps.report.outputs.alert == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          STALE_NAMES: ${{ steps.report.outputs.stale_names }}
+          SERVER_VERSION: ${{ steps.server.outputs.version }}
+          STALE_COUNT: ${{ steps.report.outputs.stale_count }}
+        run: |
+          MSG="⚠️ [Platform] Distribution Freshness ALERT
+
+Server: v${SERVER_VERSION}
+Stale channels (${STALE_COUNT}): ${STALE_NAMES}
+
+These distribution channels have not been updated within ${LAG_THRESHOLD_DAYS} days of the server release. Review and cut releases or update formulas/packages.
+
+Full report: https://github.com/dakera-ai/dakera-deploy/actions/runs/${{ github.run_id }}"
+
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":$(echo "$MSG" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"parse_mode\":\"\"}" \
+            && echo "Telegram alert sent" \
+            || echo "WARNING: Telegram alert failed (non-blocking)"
+
+      - name: Print summary
+        run: |
+          echo "### Distribution Freshness Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.report.outputs.report }}" | tr '%0A' '\n' >> "$GITHUB_STEP_SUMMARY" || \
+            echo "See job logs for full report" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.report.outputs.alert }}" = "true" ]; then
+            echo ":warning: **${{ steps.report.outputs.stale_count }} stale channel(s): ${{ steps.report.outputs.stale_names }}**" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
