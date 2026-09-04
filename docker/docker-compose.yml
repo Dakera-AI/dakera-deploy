@@ -162,7 +162,7 @@ services:
       - DAKERA_WATCHDOG_RESTART_AFTER=${DAKERA_WATCHDOG_RESTART_AFTER:-5}
       - DAKERA_WATCHDOG_MEM_ALERT_PCT=${DAKERA_WATCHDOG_MEM_ALERT_PCT:-90}
       - DAKERA_WATCHDOG_POLL_SECS=${DAKERA_WATCHDOG_POLL_SECS:-30}
-    command: ["sh", "-c", "chmod +x /usr/local/bin/dakera-watchdog.sh && /usr/local/bin/dakera-watchdog.sh"]
+    command: ["sh", "/usr/local/bin/dakera-watchdog.sh"]
     depends_on:
       - dakera
     restart: unless-stopped
