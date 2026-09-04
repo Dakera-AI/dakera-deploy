@@ -75,15 +75,15 @@ jobs:
           echo "mcp_version=$MCP_VERSION" >> "$GITHUB_OUTPUT"
           echo "Homebrew dk: $DK_VERSION | dakera-mcp: $MCP_VERSION"
 
-      - name: Check npm (dakera-mcp)
+      - name: Check npm (@dakera-ai/dakera-mcp)
         id: npm
         run: |
-          NPM_DATA=$(curl -sf "https://registry.npmjs.org/dakera-mcp/latest" 2>/dev/null || echo '{}')
-          NPM_VERSION=$(echo "$NPM_DATA" | jq -r '.version // "unknown"')
-          NPM_TIME=$(echo "$NPM_DATA" | jq -r '.time.modified // "1970-01-01T00:00:00Z"' 2>/dev/null || echo "1970-01-01T00:00:00Z")
+          NPM_META=$(curl -sf "https://registry.npmjs.org/@dakera-ai%2fdakera-mcp" 2>/dev/null || echo '{}')
+          NPM_VERSION=$(echo "$NPM_META" | jq -r '."dist-tags".latest // "unknown"')
+          NPM_TIME=$(echo "$NPM_META" | jq -r --arg v "$NPM_VERSION" '.time[$v] // .time.modified // "1970-01-01T00:00:00Z"')
           echo "version=$NPM_VERSION" >> "$GITHUB_OUTPUT"
           echo "published=$NPM_TIME" >> "$GITHUB_OUTPUT"
-          echo "npm dakera-mcp: $NPM_VERSION"
+          echo "npm @dakera-ai/dakera-mcp: $NPM_VERSION"
 
       - name: Check Helm chart (dakera-helm)
         id: helm
