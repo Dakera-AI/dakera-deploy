@@ -313,6 +313,20 @@ dakera-deploy/
 | `DAKERA_GRPC_PORT` | `50051` | gRPC API port |
 | `DAKERA_STORAGE` | `memory` | Storage backend (`memory`, `s3`) |
 | `DAKERA_LOG_LEVEL` / `RUST_LOG` | `info` | Log verbosity level |
+| `DAKERA_TELEMETRY` | `enabled` | Anonymous operational telemetry. Set to `0`/`off` to disable (see [Telemetry](#telemetry)) |
+
+### Telemetry
+
+Dakera sends **anonymous operational telemetry** by default — engine version, OS family, and deployment type — approximately once per uptime interval, to help us understand which platforms to support. **Your memory contents, agent outputs, and personal data are never transmitted**, and there is no license check against a remote server.
+
+To disable it, set either of:
+
+```bash
+DAKERA_TELEMETRY=off   # or 0 / false / no
+DO_NOT_TRACK=1         # honored as an unconditional opt-out
+```
+
+Fully air-gapped operation is supported. Inspect the exact payload before it is sent with `DAKERA_TELEMETRY_DEBUG=1`.
 
 ### S3/MinIO Storage
 
