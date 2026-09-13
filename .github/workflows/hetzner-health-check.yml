@@ -13,7 +13,8 @@ concurrency:
 
 env:
   SERVER_IP: ${{ secrets.SERVER_IP_PROD }}
-  HEALTH_URL: "http://${{ secrets.SERVER_IP_PROD }}:3300/health"
+  HEALTH_URL: "http://${{ secrets.SERVER_IP_PROD }}:3000/health"
+  HEALTH_URL_LEGACY: "http://${{ secrets.SERVER_IP_PROD }}:3300/health"
   DEMO_URL: "http://${{ secrets.SERVER_IP_PROD }}:3004"
   DEPLOY_USER: "dakera"
   COMPOSE_DIR: "/home/dakera/ops/repos/dakera-deploy/docker"
@@ -28,10 +29,17 @@ jobs:
       - name: HTTP health probe
         id: check
         run: |
+          # Canonical port is 3000 (DAK-9959). Probe 3000 first, then the legacy
+          # 3300 direct port, then HTTPS via Caddy (443). Any success = healthy.
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null) || true
           [ -z "$HTTP_CODE" ] && HTTP_CODE="000"
           if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
-            echo "Direct port 3300 returned $HTTP_CODE — trying HTTPS via Caddy (port 443)..."
+            echo "Canonical port 3000 returned $HTTP_CODE — trying legacy direct port 3300..."
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.HEALTH_URL_LEGACY }}" 2>/dev/null) || true
+            [ -z "$HTTP_CODE" ] && HTTP_CODE="000"
+          fi
+          if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
+            echo "Direct ports returned $HTTP_CODE — trying HTTPS via Caddy (port 443)..."
             HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.SERVER_IP }}/health" 2>/dev/null) || true
             [ -z "$HTTP_CODE" ] && HTTP_CODE="000"
           fi
