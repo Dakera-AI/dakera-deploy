@@ -145,7 +145,7 @@ jobs:
             *) REQUIRE_VERSION_MATCH=0 ;;
           esac
           for i in $(seq 1 12); do
-            RESPONSE=$(curl -sf --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null || curl -sf --max-time 10 "${{ env.HEALTH_URL_LEGACY }}" 2>/dev/null || echo '{"error":"unreachable"}')
+            RESPONSE=$(curl -sf --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null || curl -sf --max-time 10 "${{ env.HEALTH_URL_LEGACY }}" 2>/dev/null || curl -sfk --max-time 10 "https://${{ secrets.SERVER_IP_PROD }}/health" 2>/dev/null || echo '{"error":"unreachable"}')
             STATUS=$(echo "$RESPONSE" | jq -r '.status // "unknown"')
             VERSION=$(echo "$RESPONSE" | jq -r '.version // "unknown"')
             RESP_SHA=$(echo "$RESPONSE" | jq -r '.build_sha // "none"')
