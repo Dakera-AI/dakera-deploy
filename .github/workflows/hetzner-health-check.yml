@@ -13,7 +13,7 @@ concurrency:
 
 env:
   SERVER_IP: ${{ secrets.SERVER_IP_PROD }}
-  HEALTH_URL: "http://${{ secrets.SERVER_IP_PROD }}:3300/health"
+  HEALTH_URL: "http://${{ secrets.SERVER_IP_PROD }}:3000/health"
   DEMO_URL: "http://${{ secrets.SERVER_IP_PROD }}:3004"
   DEPLOY_USER: "dakera"
   COMPOSE_DIR: "/home/dakera/ops/repos/dakera-deploy/docker"
@@ -31,7 +31,7 @@ jobs:
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.HEALTH_URL }}" 2>/dev/null) || true
           [ -z "$HTTP_CODE" ] && HTTP_CODE="000"
           if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
-            echo "Direct port 3300 returned $HTTP_CODE — trying HTTPS via Caddy (port 443)..."
+            echo "Direct port 3000 returned $HTTP_CODE — trying HTTPS via Caddy (port 443)..."
             HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.SERVER_IP }}/health" 2>/dev/null) || true
             [ -z "$HTTP_CODE" ] && HTTP_CODE="000"
           fi

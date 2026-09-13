@@ -45,7 +45,7 @@ jobs:
           docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}" 2>/dev/null || echo "No docker access"
           echo ""
           echo "=== Health checks ==="
-          curl -sf http://localhost:3300/health 2>/dev/null && echo "" || echo "Port 3300: unreachable"
+          curl -sf http://localhost:3000/health 2>/dev/null && echo "" || echo "Port 3000: unreachable"
           curl -sf http://localhost:3500/health 2>/dev/null && echo "" || echo "Port 3500: unreachable"
           curl -sf http://localhost:3000/health 2>/dev/null && echo "" || echo "Port 3000: unreachable"
           echo ""
@@ -110,7 +110,7 @@ jobs:
           echo "4/4 Validating auth with new key..."
           HTTP_CODE=\$(curl -sf -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer ${NEW_KEY}" \
-            http://localhost:3300/health)
+            http://localhost:3000/health)
           if [ "\$HTTP_CODE" = "200" ]; then
             echo "✅ Auth validation passed (HTTP \$HTTP_CODE)"
           else
@@ -198,7 +198,7 @@ jobs:
           sleep 15
           DEPLOYED=0
           for i in \$(seq 1 12); do
-            RESPONSE=\$(curl -sf --max-time 10 "http://localhost:3300/health" 2>/dev/null || echo '{"error":"unreachable"}')
+            RESPONSE=\$(curl -sf --max-time 10 "http://localhost:3000/health" 2>/dev/null || echo '{"error":"unreachable"}')
             VER=\$(echo "\$RESPONSE" | jq -r '.version // "unknown"')
             STATUS=\$(echo "\$RESPONSE" | jq -r '.status // "unknown"')
             echo "Attempt \$i/12 — status=\$STATUS version=\$VER"

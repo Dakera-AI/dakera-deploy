@@ -22,7 +22,7 @@ concurrency:
 env:
   SERVER_IP: ${{ secrets.SERVER_IP_PROD }}
   DEPLOY_USER: "dakera"
-  HEALTH_URL: "http://${{ secrets.SERVER_IP_PROD }}:3300/health"
+  HEALTH_URL: "http://${{ secrets.SERVER_IP_PROD }}:3000/health"
   REGISTRY: "ghcr.io/dakera-ai/dakera"
 
 jobs:
