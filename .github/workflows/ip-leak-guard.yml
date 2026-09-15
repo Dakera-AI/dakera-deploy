@@ -1,0 +1,67 @@
+name: IP & Credential Leak Guard
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  grep-guard:
+    name: Scan for hardcoded internal IPs and credential hashes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for hardcoded internal IPs
+        run: |
+          set +e
+          FAIL=0
+
+          # Patterns that must NOT appear in any committed file
+          FORBIDDEN_PATTERNS=(
+            '178\.104\.45\.161'
+            '178\.104\.227\.173'
+            '168\.119\.60\.30'
+            '5\.75\.177\.31'
+          )
+
+          # Excluded files: this guard itself, and any intentional references
+          EXCLUDE_ARGS=(
+            --exclude='.github/workflows/ip-leak-guard.yml'
+          )
+
+          for PAT in "${FORBIDDEN_PATTERNS[@]}"; do
+            HITS=$(grep -rn --include='*' "${EXCLUDE_ARGS[@]}" -E "$PAT" . 2>/dev/null || true)
+            if [[ -n "$HITS" ]]; then
+              echo "❌ HARDCODED IP FOUND (pattern: $PAT):"
+              echo "$HITS"
+              FAIL=1
+            fi
+          done
+
+          if [[ $FAIL -eq 1 ]]; then
+            echo ""
+            echo "Replace hardcoded IPs with env-var placeholders (\${DEPLOY_HOST}, \${PROD_IP}, etc.)"
+            echo "See DAK-9973 for context."
+            exit 1
+          fi
+          echo "✅ No hardcoded internal IPs found."
+
+      - name: Check for committed credential hashes
+        run: |
+          set +e
+          # Detect bcrypt hashes committed to the repo
+          HITS=$(grep -rn --include='*' \
+            --exclude='.github/workflows/ip-leak-guard.yml' \
+            -E '\$2[aby]\$[0-9]{2}\$[A-Za-z0-9./]{53}' . 2>/dev/null || true)
+
+          if [[ -n "$HITS" ]]; then
+            echo "❌ BCRYPT CREDENTIAL HASH DETECTED IN COMMITTED FILE:"
+            echo "$HITS"
+            echo ""
+            echo "Never commit credential hashes. Use env vars or GH Secrets."
+            echo "See DAK-9973 for context."
+            exit 1
+          fi
+          echo "✅ No committed credential hashes found."

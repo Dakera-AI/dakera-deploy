@@ -1,7 +1,7 @@
 name: Playground - Create DNS Record + Enable SSL
 
 # DAK-6756: One-shot workflow that creates the Cloudflare A record for
-# playground.dakera.ai → 5.75.177.31, waits for propagation, then issues
+# playground.dakera.ai → <PLAYGROUND_SERVER_IP>, waits for propagation, then issues
 # a Let's Encrypt cert and reloads nginx.
 #
 # Prerequisites:
@@ -21,7 +21,7 @@ on:
       target_ip:
         description: "IPv4 address the A record should point to"
         required: false
-        default: "5.75.177.31"
+        default: ""
       zone_name:
         description: "Cloudflare zone (root domain)"
         required: false
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SUBDOMAIN: ${{ inputs.domain || 'playground' }}
-      TARGET_IP: ${{ inputs.target_ip || '5.75.177.31' }}
+      TARGET_IP: ${{ inputs.target_ip || vars.PLAYGROUND_SERVER_IP }}
       ZONE_NAME: ${{ inputs.zone_name || 'dakera.ai' }}
       SKIP_DNS: ${{ inputs.skip_dns || 'false' }}
 

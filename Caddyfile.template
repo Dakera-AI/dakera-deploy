@@ -1,0 +1,49 @@
+# Caddyfile.template — production reverse proxy
+# Version-controlled template; deploy step generates /etc/caddy/Caddyfile from this.
+#
+# Deploy:
+#   export DEPLOY_HOST=<server-ip-or-hostname>
+#   export PAPERCLIP_HOST=paperclip.<ip-dashes>.sslip.io
+#   export CADDY_ADMIN_HASH=$(caddy hash-password --plaintext "$CADDY_ADMIN_PASSWORD")
+#   envsubst < Caddyfile.template | sudo tee /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Required env vars:
+#   DEPLOY_HOST       — server IP or hostname
+#   PAPERCLIP_HOST    — hostname for Paperclip UI (sslip.io or DNS)
+#   CADDY_ADMIN_HASH  — bcrypt hash; derive with: caddy hash-password --plaintext "$CADDY_ADMIN_PASSWORD"
+#                       CADDY_ADMIN_PASSWORD is stored as a GitHub Secret (never commit it)
+
+http://:8443 {
+    @browser {
+        header Accept *text/html*
+    }
+    basicauth @browser {
+        admin ${CADDY_ADMIN_HASH}
+    }
+    reverse_proxy localhost:3002 {
+        header_down -WWW-Authenticate
+    }
+}
+
+https://${DEPLOY_HOST}:3004 {
+    tls internal
+    reverse_proxy localhost:3044
+}
+
+https://${DEPLOY_HOST}:443 {
+    tls internal
+    reverse_proxy localhost:3000
+}
+
+https://${DEPLOY_HOST}:3005 {
+    tls internal
+    # gzip saves ~73% on the Paperclip UI bundle (6.5MB → ~1.8MB cold load). Measured 2026-08-29.
+    encode zstd gzip
+    reverse_proxy localhost:3100
+}
+
+${PAPERCLIP_HOST} {
+    encode zstd gzip
+    reverse_proxy localhost:3100
+}
