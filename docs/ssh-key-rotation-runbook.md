@@ -3,15 +3,15 @@
 **Secret:** `DEPLOY_SSH_KEY` in `dakera-ai/dakera-deploy`
 
 **Affects workflows:**
-- `playground-proxy-deploy.yml` → playground server (5.75.177.31)
-- `playground-monitor-deploy.yml` → playground server (5.75.177.31)
-- `deploy-production.yml` → production server (178.104.45.161)
+- `playground-proxy-deploy.yml` → playground server
+- `playground-monitor-deploy.yml` → playground server
+- `deploy-production.yml` → production server
 
 Both servers share the same `DEPLOY_SSH_KEY` secret. Rotate the key on **all servers at once**.
 
 > **⚠️ CRITICAL: Different SSH users per server**
-> - Playground workflows connect as **`root@5.75.177.31`**
-> - Production workflows connect as **`dakera@178.104.45.161`**
+> - Playground workflows connect as **`root@<PLAYGROUND_IP>`**
+> - Production workflows connect as **`dakera@<PROD_IP>`**
 >
 > You must add the new public key to `root`'s `authorized_keys` on playground
 > **AND** `dakera`'s `authorized_keys` on production. Missing one causes the
@@ -44,9 +44,11 @@ ssh-keygen -t ed25519 -C 'deploy@dakera-deploy' -f /tmp/deploy_key -N ''
 Add the public key to **each server's** `authorized_keys`. Keep the old key until Step 3 is done
 (removing it before updating the GH secret causes a deploy outage window).
 
+Set server addresses from your infrastructure registry (not stored in this runbook):
+
 ```bash
-PLAYGROUND_IP="5.75.177.31"
-PROD_IP="178.104.45.161"
+export PLAYGROUND_IP=<playground-server-ip>
+export PROD_IP=<production-server-ip>
 
 # Playground server — SSH user is ROOT
 cat /tmp/deploy_key.pub | ssh root@${PLAYGROUND_IP} \
@@ -86,8 +88,9 @@ gh secret list -R dakera-ai/dakera-deploy | grep DEPLOY_SSH_KEY
 ## Step 4 — Test SSH connectivity from local machine
 
 ```bash
-PLAYGROUND_IP="5.75.177.31"
-PROD_IP="178.104.45.161"
+# Set addresses from your infrastructure registry
+export PLAYGROUND_IP=<playground-server-ip>
+export PROD_IP=<production-server-ip>
 
 ssh -i /tmp/deploy_key -o BatchMode=yes -o ConnectTimeout=5 root@${PLAYGROUND_IP} echo "playground OK"
 ssh -i /tmp/deploy_key -o BatchMode=yes -o ConnectTimeout=5 dakera@${PROD_IP} echo "production OK"
@@ -148,11 +151,12 @@ rm /tmp/deploy_key /tmp/deploy_key.pub
 
 ```
 # Different users: playground=root, prod=dakera
+# Set PLAYGROUND_IP and PROD_IP from your infrastructure registry before running
 1. ssh-keygen -t ed25519 -C 'deploy@dakera-deploy' -f /tmp/deploy_key -N ''
-2. cat /tmp/deploy_key.pub | ssh root@5.75.177.31 'cat >> ~/.ssh/authorized_keys'
-   cat /tmp/deploy_key.pub | ssh dakera@178.104.45.161 'cat >> ~/.ssh/authorized_keys'
+2. cat /tmp/deploy_key.pub | ssh root@${PLAYGROUND_IP} 'cat >> ~/.ssh/authorized_keys'
+   cat /tmp/deploy_key.pub | ssh dakera@${PROD_IP} 'cat >> ~/.ssh/authorized_keys'
 3. gh secret set DEPLOY_SSH_KEY --repo dakera-ai/dakera-deploy < /tmp/deploy_key
-4. ssh -i /tmp/deploy_key root@5.75.177.31 echo OK && ssh -i /tmp/deploy_key dakera@178.104.45.161 echo OK
+4. ssh -i /tmp/deploy_key root@${PLAYGROUND_IP} echo OK && ssh -i /tmp/deploy_key dakera@${PROD_IP} echo OK
 5. gh workflow run playground-proxy-deploy.yml -R dakera-ai/dakera-deploy --ref main
    gh workflow run server-ops.yml -R dakera-ai/dakera-deploy --ref main -f action=inspect
 ```

@@ -2,7 +2,7 @@ name: Playground - Set DNS + Enable SSL
 
 # Fixes DAK-6883: playground.dakera.ai had no DNS A record, causing Let's Encrypt
 # to fail twice (runs 27639387016, 27639388716). This workflow:
-#   1. Adds an A record in Cloudflare: playground.dakera.ai → 5.75.177.31 (DNS-only, no proxy)
+#   1. Adds an A record in Cloudflare: playground.dakera.ai → <PLAYGROUND_SERVER_IP> (DNS-only, no proxy)
 #   2. Waits for DNS propagation (up to 5 min)
 #   3. SSHes to the playground server and runs certbot --nginx
 #   4. Verifies HTTPS health
@@ -24,7 +24,7 @@ on:
       server_ip:
         description: "Playground server IP"
         required: false
-        default: "5.75.177.31"
+        default: ""
       skip_dns:
         description: "Skip DNS step (set true if A record already exists)"
         required: false
@@ -40,12 +40,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DOMAIN: ${{ inputs.domain || 'playground.dakera.ai' }}
-      SERVER_IP: ${{ inputs.server_ip || '5.75.177.31' }}
+      SERVER_IP: ${{ inputs.server_ip || vars.PLAYGROUND_SERVER_IP }}
       SKIP_DNS: ${{ inputs.skip_dns || 'false' }}
 
     steps:
       # -----------------------------------------------------------------------
-      # Step 1: Add Cloudflare DNS A record (playground.dakera.ai → 5.75.177.31)
+      # Step 1: Add Cloudflare DNS A record (playground.dakera.ai → <PLAYGROUND_SERVER_IP>)
       # -----------------------------------------------------------------------
       - name: Add Cloudflare DNS A record
         if: env.SKIP_DNS != 'true'

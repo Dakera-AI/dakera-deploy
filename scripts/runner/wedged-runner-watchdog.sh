@@ -18,8 +18,8 @@
 #   GH_TOKEN                  — GitHub PAT with repo/runner read access
 #   TELEGRAM_BOT_TOKEN        — Telegram bot token (optional, skips alert if unset)
 #   TELEGRAM_CHAT_ID          — Telegram chat ID (optional)
-#   ARM_RUNNER_IP             — IP of ARM runner host (default: 168.119.60.30)
-#   X64_RUNNER_IP             — IP of x64 runner host (default: 178.104.227.173)
+#   ARM_RUNNER_IP             — IP of ARM runner host (required; no default — set via env or secrets)
+#   X64_RUNNER_IP             — IP of x64 runner host (required; no default — set via env or secrets)
 #   SSH_KEY_PATH              — Path to SSH private key (default: ~/.ssh/id_ed25519)
 #   STALL_THRESHOLD_MIN       — Queue stall before acting, in minutes (default: 10)
 #   RESTART_COOLDOWN_SECS     — Minimum seconds between restarts (default: 600)
@@ -35,8 +35,8 @@ for _f in "${SCRIPT_DIR}/../../../.credentials" "${HOME}/.dakera.env"; do
   [[ -f "$_f" ]] && { set -a; source "$_f"; set +a; break; }
 done
 
-ARM_RUNNER_IP="${ARM_RUNNER_IP:-168.119.60.30}"
-X64_RUNNER_IP="${X64_RUNNER_IP:-178.104.227.173}"
+ARM_RUNNER_IP="${ARM_RUNNER_IP:?ARM_RUNNER_IP is required — set via environment or secrets, not hardcoded}"
+X64_RUNNER_IP="${X64_RUNNER_IP:?X64_RUNNER_IP is required — set via environment or secrets, not hardcoded}"
 SSH_KEY_PATH="${SSH_KEY_PATH:-${HOME}/.ssh/id_ed25519}"
 STALL_THRESHOLD_MIN="${STALL_THRESHOLD_MIN:-10}"
 RESTART_COOLDOWN_SECS="${RESTART_COOLDOWN_SECS:-600}"
