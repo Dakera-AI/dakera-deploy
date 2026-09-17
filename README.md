@@ -386,7 +386,7 @@ Fully air-gapped operation is supported. Inspect the exact payload before it is 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_AUTH_ENABLED` | `false` | Enable API authentication |
+| `DAKERA_AUTH_ENABLED` | `true` | Enable API authentication (default on; server refuses to start if enabled with no keys configured) |
 | `DAKERA_ROOT_API_KEY` | - | Root API key (**required** in production compose) |
 | `DAKERA_ENCRYPTION_KEY` | - | AES-256-GCM key for at-rest memory encryption (32-byte hex) |
 
