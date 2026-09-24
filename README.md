@@ -239,7 +239,7 @@ See [dakera-cli](https://github.com/dakera-ai/dakera-cli) and [dakera-mcp](https
 Step-by-step guides in the [`examples/`](examples/) directory:
 
 - **[Quickstart](examples/quickstart.md)** — Store and recall your first memory in 5 minutes
-- **[REST API Integration Notes](examples/api-notes.md)** — Building a client directly against the API: score semantics, `forget`/`consolidate` behavior, timestamps
+- **[REST API Integration Guide](examples/api-notes.md)** — Building a client directly against the API: auth & scopes, conventions, the full memory lifecycle (store/recall/update/forget), sessions, the consolidation family, scoring, error/retry handling, and a worked example
 - **[Environment Variables](examples/environment-variables.md)** — Complete reference for all configuration options
 - **[Production Checklist](examples/production-checklist.md)** — Security, storage, HA, and monitoring checklist
 - **[Backup & Restore](examples/backup-restore.md)** — MinIO backup procedures and disaster recovery
