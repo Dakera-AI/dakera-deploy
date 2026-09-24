@@ -186,7 +186,7 @@ Semantic + lexical retrieval optimised for precision. Key fields:
 | `agent_id` | `string` | ✓ | |
 | `top_k` | `int` | `10` | |
 | `memory_type` | `string` | `null` | filter |
-| `tags` | `string[]` | `null` | all-match filter |
+| `tags` | `string[]` | `null` | **any**-match hard filter — keeps memories carrying ≥1 of the listed tags, drops the rest (there is no `all`/match-mode option on recall today) |
 | `min_importance` | `float` | `null` | soft floor — recall nudges importance upward (see memory model) |
 | `routing` | `string` | `auto` | `auto` · `vector` · `bm25` · `hybrid` |
 | `rerank` | `bool` | `true` | cross-encoder rerank; degrades gracefully under load |
