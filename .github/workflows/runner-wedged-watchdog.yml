@@ -75,12 +75,23 @@ jobs:
           fi
           echo "Busy runners: ${BUSY_RUNNERS}"
 
-          echo "=== Phase 2: Check for in_progress jobs ==="
+          echo "=== Phase 2: Check for in_progress JOBS ==="
+          # Count JOBS, not runs. A workflow run reports status "queued" while ANY
+          # of its jobs is still waiting for a runner — even when other jobs of the
+          # same run are executing. Counting runs with --status in_progress missed
+          # those, so a long CI run with one job running and one queued >10 min
+          # looked "wedged" and every runner on the host was restarted, killing the
+          # running job (dakera PR #905 Test, 2026-09-24 19:23 and 22:37 UTC).
           IN_PROGRESS=0
           for REPO in $RUNNER_REPOS; do
-            COUNT=$(gh run list -R "$REPO" --status in_progress \
-              --json databaseId --jq 'length' 2>/dev/null || echo 0)
-            echo "  ${REPO}: ${COUNT} in_progress"
+            COUNT=0
+            for RUN_ID in $( (gh run list -R "$REPO" --status in_progress --json databaseId --jq '.[].databaseId'; \
+                              gh run list -R "$REPO" --status queued --json databaseId --jq '.[].databaseId') 2>/dev/null || true); do
+              N=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+                --jq '[.jobs[] | select(.status == "in_progress")] | length' 2>/dev/null || echo 0)
+              COUNT=$((COUNT + N))
+            done
+            echo "  ${REPO}: ${COUNT} job(s) in_progress"
             IN_PROGRESS=$((IN_PROGRESS + COUNT))
           done
           echo "Total in_progress: ${IN_PROGRESS}"
