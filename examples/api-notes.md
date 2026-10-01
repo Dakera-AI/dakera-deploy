@@ -2,7 +2,7 @@
 
 A practical, self-contained guide to building a client directly against the Dakera REST API — no SDK required, every endpoint is plain JSON over HTTP. It covers authentication, the request/response conventions, the memory lifecycle (store → recall → update → forget), sessions, agents, the knowledge/consolidation family, error handling, and a worked minimal-client example. It closes with a **gotchas** section — the behaviors that most often surprise first-time integrators.
 
-Verified against engine **v0.11.108**. Where behavior is gated by a version or an env flag, that is called out inline.
+Written against engine **v0.11.108** and updated for **v0.12.0** (the places that changed are marked *(v0.12)*; the server's `docs/v0.12/UPGRADE.md` lists every behaviour change). Where behavior is gated by a version or an env flag, that is called out inline. The v0.12 additions (attachments, transcription, image indexing, records, capabilities) are plain REST routes: see [docs/features-v0.12.md](../docs/features-v0.12.md).
 
 ---
 
@@ -15,6 +15,7 @@ http://localhost:3000
 - All application endpoints are under the `/v1/...` prefix (e.g. `/v1/memory/store`).
 - Health and metrics endpoints are unversioned (`/health`, `/metrics`).
 - Default ports: REST `3000` (`DAKERA_PORT`), gRPC `50051` (`DAKERA_GRPC_PORT`). Bind host is `DAKERA_HOST` (default `0.0.0.0`).
+- *(v0.12)* The gRPC service has seven RPCs over raw vectors and no memory API, and **requires an API key** in the call metadata (`x-api-key: <key>` or `authorization: Bearer <key>`) whenever authentication is on (v0.11 had none). `GET /v1/capabilities` (Read scope) tells a client which models, index kinds, scoring strategy and multimodal features the server has on.
 
 ---
 
@@ -71,7 +72,7 @@ The root key from `DAKERA_ROOT_API_KEY` is a `super_admin` key. Additional scope
 | `last_accessed_at` | `int` | Unix seconds |
 | `access_count` | `int` | see the memory-model note below |
 
-**Memory types & decay.** Each type decays at a different rate (relative multipliers: `working` 3.0, `episodic` 1.0, `semantic` 0.5, `procedural` 0.3) — durable knowledge lives longer than scratch state. A memory's `importance` moves in three ways: (1) explicit [feedback](#feedback) (`upvote` adds `0.05–0.10`, `downvote` subtracts `0.15`, `flag` accelerates decay); (2) background decay; and (3) **recall itself** — every `POST /v1/memory/recall` fires a background task that increments the returned memories' `access_count`, refreshes `last_accessed_at`, and applies an importance *boost* (spaced repetition), writing the raised value back. Because recalled memories drift upward, **`min_importance` is a soft floor, not a fixed cutoff** — a memory can rise above a threshold it previously sat below simply by being recalled often.
+**Memory types & decay.** Each type decays at a different rate (relative multipliers: `working` 3.0, `episodic` 1.0, `semantic` 0.5, `procedural` 0.3) — durable knowledge lives longer than scratch state. A memory's `importance` moves in three ways: (1) explicit [feedback](#feedback) (`upvote` adds `0.05–0.10`, `downvote` subtracts `0.15`, `flag` accelerates decay); (2) background decay; and (3) *(v0.11 only)* recall itself: in v0.11 every `POST /v1/memory/recall` boosted the returned memories' importance, so recalled memories drifted upward and `min_importance` behaved as a soft floor. **In v0.12 a recall no longer raises importance**: it still records `access_count` and `last_accessed_at` (decay and wake-up use them), and importance moves only through feedback, decay and session promotion; stored importances are not rewritten. Importance decay also no longer compounds (decayed importances are higher than v0.11's).
 
 **Request limits** (all configurable):
 
@@ -113,15 +114,16 @@ So parse defensively: read `error` always, and fall back between `code`/`message
 | `401` | Missing / invalid / expired API key |
 | `403` | Key lacks the required scope or namespace |
 | `404` | Namespace or memory not found |
-| `413` | Namespace vector quota exceeded |
+| `413` | Namespace quota exceeded (*v0.12: quotas are enforced*), or a body over `DAKERA_MAX_BODY_SIZE` / an attachment over `DAKERA_ATTACHMENT_MAX_BYTES` |
+| `501` | *(v0.12)* `FEATURE_DISABLED` (an opt-in feature is off; the body names the variable), or a configuration the server cannot run |
 | `429` | Rate limited — see below |
-| `503` | Embedding engine unavailable, or inference queue full (`v0.11.63+`, transient — retry with backoff) |
+| `503` | Embedding engine unavailable or still loading, inference queue full, recall admission queue, or memory budget (`v0.11.63+`; *v0.12: every `503` carries `Retry-After`* — retry with backoff) |
 
 ### Rate limiting & retries
 
 Two independent limiters can return `429`, each with a `Retry-After` header (seconds) plus `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset`:
 
-- **Global** token bucket — `RATE_LIMIT_RPS` (default 100), `RATE_LIMIT_BURST` (default 50). Sends `Retry-After: 1`.
+- **Global** token bucket — `DAKERA_RATE_LIMIT_RPS` (default 100), `DAKERA_RATE_LIMIT_BURST` (default 50) (*v0.12*; `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` are deprecated aliases). Sends `Retry-After: 1`.
 - **Per-namespace, per-operation** (store/recall) — configured through a namespace's memory policy. Sends `Retry-After: 60`.
 
 Recommended client behavior: on `429`, honor `Retry-After` when present, otherwise back off exponentially. On `503` (inference queue full), retry with exponential backoff — it is transient. Cap `Retry-After` at a sane ceiling so a misconfigured header can't park your client for minutes.
@@ -132,9 +134,10 @@ Recommended client behavior: on `429`, honor `Retry-After` when present, otherwi
 
 | Endpoint | Auth | Use |
 |----------|------|-----|
-| `GET /health` | none | basic liveness; returns `{status, build_sha}` — check `build_sha` in deploy pipelines |
-| `GET /health/live` | none | liveness probe; returns `uptime_seconds` |
-| `GET /health/ready` | none | readiness probe; `200` when storage + embedding engine are up, else `503` |
+| `GET /health` | none | detail: `{status, build_sha, ...}` — check `build_sha` in deploy pipelines. *(v0.12)* also `degraded` (components running without something they should have, `status: "degraded"`), `config_warnings`, `embed_migration`; `503` with `"status": "starting"` and the download progress while the models load |
+| `GET /health/live` | none | liveness probe; `200` as soon as the port is bound (*v0.12: it answers while models load*) |
+| `GET /health/ready` | none | readiness probe; `200` when storage + embedding engine are up, else `503` — gate traffic on this, not on `/health` |
+| `GET /v1/capabilities` | read | *(v0.12)* models, index kinds, scoring strategy, multimodal and records switches, query languages, `reembed_pending` |
 | `GET /metrics` | none | Prometheus metrics |
 | `GET /v1/ops/metrics` | admin | Prometheus metrics (scoped) |
 | `GET /v1/ops/stats` | read | cluster/ops summary |
@@ -187,7 +190,9 @@ Semantic + lexical retrieval optimised for precision. Key fields:
 | `top_k` | `int` | `10` | |
 | `memory_type` | `string` | `null` | filter |
 | `tags` | `string[]` | `null` | **any**-match hard filter — keeps memories carrying ≥1 of the listed tags, drops the rest (there is no `all`/match-mode option on recall today) |
-| `min_importance` | `float` | `null` | soft floor — recall nudges importance upward (see memory model) |
+| `min_importance` | `float` | `null` | importance floor (in v0.11 a soft floor, because recall raised importance; v0.12 recall does not) |
+| `rerank_candidates` | `int` | `null` | *(v0.12)* cap on how many candidates the cross-encoder scores (capped by `DAKERA_RERANK_MAX_CANDIDATES`); the answer carries `rerank_report` |
+| `lang` | `string` | server language | *(v0.12)* query language of the routing patterns and temporal expressions (`en de fr es it pt nl`); unsupported = `400` |
 | `routing` | `string` | `auto` | `auto` · `vector` · `bm25` · `hybrid` |
 | `rerank` | `bool` | `true` | cross-encoder rerank; degrades gracefully under load |
 | `since` / `until` | ISO-8601 | `null` | created-at time window |
@@ -227,7 +232,7 @@ Recall and search return three score fields per hit:
 |-------|---------|
 | `score` | Retrieval relevance. **Only `[0,1]`-bounded on pure `vector` routing** (cosine similarity). |
 | `weighted_score` | `score` after importance-weighted re-ranking. |
-| `smart_score` | Compound: `smart = w_vec·relevance + w_imp·importance + w_rec·recency + w_freq·frequency`. |
+| `smart_score` | Compound: `smart = w_vec·relevance + w_imp·importance + w_rec·recency` *(v0.12: the access-count term of v0.11 is gone, recency counts from `created_at`; the weights sum to 0.88 on the default route — values are on a new scale, re-check an absolute cut such as `DAKERA_ABSTAIN_MIN_SMART_SCORE`)*. |
 
 **On `bm25` and `hybrid`/`auto` routing the raw BM25 relevance is _not_ normalized to `[0,1]` and can exceed `1.0`** — magnitudes of ~2–30 are normal on keyword-heavy queries. `smart_score` inherits that term, so it is likewise unbounded on those routes.
 
@@ -356,7 +361,7 @@ Client patterns worth adopting: rank recall hits by `smart_score`; batch your wr
 
 1. **Scores are relative, not absolute** — rank within a response by `smart_score`; BM25/hybrid scores are unnormalized (can exceed 1.0) unless `DAKERA_NORMALIZE_RELEVANCE=1`.
 2. **`forget` `deleted_count` = rows removed**, which can exceed `len(memory_ids)`.
-3. **`deduplicate` defaults to `dry_run: false` and HARD-DELETES** — always send `dry_run: true` to preview.
+3. **`deduplicate` defaults to `dry_run: false` and HARD-DELETES** — always send `dry_run: true` to preview. *(v0.12: it merges only true duplicates, keeps the absorbed text in `_dakera_duplicates`, and answers `400` for an agent with more than 5000 memories to compare — narrow it with `memory_type`.)*
 4. **`/v1/memory/consolidate` is destructive with no dry-run**; **CE-6 `/v1/agents/{id}/consolidate` takes no body** (config is server-side, soft-deprecates); **`summarize` is non-destructive**.
 5. **`deduplicate` fields are `canonical_id` / `duplicates_found` / `duplicates_merged`** — not `representative_id` / `total_duplicates`.
 6. **Ending a session mutates memories** (soft-deprecation + auto-summary) — it isn't read-only.

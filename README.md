@@ -625,7 +625,7 @@ and constraints are in [docs/features-v0.12.md](docs/features-v0.12.md) and `doc
 - **Health Checks**: Automatic removal of unhealthy nodes from the load balancer pool
 - **Gossip Protocol**: Nodes discover and monitor each other via port 7946
 - **Per-Node Storage**: each node keeps its own bucket and data root; writes are replicated to the peers (nodes must not share one bucket)
-- **Per-Node Caching**: Each node maintains independent L1 (memory) and L2 (RocksDB) caches
+- **Per-Node Tiers**: Each node keeps its own L1 (memory) hot budget, its durable RocksDB hot tier (acknowledged writes the background flush still owes S3) and its warm tier
 - **Automatic Failover**: Traefik routes around failed nodes transparently
 
 ## Dockerfiles
