@@ -1,0 +1,39 @@
+# =============================================================================
+# Dakera v0.12.0 - Multilingual search (opt-in component)
+# =============================================================================
+# bge-m3 embeddings (1024-d, CPU ONNX only) + per-language full-text (stemming, stop
+# words, CJK bigrams) + multilingual query routing. Off unless you add this component.
+#
+#   components:
+#     - ../../components/models-cache     # bge-m3 is ~570 MB, not in the image
+#     - ../../components/multilingual
+#
+# FRESH STORE ONLY: the store records its embedding model and a pod with another one
+# exits at startup (both models named). Switching an existing store:
+# docs/features-v0.12.md, "Switching the embedding model". Sets DAKERA_TIERED=0
+# (the tiered embedding engine pins bge-large and ignores DAKERA_MODEL). Not
+# combinable with the late-interaction or vision components. One-way for v0.11
+# (`dakera downgrade` refuses a store on bge-m3).
+#
+# Verify: kubectl -n dakera port-forward svc/dakera 3000:3000, then
+#   curl -s localhost:3000/v1/capabilities -H "X-API-Key: $KEY" | jq .default_model
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: dakera-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: dakera-config
+      data:
+        # The tiered embedding engine always embeds with bge-large.
+        DAKERA_TIERED: "0"
+        DAKERA_MODEL: "bge-m3"
+        # BM25 analyzer of NEWLY created namespace indexes: de, french, pt-BR, ... or multilingual (no stemming).
+        DAKERA_FULLTEXT_LANGUAGE: "multilingual"
+        # en de fr es it pt nl, or auto (detected per query).
+        DAKERA_QUERY_LANG: "auto"

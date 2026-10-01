@@ -1,0 +1,36 @@
+# =============================================================================
+# Dakera v0.12.0 - Late interaction with colbert-small (opt-in component)
+# =============================================================================
+# Recall shortlists by each memory's fixed-dimensional encoding and reranks with MaxSim
+# over per-token vectors (96-d). Opt-in for a reason: on the same LoCoMo harness colbert-small
+# scored below bge-large (better only on multi-hop questions; server RELEASE_NOTES).
+#
+#   components:
+#     - ../../components/models-cache     # colbert-small is ~34 MB, not in the image
+#     - ../../components/late-interaction
+#
+# FRESH STORE ONLY (or a model-change migration, docs/features-v0.12.md). Sets
+# DAKERA_TIERED=0: late interaction is refused (501) under the tiered embedding engine.
+# Not combinable with the multilingual or vision components. One-way for v0.11
+# (`dakera downgrade` refuses a store on colbert-small).
+#
+# Verify: curl -s localhost:3000/v1/capabilities -H "X-API-Key: $KEY" |
+#           jq .scoring.late_interaction
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: dakera-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: dakera-config
+      data:
+        # Late interaction is refused (501) under the tiered embedding engine.
+        DAKERA_TIERED: "0"
+        # The one embedding model with a late-interaction recipe.
+        DAKERA_MODEL: "colbert-small"
+        DAKERA_SCORING_STRATEGY: "late-interaction"

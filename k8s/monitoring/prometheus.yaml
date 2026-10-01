@@ -15,6 +15,10 @@ data:
       scrape_interval: 15s
       evaluation_interval: 15s
 
+    # The v0.12 server's alert rules (dakera.rules.yml below, mounted next to this file).
+    rule_files:
+      - /etc/prometheus/dakera.rules.yml
+
     scrape_configs:
       - job_name: 'prometheus'
         static_configs:
@@ -48,6 +52,276 @@ data:
         static_configs:
           - targets: ['dakera-minio:9000']
         metrics_path: '/minio/v2/metrics/cluster'
+  # Alert rules shipped with the server (monitoring/dakera.rules.yml in this repository,
+  # prometheus/alerts/dakera.rules.yml in the server's). Every expression reads a metric
+  # the v0.12 server emits. Copy again when the file changes.
+  dakera.rules.yml: |
+    # Copied verbatim from the server repository (Dakera-AI/dakera,
+    # prometheus/alerts/dakera.rules.yml, v0.12.0): every expression reads a metric the
+    # v0.12 server emits. Do not edit here; update by copying the file again.
+    #
+    # =============================================================================
+    # Prometheus alert rules for Dakera
+    # =============================================================================
+    # Loaded by the repository's Prometheus (`prometheus.yml` `rule_files`,
+    # mounted by docker-compose.yml's `prometheus` service); copy the file into
+    # any other Prometheus the same way. Every expression reads a metric the
+    # server emits (crates/api/tests/dashboard_metrics.rs checks it, with the
+    # bundled Grafana dashboard).
+    #
+    # Severity: `critical` — writes are refused or data may be lost now; page
+    # someone. `warning` — degraded or drifting; look at it within the day.
+    #
+    # The signals docs/v0.12/UPGRADE.md calls worth alerting on are the
+    # `dakera-signals` group; `dakera-service` adds the usual availability ones.
+    # Thresholds are starting points: tune `for:` and the ratios to your traffic.
+
+    groups:
+      - name: dakera-signals
+        rules:
+          - alert: DakeraConfigWarnings
+            expr: max by (instance) (dakera_config_warnings) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }} started with {{ $value }} configuration warning(s)"
+              description: >-
+                GET /health config_warnings lists what the server started with but
+                warned about: v0.11 boolean readings kept on an upgraded deployment,
+                unknown DAKERA_* names, values it could not honour (running on the
+                default), data kept at a pre-0.12 location. `dakera --check-config`
+                prints them; fix them at the next change window.
+
+          - alert: DakeraComponentDegraded
+            expr: max by (instance, component) (dakera_component_degraded) == 1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }}: component {{ $labels.component }} is degraded"
+              description: >-
+                GET /health lists the component under `degraded` with the reason
+                (the server log has it in full). E.g. redis_cache, disk_cache,
+                backups, knowledge_graph, cluster_outbox, cluster_auth,
+                cluster_sync_held, wal_replay.
+
+          - alert: DakeraWalReplayDroppedEntries
+            expr: max by (instance) (dakera_component_degraded{component="wal_replay"}) == 1
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.instance }}: the write-ahead-log replay dropped entries at startup"
+              description: >-
+                The replay skipped entries the store refused. A dimension error means
+                the log belongs to another embedding model: check DAKERA_MODEL before
+                accepting this store as complete.
+
+          - alert: DakeraMemoryReadFailures
+            expr: sum by (instance) (increase(dakera_memory_read_failures_total[15m])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }}: {{ $value }} memories did not open in 15 min"
+              description: >-
+                A read path skipped memories whose content did not open (wrong or
+                missing encryption key, tampered value). Each is a WARN line naming
+                the memory and namespace. /health stays healthy.
+
+          - alert: DakeraRedisCacheFailures
+            # Each counter exists only once it was first incremented: a sum of
+            # them is empty (never fires) until all three do, so any one > 0.
+            expr: >-
+              sum by (instance) (increase(dakera_cache_redis_failed_writes_total[15m])) > 0
+              or sum by (instance) (increase(dakera_cache_redis_failed_publishes_total[15m])) > 0
+              or sum by (instance) (increase(dakera_cache_redis_failed_evictions_total[15m])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }}: Redis cache writes / publishes / evictions failing"
+              description: >-
+                Failed invalidation publishes and evictions let other replicas serve
+                a stale cached vector until its entry expires. Check Redis
+                (dakera_redis_connected, the redis_cache component).
+
+          - alert: DakeraClusterSyncHeldForV011Peers
+            expr: max by (instance) (dakera_cluster_sync_held_entries) > 0
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }} holds {{ $value }} change(s) for cluster peers still on v0.11"
+              description: >-
+                Changes carrying encrypted text are held until the peer is upgraded
+                (docs/v0.12/UPGRADE.md). Finish the rolling upgrade.
+
+          - alert: DakeraWalWriteFailures
+            expr: sum by (instance) (increase(dakera_wal_write_failures_total[5m])) > 0
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.instance }}: write-ahead-log appends are failing — writes are refused"
+              description: >-
+                Every failed append refused its write. Check the log volume (disk
+                full, read-only filesystem, I/O errors) in the server log.
+
+          - alert: DakeraModelLoadFailures
+            expr: sum by (instance, model) (increase(dakera_model_loads_total{outcome="failed"}[15m])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }}: the {{ $labels.model }} model failed to load"
+              description: >-
+                Requests needing it answer 503 until a load succeeds. The server log
+                has the cause (download blocked, model cache unwritable, out of
+                memory).
+
+          - alert: DakeraBackupFailed
+            expr: sum by (instance) (increase(dakera_backups_total{outcome="failed"}[6h])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }}: a backup failed in the last 6 h"
+              description: GET /admin/backups and the server log say why.
+
+          - alert: DakeraEncryptionValuesUnreadable
+            expr: max by (instance) (dakera_encryption_values_unreadable) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }}: {{ $value }} encrypted value(s) cannot be opened"
+              description: >-
+                The re-seal pass found values no configured key opens. See
+                GET /admin/encryption/status; a retired key may still be needed.
+
+      - name: dakera-service
+        rules:
+          - alert: DakeraDown
+            expr: up{job="dakera"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.instance }} is not answering /metrics"
+
+          - alert: DakeraHigh5xxRate
+            expr: >-
+              sum by (instance) (rate(dakera_http_requests_total{status=~"5.."}[5m]))
+              / clamp_min(sum by (instance) (rate(dakera_http_requests_total[5m])), 1e-9)
+              > 0.05
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }}: {{ $value | humanizePercentage }} of requests answer 5xx"
+              description: >-
+                Includes 503 load shedding (see DakeraShedding) and 500s; the
+                dashboard's "Errors by Type & Operation" panel splits them.
+
+          - alert: DakeraShedding
+            expr: >-
+              sum by (instance) (rate(dakera_http_requests_total{status="503"}[5m]))
+              / clamp_min(sum by (instance) (rate(dakera_http_requests_total[5m])), 1e-9)
+              > 0.02
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }} sheds {{ $value | humanizePercentage }} of requests with 503"
+              description: >-
+                Recall admission, the inference queue or the memory budget / memory
+                backpressure refuse work (503 + Retry-After). dakera_errors_total
+                {type="memory_budget"|"memory_backpressure"} tells memory apart from
+                CPU; add capacity or lower the load.
+
+          - alert: DakeraMemoryBudgetRefusals
+            expr: sum by (instance) (increase(dakera_errors_total{type=~"memory_budget|memory_backpressure"}[15m])) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }} refuses work for lack of memory"
+              description: >-
+                Stores, media jobs or GLiNER passes were answered 503 because the
+                process is near its memory limit (DAKERA_MEM_HIGH_WATER_FRACTION of
+                the cgroup limit). Raise the container's memory or lower the load.
+
+          - alert: DakeraColdTierCircuitOpen
+            expr: max by (instance) (dakera_tiered_cold_circuit_state) == 2
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.instance }}: cold-tier (object storage) reads are refused"
+              description: >-
+                The circuit opened after repeated cold-tier failures; data only in
+                the cold tier cannot be read. Check the bucket and credentials.
+
+          - alert: DakeraColdTierBacklog
+            expr: max by (instance) (dakera_tiered_oldest_pending_cold_seconds) > 900
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }}: writes wait {{ $value | humanizeDuration }} for their cold-tier copy"
+              description: >-
+                Hot-tier writes are acknowledged but their object-storage copy lags
+                (dakera_tiered_pending_cold_writes). Once the backlog is full, writes
+                are refused (dakera_tiered_writes_refused_backlog_total).
+
+          - alert: DakeraRocksdbWritesStopped
+            expr: max by (instance) (dakera_rocksdb_write_stopped) > 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.instance }}: RocksDB stopped writes (compaction cannot keep up)"
+
+          - alert: DakeraClusterOutboxDropping
+            # Registered on first increment: either one > 0 (a sum of the two
+            # stays empty while one has never been incremented).
+            expr: >-
+              sum by (instance) (increase(dakera_cluster_sync_outbox_dropped_total[15m])) > 0
+              or sum by (instance) (increase(dakera_cluster_replication_queue_dropped_total[15m])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }} dropped cluster changes before a peer acknowledged them"
+              description: >-
+                Reconciliation repairs the peers, later. A peer is unreachable or
+                too slow for the write rate (dakera_cluster_sync_failures_total by op).
+
+          - alert: DakeraStorageWriteStalled
+            # A write the storage backend has not answered for 30 s or more. Since
+            # R4-2 a logged write completes even without its caller, so a stuck
+            # backend holds its records (and, with the WAL, its ordering stripe)
+            # until it answers.
+            expr: sum by (instance) (increase(dakera_storage_write_stalls_total[5m])) > 0
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.instance }}: a storage write has not returned for 30 s or more"
+              description: >-
+                The server log names the namespace and what waits behind it. Check
+                the storage backend (disk, S3 endpoint, RocksDB) — writes to those
+                records are queued until it answers.
+
+          - alert: DakeraClusterClockSkew
+            expr: sum by (instance) (increase(dakera_cluster_clock_skew_refused_writes_total[15m])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }} refused writes over clock skew between nodes"
+              description: Check NTP on every node (dakera_cluster_clock_ahead_ms).
+
+          - alert: DakeraCorruptRecords
+            expr: sum by (instance, tier) (increase(dakera_storage_corrupt_records_total[1h])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.instance }}: corrupt records read from the {{ $labels.tier }} tier"
+              description: The server log names them; restore them from a backup.
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -1,0 +1,62 @@
+# =============================================================================
+# Dakera v0.12.0 -> v0.11.108 rollback (one-off Job)
+# =============================================================================
+# `dakera downgrade` makes the data v0.11.108's again. Run it AFTER the server has
+# stopped; it refuses (exit 78, nothing changed) while a server runs on the data.
+# Same environment and volume as the server. Never put it in the server's own
+# `args` (a rolling update would start it beside a live server).
+#   kubectl -n dakera scale deploy/dakera --replicas=0
+#   kubectl apply -f k8s/dakera/downgrade-job.yaml
+#   kubectl -n dakera wait --for=condition=complete job/dakera-downgrade --timeout=30m
+#   kubectl -n dakera logs job/dakera-downgrade 2>/dev/null     # JSON report on stdout
+#   kubectl -n dakera delete job dakera-downgrade
+# Exit 0 = the data is v0.11.108's; 1 = not yet (do NOT start v0.11, fix the cause
+# and rerun); 78 = refused. Then deploy the v0.11.108 manifests from the
+# `release/0.11` branch. Clusters: roll back the whole cluster, not one node.
+# Server docs: docs/v0.12/UPGRADE.md, "Going back to v0.11". Not part of kustomization.yaml.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dakera-downgrade
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera
+    app.kubernetes.io/component: downgrade
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dakera
+        app.kubernetes.io/component: downgrade
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: downgrade
+          image: ghcr.io/dakera-ai/dakera:0.12.0
+          imagePullPolicy: IfNotPresent
+          command: ["dakera"]
+          args: ["downgrade"]
+          envFrom:
+            - configMapRef:
+                name: dakera-config
+            - secretRef:
+                name: dakera-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: models
+              mountPath: /app/models
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: dakera-rocksdb
+        - name: models
+          emptyDir: {}

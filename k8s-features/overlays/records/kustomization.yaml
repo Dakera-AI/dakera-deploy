@@ -1,0 +1,10 @@
+# Dakera v0.12.0 on Kubernetes: multi-vector records (any store).
+#   kubectl apply -k k8s-features/overlays/records
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../k8s
+
+components:
+  - ../../components/records

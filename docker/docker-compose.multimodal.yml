@@ -1,0 +1,46 @@
+# =============================================================================
+# Dakera v0.12.0 - Attachments and speech to text (opt-in overlay)
+# =============================================================================
+# Files stored per agent and referenced from memories (attachment_ref), and a
+# transcription job that turns a WAV recording into a memory.
+#
+# Use:
+#   docker compose -f docker-compose.yml -f docker-compose.multimodal.yml up -d
+#
+# READ FIRST
+#   * Works on an existing store: nothing is re-embedded and the embedding model does not
+#     change. Without this overlay the routes answer 501 FEATURE_DISABLED.
+#   * Speech to text takes WAV only (PCM 8-32 bit or float, any channels and rate).
+#     Anything else: 400 before a job exists. DAKERA_WHISPER_MODEL picks the model:
+#     whisper-base (multilingual, default, recommended), whisper-tiny.en (lightest
+#     English), whisper-base.en (English), whisper-tiny (lightest multilingual),
+#     whisper-small (multilingual, quality). A multilingual model detects the language
+#     and records it as the memory's lang. Upgrading: with no DAKERA_WHISPER_MODEL the
+#     overlay now transcribes with whisper-base; set whisper-tiny.en to keep English-only.
+#     TODO: sizes of the new models once measured (see docs/features-v0.12.md).
+#   * Image / page indexing and visual recall are a separate, dedicated stack:
+#     docker-compose.vision.yml.
+#
+# Resources: whisper is NOT in the image (whisper-tiny.en is ~151 MB; see docs/features-v0.12.md for the others), downloaded and converted in the
+# background right after the server is ready (pre-pull it with
+# `docker compose run --rm dakera models pull whisper`). A job reserves its estimated
+# peak memory first (audio: the samples + 128 MiB per 30-second window); idle models are
+# unloaded after DAKERA_HNSW_CACHE_TTI_SECS (3600 s). Jobs are kept in memory: a
+# restart forgets job ids (the stored memory stays).
+#
+# Verify:   curl -s localhost:3000/v1/capabilities -H "X-API-Key: $DAKERA_ROOT_API_KEY" |
+#             jq .attachments
+#   enabled must be true and transcription.model the model you chose (default "whisper-base").
+# =============================================================================
+
+services:
+  dakera:
+    environment:
+      # Attachment routes + speech to text (Whisper model: DAKERA_WHISPER_MODEL, default whisper-base; WAV).
+      DAKERA_ATTACHMENTS: "1"
+      # Empty = 26214400 (25 MiB). Over it: 413. Also bounded by DAKERA_MAX_BODY_SIZE.
+      DAKERA_ATTACHMENT_MAX_BYTES: "${DAKERA_ATTACHMENT_MAX_BYTES:-}"
+      # whisper-base (multilingual, default), whisper-tiny.en, whisper-base.en (English), whisper-tiny, whisper-small.
+      DAKERA_WHISPER_MODEL: "${DAKERA_WHISPER_MODEL:-whisper-base}"
+      # Empty = 0.85. Media jobs reserve memory against limit x this; no fit = 503 + Retry-After.
+      DAKERA_MEM_HIGH_WATER_FRACTION: "${DAKERA_MEM_HIGH_WATER_FRACTION:-}"

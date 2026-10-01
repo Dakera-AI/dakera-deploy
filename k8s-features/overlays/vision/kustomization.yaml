@@ -1,0 +1,15 @@
+# Dakera v0.12.0 on Kubernetes: image / page indexing and visual recall.
+# A DEDICATED STACK: it deploys everything into its own namespace (dakera-vision), with
+# its own MinIO, data volume and model cache, so it never touches a text store.
+#   kubectl apply -k k8s-features/overlays/vision
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dakera-vision
+
+resources:
+  - ../../../k8s
+
+components:
+  - ../../components/models-cache
+  - ../../components/vision

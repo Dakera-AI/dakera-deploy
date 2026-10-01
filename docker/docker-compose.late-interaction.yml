@@ -1,0 +1,37 @@
+# =============================================================================
+# Dakera v0.12.0 - Late interaction with colbert-small (opt-in overlay)
+# =============================================================================
+# Recall shortlists candidates by each memory's fixed-dimensional encoding and reranks
+# them with MaxSim over the query's and the memories' per-token vectors.
+#
+# Use:
+#   docker compose -f docker-compose.yml -f docker-compose.late-interaction.yml up -d
+#
+# READ FIRST
+#   * FRESH STORE ONLY (new volumes and bucket), or a model-change migration
+#     (docs/features-v0.12.md, "Switching the embedding model"): the store records its model.
+#   * Sets DAKERA_TIERED=0 and cannot be combined with it. Not combinable with
+#     docker-compose.multilingual.yml / .vision.yml (another DAKERA_MODEL / another lane).
+#   * Opt-in for a reason: on the same LoCoMo harness colbert-small scored below bge-large
+#     (better only on multi-hop questions; server RELEASE_NOTES, Known limitations).
+#   * One-way for v0.11: `dakera downgrade` refuses a store on colbert-small.
+#   * A recall right after a bulk ingest is served by the dense first stage while the
+#     late-interaction stage rebuilds in the background.
+#
+# Resources: colbert-small is ~34 MB (downloaded on first start into dakera-models).
+# Each memory also stores a token multivector and a fixed-dimensional encoding.
+#
+# Verify:   curl -s localhost:3000/v1/capabilities -H "X-API-Key: $DAKERA_ROOT_API_KEY" |
+#             jq ".scoring.late_interaction, .late_interaction_stats"
+#   enabled and model_supported must be true; lane "text".
+# =============================================================================
+
+services:
+  dakera:
+    environment:
+      # Late interaction is refused (501) under the tiered embedding engine.
+      DAKERA_TIERED: "0"
+      # The one embedding model with a late-interaction recipe (96-d token vectors, ~34 MB).
+      DAKERA_MODEL: colbert-small
+      # Recall shortlists densely, then reranks with MaxSim over per-token vectors.
+      DAKERA_SCORING_STRATEGY: late-interaction

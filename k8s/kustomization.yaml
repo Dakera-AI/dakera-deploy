@@ -22,13 +22,21 @@ resources:
   # Core server
   - dakera/deployment.yaml
   - dakera/service.yaml
-  - dakera/hpa.yaml
+  # dakera/hpa.yaml is NOT applied by default in v0.12: a server locks its data
+  # root and the volume is ReadWriteOnce, so one Deployment is one server.
+  # Scale-out is cluster mode with one release per node (own bucket, own volume).
+  # - dakera/hpa.yaml
+  # One-off Jobs (apply by hand, never part of a normal apply):
+  #   dakera/check-config-job.yaml   pre-upgrade `dakera --check-config`
+  #   dakera/downgrade-job.yaml      rollback `dakera downgrade`
   # Dashboard UI
   - dashboard/deployment.yaml
   - dashboard/service.yaml
-  # MCP Server
-  - mcp/deployment.yaml
-  - mcp/service.yaml
+  # MCP server: NOT applied. dakera-mcp (0.10.x) speaks MCP over stdio only; as a pod
+  # nothing writes to its stdin, so it exits at once and restarts in a loop
+  # (CrashLoopBackOff, measured). Run it next to the MCP client instead.
+  # - mcp/deployment.yaml
+  # - mcp/service.yaml
   # Ingress (edit ingress.yaml hostnames before applying)
   - ingress.yaml
   # Monitoring (optional — comment out if not needed)

@@ -4,6 +4,122 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.12.0] - Dakera server v0.12.0
+
+v0.11 is preserved on the `release/0.11` branch; `main` targets v0.12.0 from here on.
+
+### Changed
+
+- Default Dakera image `:latest` / `0.11.x` -> `0.12.0` (compose files, devcontainer, `k8s/`).
+- Speech to text: the multimodal overlays pass `DAKERA_WHISPER_MODEL`, default `whisper-base` (multilingual, language
+  auto-detected), not English-only `whisper-tiny.en`: a deployment that enables the overlay and sets no
+  `DAKERA_WHISPER_MODEL` transcribes with `whisper-base`. Set `whisper-tiny.en` to keep the lightest English model.
+- Health checks: `/health` -> `/health/ready` (compose) and `/health/live` + `/health/ready` + a startup
+  probe (Kubernetes); start period 10 minutes: the port answers while models load.
+- One data root: `DAKERA_STORAGE_PATH=/data`. The data volume (`dakera-data`) is mounted there; the old
+  warm-tier volume (`dakera-cache`) stays at `/data/cache`, the old RocksDB volume (`dakera-rocksdb`)
+  moves to `/data/hot`. HA nodes: `dakera-N-data` at `/data`, `dakera-N-rocksdb` at `/data/hot`,
+  `dakera-N-cache` at `/data/cache/warm`.
+- HA: each node has its own bucket (`dakera`, `dakera-2`, `dakera-3`; created by `minio-setup`); nodes
+  sharing one bucket are refused by v0.12 on a fresh install. `DAKERA_NODE_ID` -> `DAKERA_CLUSTER_NODE_ID`.
+- Kubernetes: `Recreate` strategy, `fsGroup: 1000`, data PVC (name kept: `dakera-rocksdb`) mounted at
+  `/data`; the HPA is no longer applied by `kustomization.yaml` (one server per data root).
+- Playground compose: removed `DAKERA_L2_CACHE_PATH`, data root volume, readiness health check.
+
+### Added
+
+- `DAKERA_CLUSTER_SECRET` (required in cluster mode) in `docker-compose.ha.yml`, `.env.ha.example`,
+  `k8s/secret.example.yaml`.
+- Model volume `dakera-models` at `/app/models` (HF_HOME); `models pull` / `prune` recipes.
+- `docker compose run --rm dakera --check-config` (pre-upgrade) and `... downgrade` (rollback) recipes;
+  Kubernetes one-off Jobs `k8s/dakera/check-config-job.yaml` and `k8s/dakera/downgrade-job.yaml`.
+- README: "Versions", "Upgrading from v0.11 to v0.12.0", "Rolling back to v0.11".
+
+### Added: v0.12 features, all opt-in (docs/features-v0.12.md)
+
+- `docs/features-v0.12.md`: "Features in v0.12.0": a capability matrix (feature, switch, variables, resources,
+  constraints, how to verify) and per-feature sections: multilingual (bge-m3, per-language full-text, CJK
+  bigrams, `DAKERA_QUERY_LANG`, per-request `lang`, the full-text reindex route), multimodal (attachments, speech to
+  text with a choice of five Whisper models (default `whisper-base`, multilingual with auto-detected language), image / page indexing and the visual lane, memory admission and `503` + `Retry-After`), multi-vector
+  records, late interaction, RaBitQ, rerank controls, the model store (`dakera models list / pull / prune`,
+  baked images, proxies, a Hugging Face mirror, offline and air-gapped installs), switching the embedding
+  model, which features can be combined, security (gRPC authentication, scoped keys, the encryption keyring and
+  rotation, the cluster secret), reliability, observability, and sizing derived from the release notes' measurements.
+- Compose overlays, each opt-in and validated with `docker compose config`: `docker-compose.{multilingual,
+  multimodal,vision,late-interaction,records,rabitq}.yml` and the HA twins `docker-compose.ha.{multilingual,
+  multimodal,late-interaction,records,rabitq}.yml`.
+- `k8s-features/`: Kustomize components (`models-cache`, `multilingual`, `multimodal`, `vision`, `records`,
+  `late-interaction`, `rabitq`) and overlays; `models-cache` adds a model-cache PVC and a `dakera models pull configured`
+  init container; the `vision` overlay is a dedicated stack in its own namespace.
+- `docker/.env.example`, `.env.ha.example`: sections per feature, model downloads (mirror, proxy, offline), encryption.
+- `examples/production-checklist.md`, `examples/environment-variables.md`: v0.12 features, security, sizing.
+- CI validates the HA file, every overlay (single node and HA) and every Kustomize overlay.
+
+### Changed: observability
+
+- `monitoring/` follows what v0.12 emits. Added `monitoring/dakera.rules.yml` (the server's alert rules, loaded by
+  Prometheus in the compose files and in `k8s/monitoring/prometheus.yaml`) and replaced the Grafana overview with
+  the server's v0.12 dashboard. Removed the alerts and panels that read metrics v0.12 does not emit
+  (`dakera_cache_*`, `dakera_l2_cache_*`, `dakera_decay_*`, `dakera_total_vectors`, `dakera_cluster_nodes_total`,
+  `dakera_memory_count`, ...) and the replica-count alerts (`dakera_replica_count` is a constant 1 in v0.12, so they
+  fired on every node). The HA stack now scrapes `dakera-1..3` as job `dakera` (`monitoring/prometheus.ha.yml`; it
+  scraped the non-existent `dakera:3000`) and alerts on the node count.
+
+### Fixed
+
+Found by running every stack against the v0.12.0 server (see docs/features-v0.12.md, "Measured in the
+deployment validation"):
+
+- **MinIO images**: `minio/minio` and `minio/mc` are no longer published on Docker Hub (both repositories
+  are gone), so a fresh `docker compose pull` / `up` and the `k8s/minio` StatefulSet failed to pull. Every
+  file now uses `cgr.dev/chainguard/minio:latest` (it ships `mc`, which `minio-setup` and the health check
+  use), run as root like the old image so an existing `minio-data` volume stays writable (checked: a volume
+  written by the old image is read and written by the new one).
+- **`k8s/minio`**: the bucket was created by an init container that waited for the MinIO of its own pod,
+  which starts only after init containers finish: the pod never started. A `postStart` hook creates it now.
+- **HA replication**: with the three nodes sharing one Redis (`DAKERA_REDIS_URL`), v0.12.0 reported
+  replicated writes as applied but stored nothing on some peers (`written=0`; 3 of 6 node pairs never
+  converged in 300 s). The HA file no longer wires Redis (the `redis` service is removed): all 6 pairs then
+  converge within 0.1 s. Leader election does not use Redis.
+- **HA authentication** defaulted to off (`DAKERA_AUTH_ENABLED:-false`) on a load balancer published on every
+  interface; it now defaults to `true` like `docker-compose.yml`.
+- **Monitoring**: the MinIO scrape target was down (403: MinIO metrics need `MINIO_PROMETHEUS_AUTH_TYPE=public`,
+  now set), so `MinIODown` fired permanently; the memory and CPU alerts read `process_*` and
+  `container_spec_memory_limit_bytes`, which nothing scraped here exports (memory now reads
+  `dakera_process_resident_bytes`; there is no CPU metric, so no CPU alert); `MinIOHighLatency` read a metric
+  MinIO does not export (now `minio_s3_requests_ttfb_seconds_distribution`).
+- **`k8s/mcp`** is no longer applied: `dakera-mcp` speaks MCP over stdio only and crash-looped as a pod
+  (it also read `DAKERA_API_URL`, not the `DAKERA_URL` the manifest set: fixed in the manifest).
+- `docker-compose.local.yml`: the MinIO health check used `curl`, which the MinIO image does not ship.
+- README: the server does not refuse to start with authentication on and no key (it starts and rejects
+  every authenticated request); `downgrade` also exits 78 when it finds no data; its JSON report is alone
+  on stdout only without a TTY (`run -T`).
+
+- Compose files passed to the container only the variables they list, so most of what `docker/.env.example` offered
+  (`DAKERA_ENCRYPTION_KEY`, the search and ranking levers, the tiering settings, `DAKERA_MAX_BODY_SIZE`, ...) had no
+  effect: encryption stayed off with a key in `.env`. They are now passed (empty = the server default).
+- `minio-setup` did not receive `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`, so bucket creation failed once the
+  credentials were changed as `.env.example` asks (single node and HA).
+- `.env.example`: `DAKERA_SEARCH_MODE` accepts `hybrid`, `binary`, `float`, `scalar`, `rabitq` (not `vector` / `text`);
+  `DAKERA_HYBRID_FETCH_MULT` is an integer (default 5x); the defaults of `DAKERA_BM25_DELTA` (1.0), `DAKERA_NAME_BOOST`
+  (0.3), `DAKERA_ADAPTIVE_WVEC_THRESHOLD` (0.15), `DAKERA_REQUEST_TIMEOUT` (300) and `DAKERA_MAX_BODY_SIZE` (10 MiB);
+  `DAKERA_ONNX_POOL_SIZE` is gone (it applies to the GPU path only).
+- `DAKERA_L1_CACHE_SIZE`: the hot-tier budget of tiered storage (default 100000 vectors); a bare byte count at or above
+  10 million is read as bytes with a warning, so the compose files use `512MB` and the ConfigMap `1GB`. The devcontainer
+  and playground files no longer set it (no tiered storage there, so it only produced a warning).
+- Compose `stop_grace_period` is 30 s (the default 10 s killed the server during its graceful shutdown).
+- README: the telemetry paragraph (hostname and IP are sent), the defaults of `DAKERA_AUTO_TIER`, `DAKERA_MAX_BODY_SIZE`,
+  `DAKERA_REQUEST_TIMEOUT`, `DAKERA_ENCRYPTION_KEY`, and the rollback section (a store on bge-m3, colbert-small or the
+  visual lane cannot be downgraded). `examples/production-checklist.md` said the default limits were 4G / 2 CPUs
+  (compose: 12G / 4).
+- Grafana: the memory-API dashboard referred to a datasource uid that was never provisioned; panels over
+  metrics v0.12 does not emit were removed.
+
+### Removed
+
+- `DAKERA_L2_CACHE_PATH` (v0.12 reads no such name), `DAKERA_CACHE_REDIS_URL` (use `DAKERA_REDIS_URL`).
+  `DAKERA_S3_ACCESS_KEY` / `DAKERA_S3_SECRET_KEY` / `DAKERA_LOG_LEVEL` are not read either (docs corrected).
+
 ## [0.9.0] - 2026-06-25
 
 ### Changed

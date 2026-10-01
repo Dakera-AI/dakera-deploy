@@ -1,0 +1,57 @@
+# =============================================================================
+# Dakera v0.12.0 - Attachments and speech to text (opt-in component)
+# =============================================================================
+# Files stored per agent and referenced from memories (attachment_ref) and a
+# transcription job (WAV only; Whisper model chosen with DAKERA_WHISPER_MODEL: whisper-base (multilingual, default),
+# whisper-tiny.en (lightest English), whisper-base.en (English), whisper-tiny, whisper-small; multilingual
+# models detect the language and record it as the memory's lang. set DAKERA_WHISPER_MODEL in the ConfigMap data below). Works on an existing store;
+# nothing is re-embedded. Without it the routes answer 501 FEATURE_DISABLED.
+#
+#   components:
+#     - ../../components/models-cache     # whisper is not in the image (whisper-tiny.en is ~151 MB; see docs/features-v0.12.md for the others)
+#     - ../../components/multimodal
+#
+# Memory: every media job reserves its estimated peak working memory against the
+# container limit x DAKERA_MEM_HIGH_WATER_FRACTION (0.85), waits up to 10 s, then
+# answers 503 + Retry-After. The measured configuration is a 4-core / 8 GiB container
+# with every model loaded (530 MiB anonymous memory; an image page peaks +1.9 GiB at
+# 17 tiles), so this component raises the base 4Gi limit to 8Gi and the CPU limit to 4.
+#
+# Verify: curl -s localhost:3000/v1/capabilities -H "X-API-Key: $KEY" | jq .attachments
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: dakera-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: dakera-config
+      data:
+        # Attachment routes + transcription. Largest upload: DAKERA_ATTACHMENT_MAX_BYTES (default 25 MiB).
+        DAKERA_ATTACHMENTS: "1"
+        # Speech-to-text model (default whisper-base); one of whisper-base, whisper-tiny.en, whisper-base.en,
+        # whisper-tiny, whisper-small (set whisper-tiny.en to keep the lightest English model):
+        # DAKERA_WHISPER_MODEL: "whisper-tiny.en"
+  - target:
+      kind: Deployment
+      name: dakera
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: dakera
+      spec:
+        template:
+          spec:
+            containers:
+              - name: dakera
+                resources:
+                  requests:
+                    memory: 1Gi
+                  limits:
+                    cpu: "4"
+                    memory: 8Gi

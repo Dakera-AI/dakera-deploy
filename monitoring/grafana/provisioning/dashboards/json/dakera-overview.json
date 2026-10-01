@@ -1,28 +1,22 @@
 {
   "annotations": { "list": [] },
-  "description": "Dakera AI agent memory platform — HTTP traffic, cache, storage, cluster health, and memory decay (v0.8.0+)",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
   "links": [],
-  "liveNow": false,
-  "refresh": "30s",
-  "schemaVersion": 39,
-  "tags": ["dakera", "vector-db"],
-  "time": { "from": "now-1h", "to": "now" },
-  "timepicker": {},
-  "timezone": "browser",
-  "title": "Dakera Overview",
-  "uid": "dakera-overview",
-  "version": 2,
+  "liveNow": true,
   "panels": [
-
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
-      "id": 100, "title": "Overview", "type": "row", "panels": [] },
-
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "panels": [],
+      "title": "Overview",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -30,9 +24,9 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 500 },
-              { "color": "red", "value": 2000 }
+              { "color": "#00ff41", "value": null },
+              { "color": "#ffb000", "value": 500 },
+              { "color": "#ff0040", "value": 2000 }
             ]
           },
           "unit": "reqps"
@@ -42,22 +36,25 @@
       "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
       "id": 1,
       "options": {
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "center",
+        "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "auto"
       },
       "targets": [
-        { "expr": "sum(rate(dakera_http_requests_total[1m]))", "legendFormat": "Requests/sec", "refId": "A" }
+        {
+          "expr": "sum(rate(dakera_http_requests_total[1m]))",
+          "legendFormat": "Requests/sec",
+          "refId": "A"
+        }
       ],
       "title": "Request Rate",
       "type": "stat"
     },
-
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -65,9 +62,9 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 100 },
-              { "color": "red", "value": 500 }
+              { "color": "#00ff41", "value": null },
+              { "color": "#ffb000", "value": 100 },
+              { "color": "#ff0040", "value": 500 }
             ]
           },
           "unit": "ms"
@@ -77,9 +74,9 @@
       "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
       "id": 2,
       "options": {
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "center",
+        "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "auto"
@@ -91,12 +88,11 @@
           "refId": "A"
         }
       ],
-      "title": "Median Latency (p50)",
+      "title": "Median Latency",
       "type": "stat"
     },
-
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -104,22 +100,21 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 0.01 },
-              { "color": "red", "value": 0.05 }
+              { "color": "#00ff41", "value": null },
+              { "color": "#ffb000", "value": 1 },
+              { "color": "#ff0040", "value": 5 }
             ]
           },
-          "unit": "percentunit",
-          "decimals": 2
+          "unit": "percentunit"
         },
         "overrides": []
       },
       "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
       "id": 3,
       "options": {
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "center",
+        "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "auto"
@@ -134,9 +129,8 @@
       "title": "Error Rate (5xx)",
       "type": "stat"
     },
-
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -144,9 +138,9 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "blue", "value": null },
-              { "color": "yellow", "value": 50 },
-              { "color": "red", "value": 200 }
+              { "color": "#00ffff", "value": null },
+              { "color": "#ffb000", "value": 50 },
+              { "color": "#ff0040", "value": 100 }
             ]
           },
           "unit": "short"
@@ -156,44 +150,60 @@
       "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
       "id": 4,
       "options": {
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "center",
+        "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "auto"
       },
       "targets": [
-        { "expr": "sum(dakera_active_requests)", "legendFormat": "Active Requests", "refId": "A" }
+        {
+          "expr": "sum(dakera_active_requests)",
+          "legendFormat": "Active",
+          "refId": "A"
+        }
       ],
       "title": "Active Requests",
       "type": "stat"
     },
-
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 },
-      "id": 101, "title": "HTTP Traffic", "type": "row", "panels": [] },
-
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 },
+      "id": 101,
+      "panels": [],
+      "title": "HTTP Traffic",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
           "custom": {
+            "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
+            "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
             "lineInterpolation": "smooth",
             "lineWidth": 2,
             "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
             "showPoints": "never",
             "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" }
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
           },
           "mappings": [],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
           "unit": "reqps"
         },
         "overrides": []
@@ -214,59 +224,640 @@
       "title": "Request Rate by Endpoint",
       "type": "timeseries"
     },
-
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
           "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
             "lineInterpolation": "smooth",
             "lineWidth": 2,
             "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
             "showPoints": "never",
-            "spanNulls": false
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
           },
           "mappings": [],
-          "unit": "ms"
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "s"
         },
         "overrides": []
       },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
       "id": 6,
       "options": {
-        "legend": { "calcs": ["mean", "p95"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(dakera_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "expr": "histogram_quantile(0.50, sum(rate(dakera_http_request_duration_seconds_bucket[5m])) by (le))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(dakera_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "expr": "histogram_quantile(0.95, sum(rate(dakera_http_request_duration_seconds_bucket[5m])) by (le))",
           "legendFormat": "p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(dakera_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "expr": "histogram_quantile(0.99, sum(rate(dakera_http_request_duration_seconds_bucket[5m])) by (le))",
           "legendFormat": "p99",
           "refId": "C"
         }
       ],
-      "title": "Latency Percentiles",
+      "title": "Latency Percentiles (p50 / p95 / p99)",
       "type": "timeseries"
     },
-
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
-      "id": 102, "title": "Cache & Storage", "type": "row", "panels": [] },
-
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
+      "id": 102,
+      "panels": [],
+      "title": "HTTP Status & Errors",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "normal" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "reqps"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": "2.." },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#00ff41", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byRegexp", "options": "4.." },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#ffb000", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byRegexp", "options": "5.." },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#ff0040", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(dakera_http_requests_total[1m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Requests by Status Code",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (type, operation) (rate(dakera_errors_total[5m]))",
+          "legendFormat": "{{type}} / {{operation}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Errors by Type & Operation",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "id": 103,
+      "panels": [],
+      "title": "Memory Operations",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#00ffff", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 25 },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(dakera_queries_total) or vector(0)",
+          "legendFormat": "Total Queries",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Queries",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#00ff41", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 25 },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(dakera_vectors_upserted_total) or vector(0)",
+          "legendFormat": "Upserted",
+          "refId": "A"
+        }
+      ],
+      "title": "Vectors Upserted",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#ffb000", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 25 },
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(dakera_vectors_deleted_total) or vector(0)",
+          "legendFormat": "Deleted",
+          "refId": "A"
+        }
+      ],
+      "title": "Vectors Deleted",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#00ffff", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 25 },
+      "id": 12,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(dakera_namespace_vectors) or vector(0)",
+          "legendFormat": "Stored Vectors",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Stored Vectors",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
+      "id": 13,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (namespace) (rate(dakera_queries_total[5m]))",
+          "legendFormat": "{{namespace}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Query Rate by Namespace",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
+      "id": 14,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(dakera_query_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(dakera_query_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(dakera_query_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "title": "Query Latency Percentiles",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 },
+      "id": 104,
+      "panels": [],
+      "title": "Search Types",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "ops"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Semantic" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#00ff41", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Full-Text" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#00ffff", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Hybrid" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#ffb000", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 38 },
+      "id": 15,
+      "options": {
+        "legend": { "calcs": ["mean", "sum"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(dakera_queries_total[5m]))",
+          "legendFormat": "Semantic",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(dakera_fulltext_searches_total[5m]))",
+          "legendFormat": "Full-Text",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(dakera_hybrid_searches_total[5m]))",
+          "legendFormat": "Hybrid",
+          "refId": "C"
+        }
+      ],
+      "title": "Search Rate by Type",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Semantic p95" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#00ff41", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Full-Text p95" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#00ffff", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Hybrid p95" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#ffb000", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 38 },
+      "id": 16,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(dakera_query_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "Semantic p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(dakera_fulltext_search_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "Full-Text p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(dakera_hybrid_search_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "Hybrid p95",
+          "refId": "C"
+        }
+      ],
+      "title": "Search Latency p95 by Type",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 55 },
+      "id": 109,
+      "panels": [],
+      "title": "Redis Cache Layer",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            {
+              "options": {
+                "0": { "color": "#ff0040", "index": 0, "text": "DISCONNECTED" },
+                "1": { "color": "#00ffff", "index": 1, "text": "CONNECTED" }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#ff0040", "value": null }, { "color": "#00ffff", "value": 1 }]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 56 },
+      "id": 30,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "dakera_redis_connected",
+          "legendFormat": "Redis",
+          "refId": "A"
+        }
+      ],
+      "title": "Redis Connection",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -274,427 +865,1856 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.5 },
-              { "color": "green", "value": 0.8 }
+              { "color": "#00ffff", "value": null },
+              { "color": "#ffb000", "value": 268435456 },
+              { "color": "#ff0040", "value": 536870912 }
             ]
-          },
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 16 },
-      "id": 10,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "reduceOptions": { "calcs": ["lastNotNull"] }
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(dakera_cache_hits_total[5m])) / (sum(rate(dakera_cache_hits_total[5m])) + sum(rate(dakera_cache_misses_total[5m])))",
-          "legendFormat": "L1 Hit Rate",
-          "refId": "A"
-        }
-      ],
-      "title": "L1 Cache Hit Rate",
-      "type": "stat"
-    },
-
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 15,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "showPoints": "never"
-          },
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 5, "w": 10, "x": 6, "y": 16 },
-      "id": 11,
-      "options": {
-        "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(dakera_cache_hits_total[5m])) / (sum(rate(dakera_cache_hits_total[5m])) + sum(rate(dakera_cache_misses_total[5m])))",
-          "legendFormat": "L1 Hit Rate",
-          "refId": "A"
-        },
-        {
-          "expr": "sum(rate(dakera_l2_cache_hits_total[5m])) / (sum(rate(dakera_l2_cache_hits_total[5m])) + sum(rate(dakera_l2_cache_misses_total[5m])))",
-          "legendFormat": "L2 Hit Rate",
-          "refId": "B"
-        }
-      ],
-      "title": "Cache Hit Rate (L1 / L2)",
-      "type": "timeseries"
-    },
-
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "showPoints": "never"
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 16 },
-      "id": 12,
-      "options": {
-        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
-      "targets": [
-        { "expr": "dakera_total_vectors", "legendFormat": "Total Vectors", "refId": "A" },
-        { "expr": "dakera_total_namespaces", "legendFormat": "Namespaces", "refId": "B" }
-      ],
-      "title": "Vectors & Namespaces",
-      "type": "timeseries"
-    },
-
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
-      "id": 103, "title": "Cluster Health", "type": "row", "panels": [] },
-
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "green", "value": 3 }
-            ]
-          },
-          "unit": "short",
-          "mappings": [
-            { "options": { "0": { "text": "OFFLINE", "color": "red" } }, "type": "value" }
-          ]
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 22 },
-      "id": 20,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "reduceOptions": { "calcs": ["lastNotNull"] }
-      },
-      "targets": [
-        { "expr": "dakera_cluster_nodes_total", "legendFormat": "Nodes", "refId": "A" }
-      ],
-      "title": "Cluster Nodes",
-      "type": "stat"
-    },
-
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "showPoints": "never"
           },
           "unit": "bytes"
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 4, "y": 22 },
-      "id": 21,
-      "options": {
-        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
-      "targets": [
-        {
-          "expr": "sum by (instance) (process_resident_memory_bytes{job=\"dakera\"})",
-          "legendFormat": "{{instance}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Memory Usage by Node",
-      "type": "timeseries"
-    },
-
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "showPoints": "never"
-          },
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 22 },
-      "id": 22,
-      "options": {
-        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      },
-      "targets": [
-        {
-          "expr": "sum by (instance) (rate(process_cpu_seconds_total{job=\"dakera\"}[1m]))",
-          "legendFormat": "{{instance}}",
-          "refId": "A"
-        }
-      ],
-      "title": "CPU Usage by Node",
-      "type": "timeseries"
-    },
-
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 },
-      "id": 104, "title": "Memory Decay (v0.8.0+)", "type": "row", "panels": [] },
-
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "blue", "value": null }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 31 },
-      "id": 30,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "reduceOptions": { "calcs": ["lastNotNull"] }
-      },
-      "targets": [
-        { "expr": "dakera_decay_cycles_total", "legendFormat": "Decay Cycles", "refId": "A" }
-      ],
-      "title": "Decay Cycles Run",
-      "type": "stat"
-    },
-
-    {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 100 },
-              { "color": "orange", "value": 1000 }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 31 },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 56 },
       "id": 31,
       "options": {
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "center",
-        "reduceOptions": { "calcs": ["lastNotNull"] }
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
       },
       "targets": [
-        { "expr": "increase(dakera_decay_memories_expired_total[1h])", "legendFormat": "Expired/hr", "refId": "A" }
+        {
+          "expr": "dakera_redis_memory_bytes",
+          "legendFormat": "Memory",
+          "refId": "A"
+        }
       ],
-      "title": "Memories Expired (last hour)",
+      "title": "Redis Memory Usage",
       "type": "stat"
     },
-
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
+          "mappings": [],
+          "max": 1,
+          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 100 },
-              { "color": "orange", "value": 1000 }
+              { "color": "#ff0040", "value": null },
+              { "color": "#ffb000", "value": 0.5 },
+              { "color": "#00ffff", "value": 0.8 }
             ]
           },
-          "unit": "short"
+          "unit": "percentunit"
         },
         "overrides": []
       },
-      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 31 },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 56 },
       "id": 32,
       "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "reduceOptions": { "calcs": ["lastNotNull"] }
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
       },
       "targets": [
-        { "expr": "increase(dakera_decay_memories_decayed_total[1h])", "legendFormat": "Decayed/hr", "refId": "A" }
+        {
+          "expr": "(sum(rate(buffer_redis_hits_total[5m])) or vector(0)) / ((sum(rate(buffer_redis_hits_total[5m])) or vector(0)) + (sum(rate(buffer_redis_misses_total[5m])) or vector(0)) > 0) or vector(0)",
+          "legendFormat": "Redis Hit Rate",
+          "refId": "A"
+        }
       ],
-      "title": "Memories Decayed (last hour)",
-      "type": "stat"
+      "title": "Redis L1.5 Hit Rate",
+      "type": "gauge"
     },
-
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
+          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1000 },
-              { "color": "red", "value": 10000 }
+              { "color": "#00ffff", "value": null },
+              { "color": "#ffb000", "value": 100000 },
+              { "color": "#ff0040", "value": 500000 }
             ]
           },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 31 },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 56 },
       "id": 33,
       "options": {
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "center",
-        "reduceOptions": { "calcs": ["lastNotNull"] }
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
       },
       "targets": [
-        { "expr": "dakera_decay_memories_with_ttl_total", "legendFormat": "With TTL", "refId": "A" }
+        {
+          "expr": "dakera_redis_keys",
+          "legendFormat": "Keys",
+          "refId": "A"
+        }
       ],
-      "title": "Memories with TTL (expires_at set)",
+      "title": "Redis Keys",
       "type": "stat"
     },
-
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
           "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#00ffff", "value": null }]
+          },
+          "unit": "ops"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Redis Hits" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#00ffff", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Redis Misses" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#ff0040", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 61 },
+      "id": 34,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(buffer_redis_hits_total[5m]))",
+          "legendFormat": "Redis Hits",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(buffer_redis_misses_total[5m]))",
+          "legendFormat": "Redis Misses",
+          "refId": "B"
+        }
+      ],
+      "title": "Redis L1.5 Hit/Miss Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
             "drawStyle": "bars",
             "fillOpacity": 60,
-            "lineWidth": 0,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
             "showPoints": "never",
-            "stacking": { "group": "A", "mode": "none" }
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "normal" },
+            "thresholdsStyle": { "mode": "off" }
           },
-          "unit": "short"
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#00ff41", "value": null }]
+          },
+          "unit": "ops"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Moka L1 Hits" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#00ff41", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Redis L1.5 Hits" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#00ffff", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Backend Misses" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#ffb000", "mode": "fixed" } }]
+          }
+        ]
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
-      "id": 34,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 61 },
+      "id": 35,
       "options": {
         "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
       "targets": [
         {
-          "expr": "increase(dakera_decay_memories_expired_total[5m])",
-          "legendFormat": "Expired",
+          "expr": "sum(rate(dakera_cache_redis_failed_writes_total[5m]))",
+          "legendFormat": "failed writes",
           "refId": "A"
         },
         {
-          "expr": "increase(dakera_decay_memories_decayed_total[5m])",
-          "legendFormat": "Importance-decayed",
+          "expr": "sum(rate(dakera_cache_redis_failed_publishes_total[5m]))",
+          "legendFormat": "failed invalidation publishes",
           "refId": "B"
+        },
+        {
+          "expr": "sum(rate(dakera_cache_redis_failed_evictions_total[5m]))",
+          "legendFormat": "failed evictions",
+          "refId": "C"
         }
       ],
-      "title": "Memory Expiry / Decay Rate",
-      "type": "timeseries"
+      "title": "Redis L1.5 Failures",
+      "type": "timeseries",
+      "description": "Redis cache writes, invalidation publishes and evictions that failed (each also a WARN line). Non-zero: replicas may serve stale cached vectors until the entry expires."
     },
-
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "collapsed": false,
+      "panels": [],
+      "type": "row",
+      "id": 200,
+      "title": "Health & Configuration",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 69 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#00ff41", "value": null }, { "color": "#ff0040", "value": 1 }]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "type": "stat",
+      "id": 201,
+      "title": "Config Warnings",
+      "targets": [
+        {
+          "expr": "max(dakera_config_warnings) or vector(0)",
+          "legendFormat": "warnings",
+          "refId": "A"
+        }
+      ],
+      "description": "Entries in /health config_warnings: a configuration the server started with but warned about (upgrade readings, unknown names, values it could not honour). Alert on > 0.",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 70 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#00ff41", "value": null }, { "color": "#ff0040", "value": 1 }]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "type": "stat",
+      "id": 202,
+      "title": "Degraded Components",
+      "targets": [
+        {
+          "expr": "count(dakera_component_degraded == 1) or vector(0)",
+          "legendFormat": "degraded",
+          "refId": "A"
+        }
+      ],
+      "description": "Components /health lists under degraded (dakera_component_degraded == 1).",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 70 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#00ff41", "value": null }, { "color": "#ff0040", "value": 1 }]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "type": "stat",
+      "id": 203,
+      "title": "WAL Write Failures (1h)",
+      "targets": [
+        {
+          "expr": "sum(increase(dakera_wal_write_failures_total[1h])) or vector(0)",
+          "legendFormat": "failures",
+          "refId": "A"
+        }
+      ],
+      "description": "Write-ahead-log appends that failed; each one refused a write.",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 70 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#00ff41", "value": null }, { "color": "#ff0040", "value": 1 }]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "type": "stat",
+      "id": 204,
+      "title": "Memory Read Failures (1h)",
+      "targets": [
+        {
+          "expr": "sum(increase(dakera_memory_read_failures_total[1h])) or vector(0)",
+          "legendFormat": "skipped",
+          "refId": "A"
+        }
+      ],
+      "description": "Memories a read path skipped because their content did not open (wrong or missing key, tampered value).",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 70 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
           "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 10,
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
             "lineInterpolation": "smooth",
             "lineWidth": 2,
-            "showPoints": "never"
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 205,
+      "title": "Degraded Components",
+      "targets": [
+        {
+          "expr": "max by (component) (dakera_component_degraded)",
+          "legendFormat": "{{component}}",
+          "refId": "A"
+        }
+      ],
+      "description": "1 while a component is degraded (redis_cache, disk_cache, backups, ml_classifier, cluster_gossip, knowledge_graph, cluster_outbox, cluster_auth, wal_replay, cluster_sync_held, …).",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 75 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 206,
+      "title": "Backups by Outcome",
+      "targets": [
+        {
+          "expr": "sum by (outcome) (increase(dakera_backups_total[1h]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Backups finished per hour, completed / failed.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 75 }
+    },
+    {
+      "collapsed": false,
+      "panels": [],
+      "type": "row",
+      "id": 207,
+      "title": "Models, Memory & Admission",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 83 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 208,
+      "title": "Model Loads by Outcome",
+      "targets": [
+        {
+          "expr": "sum by (model, outcome) (increase(dakera_model_loads_total[15m]))",
+          "legendFormat": "{{model}} {{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Lazy loads of the embedding, reranker, NER, whisper and vision models (idle models are unloaded and loaded again on their next use).",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 84 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
           },
           "unit": "s"
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
-      "id": 35,
       "options": {
-        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "multi", "sort": "desc" }
       },
+      "type": "timeseries",
+      "id": 209,
+      "title": "Model Load Duration p95",
       "targets": [
         {
-          "expr": "dakera_decay_cycle_duration_seconds",
-          "legendFormat": "Decay Cycle Duration",
+          "expr": "histogram_quantile(0.95, sum by (le, model) (rate(dakera_model_load_duration_seconds_bucket[1h])))",
+          "legendFormat": "{{model}}",
           "refId": "A"
         }
       ],
-      "title": "Decay Cycle Duration",
-      "type": "timeseries"
+      "description": "A first download takes minutes; a reload from the local cache seconds.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 84 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 210,
+      "title": "Process Memory",
+      "targets": [
+        {
+          "expr": "max(dakera_process_resident_bytes)",
+          "legendFormat": "resident",
+          "refId": "A"
+        },
+        {
+          "expr": "max(dakera_process_peak_bytes)",
+          "legendFormat": "peak",
+          "refId": "B"
+        },
+        {
+          "expr": "max(dakera_memory_budget_reserved_bytes)",
+          "legendFormat": "reserved by media jobs / NER",
+          "refId": "C"
+        }
+      ],
+      "description": "Resident memory and the working memory the I3 budget has reserved for media jobs and GLiNER passes.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 92 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 211,
+      "title": "Memory Shedding & Reclaim",
+      "targets": [
+        {
+          "expr": "sum by (type) (rate(dakera_errors_total{type=~\"memory_budget|memory_backpressure\"}[5m]))",
+          "legendFormat": "{{type}} refusals (503)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(dakera_memory_reclaims_total[5m]))",
+          "legendFormat": "pressure reclaims",
+          "refId": "B"
+        }
+      ],
+      "description": "Requests refused for memory (503 + Retry-After) and memory-pressure reclaim cycles (idle models unloaded, caches dropped).",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 92 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 212,
+      "title": "Overload Refusals by Status",
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(dakera_http_requests_total{status=~\"408|413|429|503\"}[5m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Requests answered 408 (request timeout), 413 (body limit), 429 (rate limit) or 503 (admission, inference queue, memory budget, maintenance).",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 100 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 213,
+      "title": "Recall Pipeline Stage p95",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, stage) (rate(dakera_recall_pipeline_stage_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{stage}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 100 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 214,
+      "title": "Inference Duration p95",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(dakera_inference_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{operation}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 108 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 215,
+      "title": "Ingest Stage p95",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, stage) (rate(dakera_ingest_stage_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{stage}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 108 }
+    },
+    {
+      "collapsed": false,
+      "panels": [],
+      "type": "row",
+      "id": 216,
+      "title": "Derived Caches & Late Interaction",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 116 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 217,
+      "title": "Representation / FDE Cache Bytes",
+      "targets": [
+        {
+          "expr": "max(dakera_representation_cache_bytes)",
+          "legendFormat": "representation cache",
+          "refId": "A"
+        },
+        {
+          "expr": "max(dakera_representation_cache_max_bytes)",
+          "legendFormat": "representation budget",
+          "refId": "B"
+        },
+        {
+          "expr": "max(dakera_fde_cache_bytes)",
+          "legendFormat": "FDE cache",
+          "refId": "C"
+        },
+        {
+          "expr": "max(dakera_fde_cache_max_bytes)",
+          "legendFormat": "FDE budget",
+          "refId": "D"
+        }
+      ],
+      "description": "Byte-bounded derived caches (budgets derived from the memory limit).",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 117 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 218,
+      "title": "Representation Cache Hit Ratio",
+      "targets": [
+        {
+          "expr": "sum(delta(dakera_representation_cache_hits_total[5m])) / clamp_min(sum(delta(dakera_representation_cache_hits_total[5m])) + sum(delta(dakera_representation_cache_misses_total[5m])), 1)",
+          "legendFormat": "hit ratio",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 117 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 219,
+      "title": "Late Interaction",
+      "targets": [
+        {
+          "expr": "sum by (counter) (delta(dakera_late_interaction_total[5m]))",
+          "legendFormat": "{{counter}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Late-interaction (MaxSim) searches and their first stages per 5 min: FDE vs dense first stage, index builds, dense fallbacks.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 125 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 220,
+      "title": "Late Interaction Cold Fallbacks",
+      "targets": [
+        {
+          "expr": "sum(increase(dakera_late_interaction_cold_fallbacks_total[15m]))",
+          "legendFormat": "partial sidecar scans",
+          "refId": "A"
+        }
+      ],
+      "description": "FDE first stages built from a partial sidecar scan because the cold tier was unreachable.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 125 }
+    },
+    {
+      "collapsed": false,
+      "panels": [],
+      "type": "row",
+      "id": 221,
+      "title": "Tiered Storage",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 133 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 222,
+      "title": "Vectors per Tier",
+      "targets": [
+        {
+          "expr": "max(dakera_tiered_hot_vectors)",
+          "legendFormat": "hot",
+          "refId": "A"
+        },
+        {
+          "expr": "max(dakera_tiered_warm_vectors)",
+          "legendFormat": "warm",
+          "refId": "B"
+        },
+        {
+          "expr": "max(dakera_tiered_cold_vectors)",
+          "legendFormat": "cold",
+          "refId": "C"
+        },
+        {
+          "expr": "max(dakera_tiered_cold_only_vectors)",
+          "legendFormat": "cold only",
+          "refId": "D"
+        }
+      ],
+      "description": "DAKERA_TIERED_STORAGE only.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 134 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 223,
+      "title": "Cold Tier Backlog",
+      "targets": [
+        {
+          "expr": "max(dakera_tiered_pending_cold_writes)",
+          "legendFormat": "pending cold writes",
+          "refId": "A"
+        },
+        {
+          "expr": "max(dakera_tiered_oldest_pending_cold_seconds)",
+          "legendFormat": "oldest pending (s)",
+          "refId": "B"
+        }
+      ],
+      "description": "Writes acknowledged by the hot tier whose cold (S3) copy has not landed yet.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 134 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 224,
+      "title": "Cold Tier Failures",
+      "targets": [
+        {
+          "expr": "sum(rate(dakera_tiered_cold_flush_failures_total[5m]))",
+          "legendFormat": "flush",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(dakera_tiered_cold_read_failures_total[5m]))",
+          "legendFormat": "read",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(dakera_tiered_cold_delete_failures_total[5m]))",
+          "legendFormat": "delete",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(dakera_tiered_writes_refused_backlog_total[5m]))",
+          "legendFormat": "writes refused (backlog full)",
+          "refId": "D"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 142 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "CLOSED", "index": 0 },
+                "1": { "text": "HALF-OPEN", "index": 1 },
+                "2": { "text": "OPEN", "index": 2 }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#00ff41", "value": null },
+              { "color": "#ffb000", "value": 1 },
+              { "color": "#ff0040", "value": 2 }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "type": "stat",
+      "id": 225,
+      "title": "Cold Read Circuit",
+      "targets": [
+        {
+          "expr": "max(dakera_tiered_cold_circuit_state) or vector(0)",
+          "legendFormat": "circuit",
+          "refId": "A"
+        }
+      ],
+      "description": "0 closed, 1 half-open (one probe), 2 open (cold reads refused after repeated failures).",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 142 }
+    },
+    {
+      "collapsed": false,
+      "panels": [],
+      "type": "row",
+      "id": 226,
+      "title": "Cluster Replication",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 150 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 227,
+      "title": "Sync Outbox & Held Entries",
+      "targets": [
+        {
+          "expr": "max by (instance) (dakera_cluster_sync_outbox_entries)",
+          "legendFormat": "outbox {{instance}}",
+          "refId": "A"
+        },
+        {
+          "expr": "max by (instance) (dakera_cluster_sync_held_entries)",
+          "legendFormat": "held for v0.11 peers {{instance}}",
+          "refId": "B"
+        }
+      ],
+      "description": "Changes waiting for a peer (retry outbox), and changes held for peers still on v0.11.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 151 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 228,
+      "title": "Sync Failures & Drops",
+      "targets": [
+        {
+          "expr": "sum by (op) (rate(dakera_cluster_sync_failures_total[5m]))",
+          "legendFormat": "failed {{op}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (op) (rate(dakera_cluster_sync_refused_total[5m]))",
+          "legendFormat": "refused {{op}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(dakera_cluster_sync_outbox_dropped_total[5m]))",
+          "legendFormat": "outbox dropped",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(dakera_cluster_replication_queue_dropped_total[5m]))",
+          "legendFormat": "replication queue dropped",
+          "refId": "D"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 151 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 229,
+      "title": "Reconciliation",
+      "targets": [
+        {
+          "expr": "sum by (outcome) (increase(dakera_cluster_reconcile_total[15m]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 159 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 230,
+      "title": "Clock Skew",
+      "targets": [
+        {
+          "expr": "max by (instance) (dakera_cluster_clock_ahead_ms)",
+          "legendFormat": "ahead {{instance}} (ms)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(dakera_cluster_clock_skew_refused_writes_total[5m]))",
+          "legendFormat": "writes refused for skew",
+          "refId": "B"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 159 }
+    },
+    {
+      "collapsed": false,
+      "panels": [],
+      "type": "row",
+      "id": 231,
+      "title": "Encryption",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 167 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 232,
+      "title": "Re-seal Progress",
+      "targets": [
+        {
+          "expr": "max(dakera_encryption_reseal_running)",
+          "legendFormat": "running",
+          "refId": "A"
+        },
+        {
+          "expr": "max(dakera_encryption_reseal_namespaces_remaining)",
+          "legendFormat": "namespaces remaining",
+          "refId": "B"
+        },
+        {
+          "expr": "max(dakera_encryption_values_unreadable)",
+          "legendFormat": "unreadable values",
+          "refId": "C"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 168 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 233,
+      "title": "Values Re-sealed",
+      "targets": [
+        {
+          "expr": "sum by (kind) (increase(dakera_encryption_values_resealed_total[15m]))",
+          "legendFormat": "{{kind}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 168 }
+    },
+    {
+      "collapsed": false,
+      "panels": [],
+      "type": "row",
+      "id": 234,
+      "title": "RocksDB Hot Tier",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 176 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 235,
+      "title": "Compaction & Stalls",
+      "targets": [
+        {
+          "expr": "max(dakera_rocksdb_pending_compaction_bytes)",
+          "legendFormat": "pending compaction bytes",
+          "refId": "A"
+        },
+        {
+          "expr": "max(dakera_rocksdb_write_stopped)",
+          "legendFormat": "writes stopped",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(dakera_rocksdb_stall_micros_total[5m])) / 1e6",
+          "legendFormat": "stall s/s",
+          "refId": "C"
+        }
+      ],
+      "description": "DAKERA_HOT_TIER=rocksdb (the tiered default).",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 177 }
+    },
+    {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "type": "timeseries",
+      "id": 236,
+      "title": "Block Cache Hit Ratio",
+      "targets": [
+        {
+          "expr": "sum(rate(dakera_rocksdb_block_cache_hits_total[5m])) / clamp_min(sum(rate(dakera_rocksdb_block_cache_hits_total[5m])) + sum(rate(dakera_rocksdb_block_cache_misses_total[5m])), 1)",
+          "legendFormat": "hit ratio",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 177 }
     }
-
   ],
-
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["dakera", "vector-database", "memory"],
   "templating": {
-    "list": [
-      {
-        "current": {},
-        "hide": 0,
-        "includeAll": false,
-        "label": "Datasource",
-        "name": "datasource",
-        "options": [],
-        "query": "prometheus",
-        "refresh": 1,
-        "type": "datasource"
-      }
-    ]
-  }
+    "list": []
+  },
+  "time": { "from": "now-30m", "to": "now" },
+  "timepicker": { "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"] },
+  "timezone": "",
+  "title": "Dakera Overview",
+  "uid": "dakera-overview",
+  "version": 2,
+  "weekStart": ""
 }

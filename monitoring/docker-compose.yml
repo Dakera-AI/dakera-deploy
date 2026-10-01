@@ -25,6 +25,7 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
+      - ./dakera.rules.yml:/etc/prometheus/dakera.rules.yml:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"

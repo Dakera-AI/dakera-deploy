@@ -1,0 +1,56 @@
+# =============================================================================
+# Dakera v0.12.0 - pre-upgrade configuration check (one-off Job)
+# =============================================================================
+# `dakera --check-config` runs the startup configuration check alone, with the
+# same environment and the same data volume as the server, prints every warning
+# the first start would give, and exits 0 (would start) or 78 (would refuse).
+# It starts no server and writes nothing. The data volume is ReadWriteOnce, so
+# scale the old server down first (a short maintenance window), or run it with
+# a copy of the volume:
+#   kubectl -n dakera scale deploy/dakera --replicas=0
+#   kubectl apply -f k8s/dakera/check-config-job.yaml
+#   kubectl -n dakera logs job/dakera-check-config
+#   kubectl -n dakera delete job dakera-check-config
+# Not part of kustomization.yaml.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dakera-check-config
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera
+    app.kubernetes.io/component: check-config
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dakera
+        app.kubernetes.io/component: check-config
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: check-config
+          image: ghcr.io/dakera-ai/dakera:0.12.0
+          imagePullPolicy: IfNotPresent
+          command: ["dakera"]
+          args: ["--check-config"]
+          envFrom:
+            - configMapRef:
+                name: dakera-config
+            - secretRef:
+                name: dakera-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: dakera-rocksdb

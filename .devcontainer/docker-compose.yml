@@ -30,7 +30,7 @@ services:
   # Dakera — AI Agent Memory Platform
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:latest}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.0}
     ports:
       - "3000:3000"
       - "50051:50051"
@@ -45,22 +45,22 @@ services:
       - AWS_ACCESS_KEY_ID=minioadmin
       - AWS_SECRET_ACCESS_KEY=minioadmin
       - DAKERA_S3_REGION=us-east-1
-      - DAKERA_L1_CACHE_SIZE=536870912
-      - DAKERA_L2_CACHE_PATH=/data/rocksdb
+      # The data root (v0.12; replaces DAKERA_L2_CACHE_PATH, which is no longer read)
+      - DAKERA_STORAGE_PATH=/data
       # Auth disabled for local dev — enable in production
       - DAKERA_AUTH_ENABLED=false
     volumes:
-      - dakera-cache:/data/cache
-      - dakera-rocksdb:/data/rocksdb
+      - dakera-data:/data
+      - dakera-models:/app/models
     depends_on:
       minio-setup:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s
+      start_period: 600s
     restart: unless-stopped
     networks:
       - dakera-dev
@@ -69,7 +69,12 @@ services:
   # MinIO — S3-Compatible Object Storage
   # ==========================================================================
   minio:
-    image: minio/minio:latest
+    # minio/minio and minio/mc are no longer published on Docker Hub (the repositories
+    # are gone; a fresh `docker compose pull` fails). Chainguard's MinIO build is
+    # maintained and ships `mc`. Root, as minio/minio ran: a minio-data volume written
+    # by the old image stays writable.
+    image: cgr.dev/chainguard/minio:latest
+    user: "0:0"
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -92,7 +97,8 @@ services:
   # MinIO Setup — Initialize the 'dakera' bucket on first start
   # ==========================================================================
   minio-setup:
-    image: minio/mc:latest
+    # The MinIO image above (it has a shell and `mc`); minio/mc is no longer published.
+    image: cgr.dev/chainguard/minio:latest
     depends_on:
       minio:
         condition: service_healthy
@@ -107,8 +113,8 @@ services:
       - dakera-dev
 
 volumes:
-  dakera-cache:
-  dakera-rocksdb:
+  dakera-data:
+  dakera-models:
   minio-data:
   dakera-vscode-ext:
 

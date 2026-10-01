@@ -1,6 +1,11 @@
 # =============================================================================
-# Dakera Server - Kubernetes Deployment
+# Dakera Server - Kubernetes Deployment (Dakera v0.12.0)
 # =============================================================================
+# v0.11 manifests: the `release/0.11` branch. Upgrading from v0.11.108: see the
+# README ("Upgrading from v0.11") and the server's docs/v0.12/UPGRADE.md.
+# One server per data root: the pod keeps its data root (/data) on the
+# ReadWriteOnce volume, so the update strategy is Recreate and the Deployment is
+# not autoscaled (see kustomization.yaml).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,9 +14,13 @@ metadata:
   labels:
     app.kubernetes.io/name: dakera
     app.kubernetes.io/component: server
-    app.kubernetes.io/version: "0.11.75"
+    app.kubernetes.io/version: "0.12.0"
 spec:
   replicas: 1
+  # A server locks its data root while it runs: stop the old pod before the new
+  # one starts (a rolling update would leave the new pod unable to start).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: dakera
@@ -21,16 +30,24 @@ spec:
       labels:
         app.kubernetes.io/name: dakera
         app.kubernetes.io/component: server
-        app.kubernetes.io/version: "0.11.75"
+        app.kubernetes.io/version: "0.12.0"
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"
         prometheus.io/path: "/metrics"
     spec:
       terminationGracePeriodSeconds: 30
+      # The image runs as uid/gid 1000 (dakera); fsGroup makes the mounted
+      # volumes group-writable for it (EACCES on a root-owned volume otherwise).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: dakera
-          image: ghcr.io/dakera-ai/dakera:latest
+          image: ghcr.io/dakera-ai/dakera:0.12.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -45,24 +62,36 @@ spec:
             - secretRef:
                 name: dakera-secrets
           volumeMounts:
-            - name: rocksdb
-              mountPath: /data/rocksdb
-            - name: cache
-              mountPath: /data/cache
+            # The data root (DAKERA_STORAGE_PATH=/data): WAL, graph, hot and warm tiers
+            - name: data
+              mountPath: /data
+            # Model cache (HF_HOME): models the image does not ship. The image's
+            # own models (bge-large, reranker) are read from the image. Back it
+            # with a PVC to download a model once; air-gapped, seed it with
+            # `dakera models pull` (see docs/models-and-docker.md in the server repo).
+            - name: models
+              mountPath: /app/models
+          # The port binds before the models load: /health/live is 200 from then
+          # on (liveness never restarts a pod that is downloading a model);
+          # /health/ready is 503 until storage answers and the embedding engine
+          # is up. The startup probe covers the time before the port binds
+          # (write-ahead-log replay): 10 s x 60 = 10 minutes.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
           livenessProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: http
-            initialDelaySeconds: 15
-            periodSeconds: 10
-            failureThreshold: 3
+            periodSeconds: 30
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: http
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            failureThreshold: 3
+            periodSeconds: 10
           resources:
             requests:
               cpu: 500m
@@ -71,10 +100,12 @@ spec:
               cpu: "2"
               memory: 4Gi
       volumes:
-        - name: rocksdb
+        # PVC name kept from v0.11 so an upgrade keeps the volume; it now holds
+        # the whole data root, not only RocksDB.
+        - name: data
           persistentVolumeClaim:
             claimName: dakera-rocksdb
-        - name: cache
+        - name: models
           emptyDir: {}
 ---
 apiVersion: v1

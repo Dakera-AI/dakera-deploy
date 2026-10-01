@@ -3,7 +3,8 @@
 # =============================================================================
 # Used by:
 #   - monitoring/docker-compose.yml  (standalone monitoring stack)
-#   - docker/docker-compose.ha.yml   (--profile monitoring)
+#   - docker/docker-compose.yml      (--profile monitoring)
+# The 3-node HA stack uses prometheus.ha.yml (its nodes are dakera-1..3).
 
 global:
   scrape_interval: 15s
@@ -12,6 +13,7 @@ global:
 
 rule_files:
   - /etc/prometheus/alerting-rules.yml
+  - /etc/prometheus/dakera.rules.yml
 
 scrape_configs:
   # Prometheus self-monitoring
@@ -29,16 +31,7 @@ scrape_configs:
     scrape_interval: 10s
     scrape_timeout: 5s
 
-  # Dakera HA cluster nodes (docker-compose.ha.yml)
-  # Uncomment when using HA profile:
-  # - job_name: 'dakera-ha'
-  #   static_configs:
-  #     - targets: ['dakera-1:3000', 'dakera-2:3000', 'dakera-3:3000']
-  #       labels:
-  #         deployment: 'ha'
-  #   metrics_path: '/metrics'
-  #   scrape_interval: 10s
-  #   scrape_timeout: 5s
+  # HA cluster nodes (docker-compose.ha.yml): see prometheus.ha.yml.
 
   # MinIO metrics
   - job_name: 'minio'

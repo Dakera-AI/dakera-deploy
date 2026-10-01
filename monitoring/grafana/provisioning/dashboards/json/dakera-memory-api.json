@@ -1,5 +1,7 @@
 {
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -8,20 +10,48 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "id": 100,
       "title": "Memory API Throughput",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "dakera-prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dakera-prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 2 }, "unit": "ops" },
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2
+          },
+          "unit": "ops"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
       "id": 1,
-      "options": { "legend": { "displayMode": "list" }, "tooltip": { "mode": "multi" } },
+      "options": {
+        "legend": {
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "expr": "sum(rate(dakera_memory_store_total[5m])) by (agent_id)",
@@ -33,14 +63,37 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "dakera-prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dakera-prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 2 }, "unit": "ops" },
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2
+          },
+          "unit": "ops"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
       "id": 2,
-      "options": { "legend": { "displayMode": "list" }, "tooltip": { "mode": "multi" } },
+      "options": {
+        "legend": {
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "expr": "sum(rate(dakera_memory_recall_total[5m])) by (agent_id, type)",
@@ -52,14 +105,37 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "dakera-prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dakera-prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 2 }, "unit": "ops" },
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2
+          },
+          "unit": "ops"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
       "id": 3,
-      "options": { "legend": { "displayMode": "list" }, "tooltip": { "mode": "multi" } },
+      "options": {
+        "legend": {
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "expr": "sum(rate(dakera_memory_forget_total[5m])) by (agent_id)",
@@ -72,20 +148,48 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
       "id": 101,
       "title": "Inference & Latency",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "dakera-prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dakera-prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 2 }, "unit": "s" },
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2
+          },
+          "unit": "s"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
       "id": 4,
-      "options": { "legend": { "displayMode": "list" }, "tooltip": { "mode": "multi" } },
+      "options": {
+        "legend": {
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.50, sum(rate(dakera_inference_duration_seconds_bucket[5m])) by (le, operation))",
@@ -107,14 +211,37 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "dakera-prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dakera-prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 2 }, "unit": "s" },
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2
+          },
+          "unit": "s"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
       "id": 5,
-      "options": { "legend": { "displayMode": "list" }, "tooltip": { "mode": "multi" } },
+      "options": {
+        "legend": {
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.50, sum(rate(dakera_http_request_duration_seconds_bucket{path=~\"/v1/memory.*\"}[5m])) by (le, method, path))",
@@ -132,65 +259,41 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
       "id": 102,
-      "title": "Background Engine Activity",
+      "title": "Load",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "dakera-prometheus" },
-      "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 2 }, "unit": "short" },
-        "overrides": []
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dakera-prometheus"
       },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
-      "id": 6,
-      "options": { "legend": { "displayMode": "list" }, "tooltip": { "mode": "multi" } },
-      "targets": [
-        {
-          "expr": "rate(dakera_decay_run_total[5m])",
-          "legendFormat": "decay runs/s",
-          "refId": "A"
-        },
-        {
-          "expr": "rate(dakera_decay_memories_expired_total[5m])",
-          "legendFormat": "memories expired/s",
-          "refId": "B"
-        }
-      ],
-      "title": "Decay Engine Activity",
-      "type": "timeseries"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "dakera-prometheus" },
-      "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 2 }, "unit": "short" },
-        "overrides": []
-      },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
-      "id": 7,
-      "options": { "legend": { "displayMode": "list" }, "tooltip": { "mode": "multi" } },
-      "targets": [
-        {
-          "expr": "rate(dakera_consolidation_memories_merged_total[5m])",
-          "legendFormat": "merged/s",
-          "refId": "A"
-        }
-      ],
-      "title": "Consolidation Activity",
-      "type": "timeseries"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "dakera-prometheus" },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red", "value": 20 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
             ]
           },
           "unit": "short",
@@ -198,9 +301,23 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 19 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 19
+      },
       "id": 8,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      },
       "targets": [
         {
           "expr": "dakera_active_requests",
@@ -210,96 +327,22 @@
       ],
       "title": "Active Requests",
       "type": "stat"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "dakera-prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 2 },
-              { "color": "red", "value": 1 }
-            ]
-          },
-          "unit": "short",
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 19 },
-      "id": 9,
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
-      "targets": [
-        {
-          "expr": "dakera_replica_count",
-          "legendFormat": "replicas",
-          "refId": "A"
-        }
-      ],
-      "title": "Replica Count",
-      "type": "stat"
-    },
-    {
-      "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
-      "id": 103,
-      "title": "Memory Counts by Agent",
-      "type": "row"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "dakera-prometheus" },
-      "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 2 }, "unit": "short" },
-        "overrides": []
-      },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
-      "id": 10,
-      "options": { "legend": { "displayMode": "list" }, "tooltip": { "mode": "multi" } },
-      "targets": [
-        {
-          "expr": "sum(dakera_memory_count) by (agent_id, type)",
-          "legendFormat": "{{agent_id}} ({{type}})",
-          "refId": "A"
-        }
-      ],
-      "title": "Memory Count by Agent & Type",
-      "type": "timeseries"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "dakera-prometheus" },
-      "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" },
-        "overrides": []
-      },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
-      "id": 11,
-      "options": {
-        "displayLabels": ["name"],
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "pieType": "donut",
-        "tooltip": { "mode": "multi" }
-      },
-      "targets": [
-        {
-          "expr": "sum(dakera_memory_count) by (agent_id)",
-          "legendFormat": "{{agent_id}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Memory Distribution by Agent",
-      "type": "piechart"
     }
   ],
   "schemaVersion": 39,
-  "tags": ["dakera", "memory", "infra-3"],
+  "tags": [
+    "dakera",
+    "memory",
+    "infra-3"
+  ],
   "templating": {
     "list": [
       {
         "current": {},
-        "datasource": { "type": "prometheus", "uid": "dakera-prometheus" },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "dakera-prometheus"
+        },
         "definition": "label_values(dakera_memory_store_total, agent_id)",
         "hide": 0,
         "includeAll": true,
@@ -318,10 +361,13 @@
       }
     ]
   },
-  "time": { "from": "now-1h", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Dakera Memory API — INFRA-3",
+  "title": "Dakera Memory API \u2014 INFRA-3",
   "uid": "dakera-memory-api-v1",
-  "version": 1
+  "version": 2
 }

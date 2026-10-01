@@ -18,14 +18,17 @@ data:
   DAKERA_S3_ENDPOINT: "http://dakera-minio:9000"
   DAKERA_S3_BUCKET: "dakera"
   DAKERA_S3_REGION: "us-east-1"
-  DAKERA_L1_CACHE_SIZE: "1073741824"
-  DAKERA_L2_CACHE_PATH: "/data/rocksdb"
+  DAKERA_L1_CACHE_SIZE: "1GB"
+  # The data root: every local path (WAL, graph, hot/warm tiers) derives from it.
+  # Replaces DAKERA_L2_CACHE_PATH, which v0.12 no longer reads.
+  DAKERA_STORAGE_PATH: "/data"
   DAKERA_TIERED_STORAGE: "true"
   DAKERA_HOT_TO_WARM_SECS: "3600"
   DAKERA_WARM_TO_COLD_SECS: "86400"
   DAKERA_AUTO_TIER: "true"
   DAKERA_TIER_CHECK_INTERVAL_SECS: "300"
-  # DAK-6209/DAK-6284: TIERED ON — optA-baked-ec6ef91 has ONNX baked in (DAK-6272 cold-boot guard).
+  # DAK-6209/DAK-6284: tiered embeddings ON (the published image has the static
+  # model baked in). Must be identical on every node sharing a store.
   DAKERA_TIERED: "1"
   DAKERA_SEARCH_MODE: "hybrid"
   DAKERA_MAX_BODY_SIZE: "524288000"

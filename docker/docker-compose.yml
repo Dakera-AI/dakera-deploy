@@ -6,8 +6,26 @@
 #
 # Usage:
 #   docker compose up -d
-#   docker compose up -d --profile dashboard   # with Dashboard UI
+#   docker compose --profile dashboard up -d   # with Dashboard UI
 #   docker compose down
+#
+# Dakera v0.12.0. (v0.11 users: the previous version of this file is on the
+# `release/0.11` branch.)
+#
+# Upgrading from v0.11.108 (see README "Upgrading from v0.11"):
+#   1. Back up:           POST /admin/backups
+#   2. Check the config with the new image, against your env and data volumes
+#      (prints every warning the first start will give; exit 0 = would start,
+#      78 = would refuse; starts nothing):
+#        docker compose run --rm --no-deps dakera --check-config
+#   3. Upgrade:           docker compose pull && docker compose up -d
+#
+# Going back to v0.11.108 (stop the server FIRST; `downgrade` refuses to run
+# while a server uses the data; it needs MinIO up, so no --no-deps):
+#   docker compose stop dakera-watchdog dakera
+#   docker compose run --rm dakera downgrade     # JSON report on stdout; exit 0 = done
+#   DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.108 docker compose up -d   # with the v0.11 file
+# Docs: https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/UPGRADE.md
 # =============================================================================
 
 name: dakera
@@ -17,7 +35,7 @@ services:
   # Dakera - AI Agent Memory Platform
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:latest}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.0}
     container_name: dakera
     # DAK-9890 / FW-b5ad5a7f / DAK-9814: place the container under a systemd
     # slice that sets memory.high=10G (soft cgroup-v2 backpressure). The kernel
@@ -40,30 +58,84 @@ services:
       - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minioadmin}
       - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       - DAKERA_S3_REGION=us-east-1
-      - DAKERA_L1_CACHE_SIZE=536870912
-      - DAKERA_L2_CACHE_PATH=/data/rocksdb
+      # Hot-tier byte budget (tiered storage). A bare number below 10 million is a
+      # vector COUNT (the default is 100000 vectors); a unit suffix makes it bytes.
+      - DAKERA_L1_CACHE_SIZE=${DAKERA_L1_CACHE_SIZE:-512MB}
+      # The data root: write-ahead log, knowledge graph ({root}/graph.db), hot tier
+      # ({root}/hot), warm tier ({root}/cache/warm) all derive from it. Replaces
+      # v0.11's DAKERA_L2_CACHE_PATH, which v0.12 no longer reads.
+      - DAKERA_STORAGE_PATH=/data
       # Tiered storage (L1 hot → L2 warm → L3 cold via S3)
-      - DAKERA_TIERED_STORAGE=true
-      - DAKERA_HOT_TO_WARM_SECS=3600
-      - DAKERA_WARM_TO_COLD_SECS=86400
-      - DAKERA_AUTO_TIER=true
-      - DAKERA_TIER_CHECK_INTERVAL_SECS=300
-      # Tiered storage: L1 hot memory → L2 warm RocksDB → L3 cold S3.
-      - DAKERA_TIERED=1
-      - DAKERA_SEARCH_MODE=hybrid
-      - DAKERA_MAX_BODY_SIZE=524288000
+      - DAKERA_TIERED_STORAGE=${DAKERA_TIERED_STORAGE:-true}
+      - DAKERA_HOT_TO_WARM_SECS=${DAKERA_HOT_TO_WARM_SECS:-3600}
+      - DAKERA_WARM_TO_COLD_SECS=${DAKERA_WARM_TO_COLD_SECS:-86400}
+      - DAKERA_AUTO_TIER=${DAKERA_AUTO_TIER:-true}
+      - DAKERA_TIER_CHECK_INTERVAL_SECS=${DAKERA_TIER_CHECK_INTERVAL_SECS:-300}
+      # The tiered EMBEDDING engine (static fast write, background re-embed; not tiered
+      # storage above). It always embeds with bge-large and ignores DAKERA_MODEL, and late
+      # interaction is refused under it: the v0.12 feature overlays that change the model
+      # or the lane (multilingual, late-interaction, vision) set it to 0.
+      - DAKERA_TIERED=${DAKERA_TIERED:-1}
+      - DAKERA_SEARCH_MODE=${DAKERA_SEARCH_MODE:-hybrid}
+      - DAKERA_MAX_BODY_SIZE=${DAKERA_MAX_BODY_SIZE:-524288000}
       - DAKERA_REQUEST_TIMEOUT=${DAKERA_REQUEST_TIMEOUT:-600}
       - DAKERA_AUTH_ENABLED=${DAKERA_AUTH_ENABLED:-true}
       - DAKERA_ROOT_API_KEY=${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.example)}
       - HF_TOKEN=${HF_TOKEN:-}
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+      # Model downloads behind a proxy / mirror, or none at all (air-gapped). All
+      # empty = unset = the Hugging Face Hub, directly. See .env.example, "Model
+      # downloads", and docs/features-v0.12.md, "The model store".
+      # Settings documented in .env.example. Compose passes ONLY what is listed here (a
+      # variable in .env that is not, never reaches the container), so each is passed
+      # empty = unset = the server's default. DAKERA_ENCRYPTION_KEY set here turns
+      # encryption at rest on.
+      - DAKERA_ENCRYPTION_KEY=${DAKERA_ENCRYPTION_KEY:-}
+      - DAKERA_HYBRID_FETCH_MULT=${DAKERA_HYBRID_FETCH_MULT:-}
+      - DAKERA_BM25_K1=${DAKERA_BM25_K1:-}
+      - DAKERA_BM25_B=${DAKERA_BM25_B:-}
+      - DAKERA_BM25_DELTA=${DAKERA_BM25_DELTA:-}
+      - DAKERA_RRF_K=${DAKERA_RRF_K:-}
+      - DAKERA_FUSION_STRATEGY=${DAKERA_FUSION_STRATEGY:-}
+      - DAKERA_TEMPORAL_RERANK_GAMMA=${DAKERA_TEMPORAL_RERANK_GAMMA:-}
+      - DAKERA_ADAPTIVE_WVEC_BOOST=${DAKERA_ADAPTIVE_WVEC_BOOST:-}
+      - DAKERA_ADAPTIVE_WVEC_THRESHOLD=${DAKERA_ADAPTIVE_WVEC_THRESHOLD:-}
+      - DAKERA_PPR_FUSION=${DAKERA_PPR_FUSION:-}
+      - DAKERA_BITEMPORAL_WEIGHT=${DAKERA_BITEMPORAL_WEIGHT:-}
+      - DAKERA_NAME_BOOST=${DAKERA_NAME_BOOST:-}
+      - DAKERA_SUPERSEDE_DEMOTE=${DAKERA_SUPERSEDE_DEMOTE:-}
+      - DAKERA_RERANK_MAX_CANDIDATES=${DAKERA_RERANK_MAX_CANDIDATES:-}
+      - DAKERA_HOT_TIER=${DAKERA_HOT_TIER:-}
+      - DAKERA_ROCKSDB_SYNC=${DAKERA_ROCKSDB_SYNC:-}
+      - DAKERA_HNSW_CACHE_TTI_SECS=${DAKERA_HNSW_CACHE_TTI_SECS:-}
+      - DAKERA_RATE_LIMIT_RPS=${DAKERA_RATE_LIMIT_RPS:-}
+      - DAKERA_RATE_LIMIT_BURST=${DAKERA_RATE_LIMIT_BURST:-}
+      # gRPC listener: an EMPTY value would read as OFF on an upgraded deployment (v0.11's
+      # reading), so this one defaults to true explicitly.
+      - DAKERA_GRPC_ENABLED=${DAKERA_GRPC_ENABLED:-true}
+      - HF_ENDPOINT=${HF_ENDPOINT:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - ALL_PROXY=${ALL_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
       # FW-b5ad5a7f / DAK-9814: mimalloc returns freed pages to the OS
       # immediately (purge delay 0ms) so container RSS returns to baseline
       # after allocation peaks instead of retaining decommitted heap.
       - MIMALLOC_PURGE_DELAY=0
     volumes:
+      # The data root, plus the warm and hot tiers on the volumes they had
+      # before v0.12 (dakera-cache held /data/cache, so the warm tier at
+      # /data/cache/warm is where it was), mounted where the root derives them.
+      - dakera-data:/data
       - dakera-cache:/data/cache
-      - dakera-rocksdb:/data/rocksdb
+      - dakera-rocksdb:/data/hot
+      # Model cache (HF_HOME): models the image does not ship (DAKERA_MODEL=bge-m3,
+      # whisper, ...), downloaded once. The image's own models (bge-large, the
+      # reranker) are read from the image itself. Pre-pull, e.g. air-gapped:
+      #   docker compose run --rm dakera models pull bge-m3
+      # and free what an older image left here: ... run --rm dakera models prune
+      - dakera-models:/app/models
     deploy:
       resources:
         limits:
@@ -84,13 +156,20 @@ services:
       minio-setup:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
+      # /health/ready is 503 while the models load (the port answers meanwhile,
+      # /health/live is 200); a model not in the image downloads first.
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health/ready"]
       interval: 10s
       timeout: 5s
       # Reduced 5→3: mark unhealthy faster (30s vs 50s) so watchdog triggers
       # sooner. The dakera-watchdog sidecar auto-restarts on streak ≥ 5 (50s).
       retries: 3
-      start_period: 10s
+      # Failures inside the start period do not count; the first success ends it.
+      start_period: 600s
+    # SIGTERM starts the graceful shutdown: running media-job stores are waited for up
+    # to 15 s, then the final flushes run. Compose's default (10 s) would kill it
+    # first; 30 s matches the Kubernetes manifests.
+    stop_grace_period: 30s
     restart: unless-stopped
     networks:
       - dakera-net
@@ -99,7 +178,12 @@ services:
   # MinIO - S3-Compatible Object Storage
   # ==========================================================================
   minio:
-    image: minio/minio:latest
+    # minio/minio and minio/mc are no longer published on Docker Hub (the repositories
+    # are gone; a fresh `docker compose pull` fails). Chainguard's MinIO build is
+    # maintained and ships `mc`. Root, as minio/minio ran: a minio-data volume written
+    # by the old image stays writable.
+    image: cgr.dev/chainguard/minio:latest
+    user: "0:0"
     container_name: dakera-minio
     command: server /data --console-address ":9001"
     ports:
@@ -113,6 +197,9 @@ services:
       # 'connection closed before message completed') fail fast rather than
       # accumulating and exhausting the connection pool.
       - MINIO_API_REQUESTS_DEADLINE=${MINIO_API_REQUESTS_DEADLINE:-2m}
+      # Lets the monitoring profile's Prometheus scrape /minio/v2/metrics/cluster
+      # (without it the minio target is DOWN: 403). The port is bound to 127.0.0.1.
+      - MINIO_PROMETHEUS_AUTH_TYPE=public
     volumes:
       - minio-data:/data
     deploy:
@@ -173,11 +260,18 @@ services:
   # MinIO Setup - Create bucket on startup
   # ==========================================================================
   minio-setup:
-    image: minio/mc:latest
+    # The MinIO image above (it has a shell and `mc`); minio/mc is no longer published.
+    image: cgr.dev/chainguard/minio:latest
     container_name: dakera-minio-setup
     depends_on:
       minio:
         condition: service_healthy
+    # The credentials MinIO was started with: without these the alias below
+    # would always use minioadmin and bucket creation fails once
+    # MINIO_ROOT_USER / MINIO_ROOT_PASSWORD are changed (as .env.example asks).
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     entrypoint: >
       /bin/sh -c "
       mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin};
@@ -203,6 +297,7 @@ services:
     volumes:
       - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../monitoring/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
+      - ../monitoring/dakera.rules.yml:/etc/prometheus/dakera.rules.yml:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -290,8 +385,10 @@ services:
       - dakera-net
 
 volumes:
+  dakera-data:
   dakera-cache:
   dakera-rocksdb:
+  dakera-models:
   minio-data:
   prometheus-data:
   grafana-data:

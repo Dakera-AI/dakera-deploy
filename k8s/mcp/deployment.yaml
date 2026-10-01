@@ -33,7 +33,8 @@ spec:
               containerPort: 3001
               protocol: TCP
           env:
-            - name: DAKERA_URL
+            # The variable dakera-mcp reads (it falls back to http://localhost:3000).
+            - name: DAKERA_API_URL
               value: "http://dakera:3000"
             - name: DAKERA_API_KEY
               valueFrom:

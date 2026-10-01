@@ -1,0 +1,23 @@
+# =============================================================================
+# Dakera v0.12.0 - RaBitQ search mode (opt-in component)
+# =============================================================================
+# A latency option: the codes sit in memory next to the float vectors (no memory
+# saving) and are re-encoded on the first search after a restart. Works on an existing
+# store; remove the component to go back.
+# DAKERA_RABITQ_BITS: 1-8 bits per dimension (default 1; 4 is the usual quality point).
+#
+# Verify: curl -s localhost:3000/v1/capabilities -H "X-API-Key: $KEY" | jq .search_mode
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: dakera-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: dakera-config
+      data:
+        DAKERA_SEARCH_MODE: "rabitq"

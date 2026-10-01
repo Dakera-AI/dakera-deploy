@@ -1,0 +1,57 @@
+# =============================================================================
+# Dakera v0.12.0 - Image / page indexing and visual recall (opt-in component)
+# =============================================================================
+# colmodernvbert embeds PNG pages (POST .../attachments/{ref}/index) and recall over
+# the pages embeds the query with the model's text side. ViDoRe nDCG@5: TabFQuAD
+# 0.643, Shift Project 0.7705. About 10.7 s per page on CPU, one page at a time.
+#
+# A DEDICATED STORE: the agent namespaces then hold 128-d page vectors, not text
+# embeddings. Use it only through overlays/vision, which deploys its own stack (own
+# namespace, volumes and MinIO). Sets DAKERA_TIERED=0 and late interaction (refused
+# under the tiered embedding engine); exclusive with the multilingual and
+# late-interaction components. One-way for v0.11.
+#
+# colmodernvbert is ~966 MB (plus an ORT-format copy); its one-time conversion
+# reserves ~1 GB from the memory budget, so models-cache pulls it before the server
+# starts. Raises the limits to the measured 4-core / 8 GiB configuration.
+#
+# Verify: curl -s localhost:3000/v1/capabilities -H "X-API-Key: $KEY" |
+#           jq "{vision, lane: .scoring.late_interaction.lane}"
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: dakera-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: dakera-config
+      data:
+        # Late interaction is refused (501) under the tiered embedding engine.
+        DAKERA_TIERED: "0"
+        # Pages are attachments.
+        DAKERA_ATTACHMENTS: "1"
+        DAKERA_VISION: "1"
+        DAKERA_SCORING_STRATEGY: "late-interaction"
+  - target:
+      kind: Deployment
+      name: dakera
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: dakera
+      spec:
+        template:
+          spec:
+            containers:
+              - name: dakera
+                resources:
+                  requests:
+                    memory: 1Gi
+                  limits:
+                    cpu: "4"
+                    memory: 8Gi

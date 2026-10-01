@@ -1,0 +1,66 @@
+# =============================================================================
+# Dakera v0.12.0 - model cache on a volume + models pulled before the server starts
+# =============================================================================
+# The image ships bge-large and the reranker. Every other model (bge-m3,
+# colbert-small, whisper, the visual model, GLiNER) is downloaded into the model
+# cache (/app/models, HF_HOME). The base Deployment gives it an emptyDir: gone with
+# the pod, so every new pod downloads again. This component:
+#   * backs it with a PersistentVolumeClaim (dakera-models), and
+#   * adds an init container that runs `dakera models pull configured`: it downloads,
+#     verifies (pinned SHA-256) and converts what the ConfigMap's variables load
+#     (DAKERA_MODEL, the reranker, whisper with DAKERA_ATTACHMENTS, the visual model
+#     with DAKERA_VISION), so the pod becomes ready with them on disk and a model whose
+#     one-time conversion would not fit the memory budget is converted outside the server.
+#
+# Use it as a component, together with the feature components that need models:
+#   components: [../../components/models-cache, ../../components/multilingual]
+#
+# Size (ReadWriteOnce: one server pod): ~570 MB bge-m3, ~34 MB colbert-small, ~151 MB
+# whisper-tiny.en, ~966 MB colmodernvbert, ~782 MB GLiNER, each plus an ORT-format copy
+# of about the same size; 10Gi holds all of them with room for upgrades (`dakera models
+# prune` frees what an older version left). Air-gapped: seed the volume from a host that
+# can reach the Hub (docs/features-v0.12.md, "Air-gapped installs").
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - models-pvc.yaml
+
+patches:
+  - target:
+      kind: Deployment
+      name: dakera
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: dakera
+      spec:
+        template:
+          spec:
+            initContainers:
+              - name: models
+                image: ghcr.io/dakera-ai/dakera:0.12.0
+                imagePullPolicy: IfNotPresent
+                # The binary itself (not the image entrypoint, which the GPU image
+                # guards with a GPU check).
+                command: ["dakera"]
+                args: ["models", "pull", "configured"]
+                envFrom:
+                  - configMapRef:
+                      name: dakera-config
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 1000
+                  runAsGroup: 1000
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop: [ALL]
+                volumeMounts:
+                  - name: models
+                    mountPath: /app/models
+            volumes:
+              - name: models
+                emptyDir: null
+                persistentVolumeClaim:
+                  claimName: dakera-models
