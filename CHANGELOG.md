@@ -4,6 +4,24 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+### Changed
+
+- Dashboard `ghcr.io/dakera-ai/dakera-dashboard` `0.3.30` (single node) / `0.3.29` (HA, `k8s/`, README) -> `0.4.0`
+  (`docker/docker-compose.yml` profile `dashboard`, `docker/docker-compose.ha.yml`, `k8s/dashboard/`).
+- **Breaking for deployments: dashboard 0.4.0 signs operators in with a server-side session.**
+  `DAKERA_API_KEY` is removed from the dashboard service in both compose files and from `k8s/dashboard/` (the
+  `DAKERA_ROOT_API_KEY` secret reference is gone; the image ignores `DAKERA_API_KEY` and `DAKERA_CLIENT_URL` with a
+  warning). Operators sign in at `/login` with their own key. **Rotate any key the old dashboard carried**: it was
+  written into every page the dashboard served (#296). `DAKERA_API_UPSTREAM` is unchanged.
+- Dashboard healthcheck / probes use `/_session/healthz` (compose `healthcheck`, Kubernetes liveness and readiness).
+
+### Added
+
+- Optional `DAKERA_SESSION_TTL_HOURS` (default `12`) passed to the dashboard in both compose files; documented in
+  `.env.example`, `.env.ha.example`, `examples/environment-variables.md` and as a commented env var in `k8s/`.
+- README: "Dashboard 0.4.0" section (upgrade steps, in-memory sessions and the single-replica note, TLS in front with
+  `X-Forwarded-Proto` and `Host`, Caddy and nginx snippets); ingress comment about forwarding those headers.
+
 ## [0.12.0] - Dakera server v0.12.0
 
 v0.11 is preserved on the `release/0.11` branch; `main` targets v0.12.0 from here on.

@@ -148,6 +148,8 @@ The default and HA compose files expose different ports to allow co-deployment o
 | `PROMETHEUS_PORT` | `9090` | Prometheus (monitoring profile) |
 | `GRAFANA_PORT` | `3003` | Grafana (monitoring profile) |
 | `DASHBOARD_PORT` | `3002` | Dashboard UI (dashboard profile) |
+| `DASHBOARD_IMAGE` | `ghcr.io/dakera-ai/dakera-dashboard:0.4.0` | Dashboard image |
+| `DAKERA_SESSION_TTL_HOURS` | `12` | Dashboard 0.4.0: longest an operator sign-in lasts (idle sessions end after 2 h) |
 
 ### HA Profile (`docker-compose.ha.yml`)
 

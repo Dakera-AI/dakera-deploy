@@ -9,8 +9,11 @@ metadata:
   labels:
     app.kubernetes.io/name: dakera-dashboard
     app.kubernetes.io/component: dashboard
-    app.kubernetes.io/version: "0.3.29"
+    app.kubernetes.io/version: "0.4.0"
 spec:
+  # One replica: sessions live in the pod's memory. More replicas need sticky
+  # sessions at the ingress, otherwise users are signed out when a request lands
+  # on another pod.
   replicas: 1
   selector:
     matchLabels:
@@ -21,12 +24,12 @@ spec:
       labels:
         app.kubernetes.io/name: dakera-dashboard
         app.kubernetes.io/component: dashboard
-        app.kubernetes.io/version: "0.3.29"
+        app.kubernetes.io/version: "0.4.0"
     spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: dashboard
-          image: ghcr.io/dakera-ai/dakera-dashboard:0.3.29
+          image: ghcr.io/dakera-ai/dakera-dashboard:0.4.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -35,21 +38,21 @@ spec:
           env:
             - name: DAKERA_API_UPSTREAM
               value: "http://dakera:3000"
-            - name: DAKERA_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: dakera-secrets
-                  key: DAKERA_ROOT_API_KEY
+            # 0.4.0: no API key on the dashboard. Operators sign in at /login with their
+            # own key, kept in server memory (DAKERA_API_KEY / DAKERA_CLIENT_URL are gone).
+            # Optional: longest a sign-in lasts, in hours (default 12; idle ends after 2 h).
+            # - name: DAKERA_SESSION_TTL_HOURS
+            #   value: "12"
           livenessProbe:
             httpGet:
-              path: /
+              path: /_session/healthz
               port: http
             initialDelaySeconds: 10
             periodSeconds: 15
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /
+              path: /_session/healthz
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
