@@ -11,7 +11,7 @@ jobs:
     name: Scan for hardcoded internal IPs and credential hashes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check for hardcoded internal IPs
         run: |
