@@ -11,6 +11,9 @@ v0.11 is preserved on the `release/0.11` branch; `main` targets v0.12.0 from her
 ### Changed
 
 - Default Dakera image `:latest` / `0.11.x` -> `0.12.0` (compose files, devcontainer, `k8s/`).
+- Speech to text: the multimodal overlays pass `DAKERA_WHISPER_MODEL`, default `whisper-base` (multilingual, language
+  auto-detected), not English-only `whisper-tiny.en`: a deployment that enables the overlay and sets no
+  `DAKERA_WHISPER_MODEL` transcribes with `whisper-base`. Set `whisper-tiny.en` to keep the lightest English model.
 - Health checks: `/health` -> `/health/ready` (compose) and `/health/live` + `/health/ready` + a startup
   probe (Kubernetes); start period 10 minutes: the port answers while models load.
 - One data root: `DAKERA_STORAGE_PATH=/data`. The data volume (`dakera-data`) is mounted there; the old
@@ -37,7 +40,7 @@ v0.11 is preserved on the `release/0.11` branch; `main` targets v0.12.0 from her
 - `docs/features-v0.12.md`: "Features in v0.12.0": a capability matrix (feature, switch, variables, resources,
   constraints, how to verify) and per-feature sections: multilingual (bge-m3, per-language full-text, CJK
   bigrams, `DAKERA_QUERY_LANG`, per-request `lang`, the full-text reindex route), multimodal (attachments, speech to
-  text with a choice of five Whisper models (English default, multilingual with auto-detected language), image / page indexing and the visual lane, memory admission and `503` + `Retry-After`), multi-vector
+  text with a choice of five Whisper models (default `whisper-base`, multilingual with auto-detected language), image / page indexing and the visual lane, memory admission and `503` + `Retry-After`), multi-vector
   records, late interaction, RaBitQ, rerank controls, the model store (`dakera models list / pull / prune`,
   baked images, proxies, a Hugging Face mirror, offline and air-gapped installs), switching the embedding
   model, which features can be combined, security (gRPC authentication, scoped keys, the encryption keyring and

@@ -2,13 +2,13 @@
 # Dakera v0.12.0 - Attachments and speech to text (opt-in component)
 # =============================================================================
 # Files stored per agent and referenced from memories (attachment_ref) and a
-# transcription job (WAV only; Whisper model chosen with DAKERA_WHISPER_MODEL: whisper-tiny.en (English, default),
-# whisper-base.en (English), whisper-tiny, whisper-base (recommended multilingual), whisper-small; multilingual
+# transcription job (WAV only; Whisper model chosen with DAKERA_WHISPER_MODEL: whisper-base (multilingual, default),
+# whisper-tiny.en (lightest English), whisper-base.en (English), whisper-tiny, whisper-small; multilingual
 # models detect the language and record it as the memory's lang. set DAKERA_WHISPER_MODEL in the ConfigMap data below). Works on an existing store;
 # nothing is re-embedded. Without it the routes answer 501 FEATURE_DISABLED.
 #
 #   components:
-#     - ../../components/models-cache     # whisper-tiny.en is ~151 MB, not in the image (other models: see docs/features-v0.12.md)
+#     - ../../components/models-cache     # whisper is not in the image (whisper-tiny.en is ~151 MB; see docs/features-v0.12.md for the others)
 #     - ../../components/multimodal
 #
 # Memory: every media job reserves its estimated peak working memory against the
@@ -33,9 +33,9 @@ patches:
       data:
         # Attachment routes + transcription. Largest upload: DAKERA_ATTACHMENT_MAX_BYTES (default 25 MiB).
         DAKERA_ATTACHMENTS: "1"
-        # Speech-to-text model (default whisper-tiny.en); one of whisper-tiny.en, whisper-base.en,
-        # whisper-tiny, whisper-base, whisper-small:
-        # DAKERA_WHISPER_MODEL: "whisper-base"
+        # Speech-to-text model (default whisper-base); one of whisper-base, whisper-tiny.en, whisper-base.en,
+        # whisper-tiny, whisper-small (set whisper-tiny.en to keep the lightest English model):
+        # DAKERA_WHISPER_MODEL: "whisper-tiny.en"
   - target:
       kind: Deployment
       name: dakera

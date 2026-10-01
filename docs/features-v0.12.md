@@ -44,7 +44,7 @@ All rows are **off by default**. "Overlay" is the compose file in `docker/` (add
 |---|---|---|---|---|---|
 | **Multilingual** (bge-m3, per-language full-text, CJK bigrams, per-language query routing) | `docker-compose.multilingual.yml` / `overlays/multilingual` / `features.multilingual` | `DAKERA_MODEL=bge-m3`, `DAKERA_TIERED=0`, `DAKERA_FULLTEXT_LANGUAGE`, `DAKERA_FULLTEXT_CJK_BIGRAMS`, `DAKERA_QUERY_LANG`, `DAKERA_MAX_SEQ_LENGTH`; per request `lang` | bge-m3 ~570 MB download (+ an ORT-format copy), CPU ONNX only, 1024-d, truncation 2048 tokens by default | Fresh store or model-change migration; not with `DAKERA_TIERED=1`, GPU, Candle or the static backend; not with late interaction / vision; `dakera downgrade` refuses it | `default_model` = `bge-m3`; `fulltext_language`; `query_languages` |
 | **Attachments** | `docker-compose.multimodal.yml` / `overlays/multimodal` / `features.multimodal` | `DAKERA_ATTACHMENTS`, `DAKERA_ATTACHMENT_MAX_BYTES` (25 MiB) | Stored per namespace, counted by quotas, backed up, replicated | `501 FEATURE_DISABLED` when off; upload over the limit is `413` | `attachments.enabled`, `attachments.max_bytes` |
-| **Speech to text** | same overlay | `DAKERA_ATTACHMENTS`, `DAKERA_WHISPER_MODEL` (default `whisper-tiny.en`; five choices, see the model table in [Speech to text](#speech-to-text)) | `whisper-tiny.en` ~151 MB download (others: see the model table); one 30-second window of activations (128 MiB) reserved per job | English by default, multilingual models are a choice; WAV only (PCM 8/16/24/32-bit or float); jobs are in memory only (lost on restart; the stored memory stays) | `attachments.transcription.model` |
+| **Speech to text** | same overlay | `DAKERA_ATTACHMENTS`, `DAKERA_WHISPER_MODEL` (default `whisper-base`; five choices, see the model table in [Speech to text](#speech-to-text)) | see the model table (`whisper-tiny.en`: ~151 MB download); one 30-second window of activations (128 MiB) reserved per job | multilingual by default (language auto-detected), English-only models are a choice; WAV only (PCM 8/16/24/32-bit or float); jobs are in memory only (lost on restart; the stored memory stays) | `attachments.transcription.model` |
 | **Image / page indexing and visual recall** (colmodernvbert) | `docker-compose.vision.yml` / `overlays/vision` / `features.vision` | `DAKERA_VISION`, `DAKERA_ATTACHMENTS`, `DAKERA_SCORING_STRATEGY=late-interaction`, `DAKERA_TIERED=0`, `DAKERA_VISION_MODEL` | ~966 MB download (+ ORT copy), conversion reserves ~1 GB, ~10.7 s per page on CPU, one page at a time; image peak +1.9 GiB at 17 tiles | **A dedicated data root and bucket** (the namespaces hold 128-d page vectors); PNG only, at most 64 megapixels; not with text models; `dakera downgrade` refuses it | `vision.enabled`, `vision.model`, `scoring.late_interaction.lane` = `visual` |
 | **Multi-vector records** | `docker-compose.records.yml` / `overlays/records` / `features.records` | `DAKERA_RECORDS`, `DAKERA_RECORD_MAX_VECTORS` (4096), `DAKERA_RECORD_MAX_BYTES` (8 MiB) | Extras are stored beside the primary vector (f32, f16 or i8) | At most 8 extra representations per record; over a limit is `413`; no record delete route (delete through the vector routes) | `records.enabled`, `records.max_*` |
 | **Late interaction** (colbert-small, MaxSim) | `docker-compose.late-interaction.yml` / `overlays/late-interaction` / `features.lateInteraction` | `DAKERA_MODEL=colbert-small`, `DAKERA_SCORING_STRATEGY=late-interaction`, `DAKERA_TIERED=0` | ~34 MB model, 96-d token vectors; steady recall p50 0.10 s at 1k memories, 0.23 s at 10k | Fresh store or migration; **not with `DAKERA_TIERED=1`** (`501`); not with multilingual / vision; `dakera downgrade` refuses it | `scoring.late_interaction.enabled`, `.model_supported`, `.lane` = `text`; `late_interaction_stats` |
@@ -199,15 +199,16 @@ transcript as a memory through the normal write path (embedded, full-text indexe
 set). WAV only (PCM 8/16/24/32-bit or float, any channels and rate;
 anything else is `400` before a job exists).
 
-The model is chosen with `DAKERA_WHISPER_MODEL` (default `whisper-tiny.en`; set it in `.env` for the compose
-overlays, with `dakera.extraEnv` in Helm, or the ConfigMap data in Kustomize):
+The model is chosen with `DAKERA_WHISPER_MODEL` (default `whisper-base`; set it in `.env` for the compose
+overlays, with `dakera.extraEnv` in Helm, or the ConfigMap data in Kustomize). **Behaviour change on upgrade:** the default speech model is `whisper-base` (multilingual, language auto-detected), not English-only `whisper-tiny.en`. A deployment that enables the multimodal overlay and sets no `DAKERA_WHISPER_MODEL` now transcribes with `whisper-base`; set `DAKERA_WHISPER_MODEL=whisper-tiny.en` to keep the lightest English model.
+
 
 | Model | Languages | Role |
 |---|---|---|
-| `whisper-tiny.en` | English | The default, unchanged (39M parameters) |
-| `whisper-base.en` | English | Better accuracy, still light (74M) |
-| `whisper-tiny` | Multilingual (about 99 languages), language auto-detected | The smallest multilingual model (39M) |
-| `whisper-base` | Multilingual, language auto-detected | The recommended multilingual choice (74M) |
+| `whisper-base` | Multilingual (about 99 languages), language auto-detected | The default; the recommended choice (74M parameters) |
+| `whisper-tiny.en` | English | The lightest English model (39M) |
+| `whisper-base.en` | English | Better English (74M) |
+| `whisper-tiny` | Multilingual, language auto-detected | The lightest multilingual model (39M) |
 | `whisper-small` | Multilingual, language auto-detected | The quality option (244M) |
 
 Multilingual models detect the spoken language themselves. The detected language is recorded on the stored
@@ -380,8 +381,9 @@ Everything else downloads on first use into the **model cache** (`HF_HOME`, `/ap
 |---|---|---|---|
 | bge-m3, colbert-small, gte-modernbert-base, ... | `bge-m3`, `colbert-small`, ... | `DAKERA_MODEL` | 23 MB to 570 MB |
 | bge-reranker-base | `bge-reranker-base` | `DAKERA_RERANKER_MODEL` | 279 MB |
-| whisper-tiny.en (default) | `whisper` | `DAKERA_ATTACHMENTS` | ~151 MB |
-| whisper-base.en, whisper-tiny, whisper-base, whisper-small | the model name | `DAKERA_ATTACHMENTS` and `DAKERA_WHISPER_MODEL` | see the model table |
+| whisper-base (default) | `whisper-base` (or `whisper`) | `DAKERA_ATTACHMENTS` | see the model table |
+| whisper-tiny.en | `whisper-tiny.en` | `DAKERA_ATTACHMENTS` and `DAKERA_WHISPER_MODEL` | ~151 MB |
+| whisper-base.en, whisper-tiny, whisper-small | the model name | `DAKERA_ATTACHMENTS` and `DAKERA_WHISPER_MODEL` | see the model table |
 | colmodernvbert | `vision` | `DAKERA_VISION` | ~966 MB |
 | GLiNER (entity extraction) | `gliner` | per namespace (`extract_entities` + `entity_types`) | ~782 MB |
 
@@ -446,7 +448,7 @@ to 10 s for the model, then gets `503` + `Retry-After`. The compose health check
 600 s; the Kubernetes startup probe covers 10 minutes.
 
 **Disk.** Plan the model volume from what each model takes once converted (measured: the download plus
-its ORT copy): `bge-m3` 1.1 GB, `whisper` 367 MB (154 MB downloaded), `colbert-small` 66 MB, `vision`
+its ORT copy): `bge-m3` 1.1 GB, `whisper-tiny.en` 367 MB (154 MB downloaded), `colbert-small` 66 MB, `vision`
 1.9 GB. With GLiNER (not measured here; ~782 MB download, about twice that converted) the four text and
 media models need about 5 GB. 10 GiB leaves room for upgrades.
 

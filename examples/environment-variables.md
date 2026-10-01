@@ -96,7 +96,7 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 |----------|---------|-------------|
 | `DAKERA_ATTACHMENTS` | off | Attachment routes and speech to text; `501 FEATURE_DISABLED` when off |
 | `DAKERA_ATTACHMENT_MAX_BYTES` | `26214400` | Largest upload; over it `413` |
-| `DAKERA_WHISPER_MODEL` | `whisper-tiny.en` | Speech-to-text model (WAV only): `whisper-tiny.en` (English), `whisper-base.en` (English), `whisper-tiny`, `whisper-base` (recommended) or `whisper-small` (multilingual, language auto-detected) |
+| `DAKERA_WHISPER_MODEL` | `whisper-base` | Speech-to-text model (WAV only): `whisper-base` (multilingual, language auto-detected, default and recommended), `whisper-tiny.en` (English, lightest), `whisper-base.en` (English), `whisper-tiny` (multilingual, lightest) or `whisper-small` (multilingual, quality) |
 | `DAKERA_VISION` | off | Image/page indexing and the visual recall lane (needs `DAKERA_ATTACHMENTS`; use a dedicated data root and bucket) |
 | `DAKERA_VISION_MODEL` | `colmodernvbert` | The visual model |
 | `DAKERA_MEM_HIGH_WATER_FRACTION` | `0.85` | Media jobs reserve memory against limit x this; waits up to 10 s, then `503` + `Retry-After` |
