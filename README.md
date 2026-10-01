@@ -167,7 +167,7 @@ Production-grade single-node deployment with MinIO, caching, and health checks.
 > To run a specific version, set `DAKERA_IMAGE` and `DASHBOARD_IMAGE` in your `.env`:
 > ```bash
 > DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.0
-> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.3.29
+> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.4.0
 > ```
 > Pinning to explicit versions prevents unexpected upgrades in production.
 
@@ -209,6 +209,60 @@ defaults to `true` here too: the load balancer port is published on every interf
 Redis: with one Redis shared by the three nodes, v0.12.0's replication applied nothing on some peers
 (measured: 3 of 6 node pairs never converged); without it every write reached the two other nodes within
 0.1 s.
+
+### Dashboard 0.4.0 (server-side sessions)
+
+The dashboard (`docker compose --profile dashboard up -d`, or always on in the HA file) no longer carries an API key.
+Operators open `/login` and sign in with **their own** Dakera API key; the dashboard's session service keeps it in
+server memory behind an `HttpOnly`, `SameSite=Strict` cookie, and nginx adds `Authorization: Bearer <key>` to API
+calls itself. Until 0.3.x the container wrote `DAKERA_API_KEY` into every served page (Dakera-AI/dakera-deploy#296).
+
+**Upgrading from 0.3.x (breaking for deployments):**
+
+- Remove `DAKERA_API_KEY` and `DAKERA_CLIENT_URL` from the dashboard service. Both are ignored with a startup
+  warning. **Rotate any key the old dashboard carried** (the compose files used `DAKERA_ROOT_API_KEY`) if the
+  dashboard was reachable by people who should not hold it: that key was readable in every page it served.
+- Keep `DAKERA_API_UPSTREAM` (unchanged; the compose files set it). `DAKERA_SESSION_TTL_HOURS` is new and optional
+  (default `12`, the longest a sign-in lasts; idle sessions end after 2 hours).
+- Sessions are in memory: restarting the dashboard signs everyone out, and it needs no volume. Run **one replica**
+  (or sticky sessions), otherwise a request landing on another replica asks for a new sign-in.
+- The container serves on port `3000` (the session service listens on loopback `3001` inside the container; do not
+  publish it). The healthcheck is `/_session/healthz`; `/health/live` and `/health/ready` stay public.
+- The image is a little larger (about 40 MB for `python3`, used by the session service).
+
+**TLS in front.** The session cookie is marked `Secure` (and `__Host-` prefixed) only when the request arrives with
+`X-Forwarded-Proto: https`, and state-changing requests are accepted only when their `Origin` matches the `Host` (or
+`X-Forwarded-Host`) the proxy forwards. So the proxy in front must terminate TLS, forward `X-Forwarded-Proto` and keep
+the original `Host`. The compose files publish the dashboard on `127.0.0.1` (single node) so a proxy on the same
+host can reach it; do not expose the plain-HTTP port to the internet (the API key is typed into the login form).
+
+```caddyfile
+# Caddy: sets X-Forwarded-Proto/-For and keeps Host by default
+dashboard.example.com {
+    reverse_proxy 127.0.0.1:3002
+}
+```
+
+```nginx
+# nginx
+server {
+    listen 443 ssl;
+    server_name dashboard.example.com;
+    # ssl_certificate / ssl_certificate_key ...
+    client_max_body_size 200m;            # backup uploads
+    location / {
+        proxy_pass http://127.0.0.1:3002;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;              # live feed (SSE)
+        proxy_read_timeout 300s;
+    }
+}
+```
+
+Traefik and ingress-nginx forward both headers by default; behind a cloud load balancer that terminates TLS, make
+sure the controller trusts and passes its `X-Forwarded-Proto` (ingress-nginx: `use-forwarded-headers: "true"`).
 
 ### Monitoring (Prometheus + Grafana)
 
@@ -797,6 +851,7 @@ See [dakera-ai/dakera-helm](https://github.com/dakera-ai/dakera-helm) for chart 
 
 - **Use native S3** (AWS S3, GCS) instead of MinIO in cloud environments: set `DAKERA_S3_ENDPOINT` to your provider's endpoint and disable MinIO (`minio.enabled=false` in Helm)
 - **Scaling**: a server locks its data root and the volume is ReadWriteOnce, so one Deployment is one server and `k8s/dakera/hpa.yaml` is not applied by default. Scale out with cluster mode (one release per node: own bucket, own volume, shared `DAKERA_CLUSTER_SECRET`)
+- **Dashboard 0.4.0**: the Deployment has no API key (operators sign in with their own key; `DAKERA_API_KEY` is gone, rotate any key the old dashboard carried). Keep `replicas: 1` (sessions are in memory, or add sticky sessions), enable TLS on the dashboard host in `k8s/ingress.yaml` (ingress-nginx forwards `X-Forwarded-Proto` and `Host`), probes use `/_session/healthz`. See [Dashboard 0.4.0](#dashboard-040-server-side-sessions)
 - **TLS**: add cert-manager annotations to `k8s/ingress.yaml` or `ingress.annotations` in Helm values
 - **Secrets management**: use an external secrets operator (External Secrets, Vault) instead of `kubectl create secret` for production
 - **Metrics**: Dakera exposes Prometheus metrics at `GET /metrics` — pods have `prometheus.io/scrape: "true"` annotations for auto-discovery

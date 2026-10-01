@@ -352,13 +352,24 @@ services:
   # Dakera Dashboard — Web UI
   # ==========================================================================
   dashboard:
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.3.29}
+    # 0.4.0: operators sign in at /login with their OWN Dakera API key (kept in
+    # server memory by the dashboard's session service); DAKERA_API_KEY and
+    # DAKERA_CLIENT_URL are gone. Serve it behind TLS that forwards
+    # X-Forwarded-Proto and Host (README, "Dashboard and TLS").
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.4.0}
     container_name: dakera-dashboard
     ports:
       - "${HA_DASHBOARD_PORT:-3202}:3000"
     environment:
       - DAKERA_API_UPSTREAM=http://dakera-traefik:3000
-      - DAKERA_API_KEY=${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.ha.example)}
+      # Longest a sign-in lasts (default 12; idle sessions end after 2 h):
+      - DAKERA_SESSION_TTL_HOURS=${DAKERA_SESSION_TTL_HOURS:-12}
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:3000/_session/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
     depends_on:
       dakera-1:
         condition: service_healthy
