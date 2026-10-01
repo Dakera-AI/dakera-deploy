@@ -524,7 +524,7 @@ and constraints are in [docs/features-v0.12.md](docs/features-v0.12.md) and `doc
 |----------|---------|---------|
 | `DAKERA_MODEL` | `bge-large` | Embedding model: `bge-m3` (multilingual), `colbert-small` (late interaction) |
 | `DAKERA_FULLTEXT_LANGUAGE` / `DAKERA_FULLTEXT_CJK_BIGRAMS` / `DAKERA_QUERY_LANG` / `DAKERA_MAX_SEQ_LENGTH` | `en` / follows the language / `en` / model maximum (`bge-m3`: 2048) | Multilingual |
-| `DAKERA_ATTACHMENTS` / `DAKERA_ATTACHMENT_MAX_BYTES` / `DAKERA_WHISPER_MODEL` | off / 26214400 / `whisper-tiny.en` | Attachments and speech to text |
+| `DAKERA_ATTACHMENTS` / `DAKERA_ATTACHMENT_MAX_BYTES` / `DAKERA_WHISPER_MODEL` | off / 26214400 / `whisper-tiny.en` | Attachments and speech to text; `DAKERA_WHISPER_MODEL` is one of `whisper-tiny.en` (English, default), `whisper-base.en` (English), `whisper-tiny`, `whisper-base` (recommended) or `whisper-small` (multilingual, language auto-detected; see [features-v0.12](docs/features-v0.12.md#speech-to-text)) |
 | `DAKERA_VISION` / `DAKERA_VISION_MODEL` | off / `colmodernvbert` | Image indexing and visual recall |
 | `DAKERA_RECORDS` / `DAKERA_RECORD_MAX_VECTORS` / `DAKERA_RECORD_MAX_BYTES` | off / 4096 / 8388608 | Multi-vector records |
 | `DAKERA_SCORING_STRATEGY` | `single-vector` | `late-interaction` (with `DAKERA_MODEL=colbert-small`) |
