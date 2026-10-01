@@ -1,0 +1,31 @@
+# =============================================================================
+# Dakera - Prometheus alerting rules for the 3-node HA stack (docker-compose.ha.yml)
+# =============================================================================
+# Loaded by monitoring/prometheus.ha.yml only. The node count comes from the scrape:
+# v0.12 emits no cluster-membership gauge (dakera_replica_count is a constant 1), so
+# the nodes are counted by `up{job="dakera"}`. Cluster replication itself is covered
+# by dakera.rules.yml (outbox drops, held changes, clock skew, ...) and
+# GET /admin/cluster/status.
+groups:
+  - name: dakera_cluster
+    rules:
+      - alert: DakeraClusterDegraded
+        expr: count(up{job="dakera"} == 1) < 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Only {{ $value }} of 3 Dakera nodes are answering /metrics"
+          description: >
+            The HA stack runs 3 nodes. Check docker compose ps and the node's log;
+            writes made while a node was down reach it from the durable outbox of
+            its peers, or by reconciliation (every 5 minutes).
+
+      - alert: DakeraClusterOffline
+        expr: count(up{job="dakera"} == 1) == 0 or absent(up{job="dakera"})
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No Dakera node is answering /metrics"
+          description: The cluster cannot serve requests.

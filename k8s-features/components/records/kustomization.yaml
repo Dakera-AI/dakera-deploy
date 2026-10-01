@@ -1,0 +1,24 @@
+# =============================================================================
+# Dakera v0.12.0 - Multi-vector records (opt-in component)
+# =============================================================================
+# POST /v1/namespaces/{ns}/records, GET /v1/namespaces/{ns}/records/{id}: one indexed
+# vector plus up to 8 named extra representations (dense, token_multivector,
+# patch_multivector; f32, f16 or i8). Works on an existing store.
+# Limits of one record's extras: DAKERA_RECORD_MAX_VECTORS (4096) and
+# DAKERA_RECORD_MAX_BYTES (8 MiB); over = 413. Add them to the data below to change them.
+#
+# Verify: curl -s localhost:3000/v1/capabilities -H "X-API-Key: $KEY" | jq .records
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: dakera-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: dakera-config
+      data:
+        DAKERA_RECORDS: "1"

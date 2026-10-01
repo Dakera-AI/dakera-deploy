@@ -1,0 +1,76 @@
+# =============================================================================
+# Dakera v0.12.0 - Image / page indexing and visual recall (opt-in overlay)
+# =============================================================================
+# The visual lane: POST /v1/namespaces/{ns}/attachments/{ref}/index embeds a PNG
+# page with colmodernvbert (a patch multivector plus a pooled vector, both from the
+# pixels) and recall over the pages embeds the QUERY with the model's text side.
+# ViDoRe nDCG@5: TabFQuAD 0.643, Shift Project 0.7705 (the other sets are not
+# measured yet).
+#
+# Use (a DEDICATED stack, see below):
+#   docker compose -f docker-compose.yml -f docker-compose.vision.yml up -d
+#
+# READ FIRST
+#   * A DEDICATED STORE. With the visual lane on, the agent namespaces hold 128-d PAGE
+#     vectors, not text embeddings: never turn it on over an existing text store. This
+#     file therefore swaps the data volumes for dakera-vision-* and the bucket for
+#     "dakera-vision" (created by minio-setup below). Run it on its own host, or stop
+#     the text stack first: it reuses the container names and host ports of the base file.
+#   * Sets DAKERA_TIERED=0 and DAKERA_SCORING_STRATEGY=late-interaction: late interaction
+#     is refused (501) under the tiered embedding engine. It is exclusive with the
+#     text overlays (multilingual, late-interaction).
+#   * DAKERA_ATTACHMENTS=1 is required (pages are attachments); whisper comes with it.
+#   * Pages index ONE AT A TIME (the model has one page session), about 10.7 s per page
+#     on CPU, in the order submitted. Submit a whole document at once: up to 2 500 pages
+#     wait; past that a new job is answered 503 + Retry-After. PNG only, at most 64
+#     megapixels.
+#   * One-way for v0.11: `dakera downgrade` refuses a store with the visual lane.
+#
+# Resources: colmodernvbert is NOT in the image: ~966 MB downloaded into the
+# dakera-models volume (plus an ORT-format copy of about the same size), converted once
+# (the conversion reserves ~1 GB from the memory budget: below that the job answers 503
+# naming `dakera models pull vision`, which converts it outside the server). A page
+# reserves its raster and decode buffers plus 128 MiB per tile; measured: image peak
+# +1.9 GiB at 17 tiles, 530 MiB anonymous memory with every model loaded (TRACKER V6).
+# Give the container 8 GiB (the base file gives 12G) and 4 cores or more.
+# Pre-pull:  docker compose run --rm dakera models pull whisper vision
+#
+# Verify:   curl -s localhost:3000/v1/capabilities -H "X-API-Key: $DAKERA_ROOT_API_KEY" |
+#             jq "{vision, lane: .scoring.late_interaction.lane}"
+#   vision.enabled true, vision.model "colmodernvbert", lane "visual".
+# =============================================================================
+
+services:
+  dakera:
+    environment:
+      # Late interaction is refused (501) under the tiered embedding engine.
+      DAKERA_TIERED: "0"
+      DAKERA_ATTACHMENTS: "1"
+      DAKERA_VISION: "1"
+      DAKERA_SCORING_STRATEGY: late-interaction
+      # A bucket of its own: with DAKERA_STORAGE=s3 the namespaces live in the bucket.
+      DAKERA_S3_BUCKET: dakera-vision
+      DAKERA_ATTACHMENT_MAX_BYTES: "${DAKERA_ATTACHMENT_MAX_BYTES:-}"
+      DAKERA_MEM_HIGH_WATER_FRACTION: "${DAKERA_MEM_HIGH_WATER_FRACTION:-}"
+    volumes:
+      # Same container paths as the base file: these replace its mounts, so the visual
+      # store has a data root of its own.
+      - dakera-vision-data:/data
+      - dakera-vision-cache:/data/cache
+      - dakera-vision-rocksdb:/data/hot
+
+  minio-setup:
+    # The credentials MinIO was started with are passed by the base file. Creates the
+    # visual store's bucket (this entrypoint replaces the base one).
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin};
+      mc mb myminio/dakera-vision --ignore-existing;
+      echo 'Dakera vision bucket ready';
+      exit 0;
+      "
+
+volumes:
+  dakera-vision-data:
+  dakera-vision-cache:
+  dakera-vision-rocksdb:

@@ -1,0 +1,22 @@
+# =============================================================================
+# Dakera v0.12.0 - RaBitQ search mode (opt-in overlay)
+# =============================================================================
+# A LATENCY option. The codes are an in-memory side table built lazily next to the
+# float vectors, which stay resident: it saves NO memory, and the table is re-encoded on
+# the first search after a restart. Works on an existing store (an index setting, not
+# a format change); go back by dropping the overlay.
+#
+# Use:
+#   docker compose -f docker-compose.yml -f docker-compose.rabitq.yml up -d
+#
+# Verify:   curl -s localhost:3000/v1/capabilities -H "X-API-Key: $DAKERA_ROOT_API_KEY" |
+#             jq .search_mode
+# =============================================================================
+
+services:
+  dakera:
+    environment:
+      # The HNSW graph is walked on RaBitQ codes, then the shortlist is re-ranked with exact float distances.
+      DAKERA_SEARCH_MODE: rabitq
+      # Empty = 1. 1-8 bits per dimension (out of range is clamped with a warning); 4 is the usual quality point.
+      DAKERA_RABITQ_BITS: "${DAKERA_RABITQ_BITS:-}"

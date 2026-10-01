@@ -1,0 +1,29 @@
+# =============================================================================
+# Dakera v0.12.0 - Multi-vector records (opt-in overlay)
+# =============================================================================
+# POST /v1/namespaces/{ns}/records and GET /v1/namespaces/{ns}/records/{id}: ONE vector
+# (the primary, indexed and searched) plus up to 8 named extra representations (dense,
+# token_multivector, patch_multivector; stored as f32, f16 or i8), kept beside it by every
+# storage backend, backups, export/import and replication. Without this overlay the
+# routes answer 501 FEATURE_DISABLED.
+#
+# Use:
+#   docker compose -f docker-compose.yml -f docker-compose.records.yml up -d
+#
+# Works on an existing store; nothing is re-embedded. There is no record delete route:
+# delete the id through the vector routes. A record GET returns a manifest; the vectors
+# only with ?include_vectors=true.
+#
+# Verify:   curl -s localhost:3000/v1/capabilities -H "X-API-Key: $DAKERA_ROOT_API_KEY" |
+#             jq .records
+# =============================================================================
+
+services:
+  dakera:
+    environment:
+      # Record routes: one indexed vector plus named extra representations.
+      DAKERA_RECORDS: "1"
+      # Empty = 4096 vectors in one representation. Over it: 413.
+      DAKERA_RECORD_MAX_VECTORS: "${DAKERA_RECORD_MAX_VECTORS:-}"
+      # Empty = 8388608 (8 MiB) of packed extras per record. Over it: 413.
+      DAKERA_RECORD_MAX_BYTES: "${DAKERA_RECORD_MAX_BYTES:-}"

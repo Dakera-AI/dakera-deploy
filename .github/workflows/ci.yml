@@ -42,6 +42,34 @@ jobs:
       - name: Validate docker-compose.dev.yml
         run: docker compose -f docker/docker-compose.dev.yml config --quiet
 
+      - name: Validate docker-compose.ha.yml
+        env:
+          DAKERA_ROOT_API_KEY: ci-validation-placeholder
+          DAKERA_CLUSTER_SECRET: ci-validation-placeholder-secret
+          GRAFANA_PASSWORD: ci-validation-placeholder
+        run: docker compose -f docker/docker-compose.ha.yml --profile monitoring config --quiet
+
+      - name: Validate the v0.12 feature overlays (single node and HA)
+        env:
+          DAKERA_ROOT_API_KEY: ci-validation-placeholder
+          DAKERA_CLUSTER_SECRET: ci-validation-placeholder-secret
+          GRAFANA_PASSWORD: ci-validation-placeholder
+        run: |
+          set -e
+          cd docker
+          for f in multilingual multimodal late-interaction records rabitq vision; do
+            echo "== docker-compose.$f.yml"
+            docker compose -f docker-compose.yml -f docker-compose.$f.yml config --quiet
+          done
+          for f in multilingual multimodal late-interaction records rabitq; do
+            echo "== docker-compose.ha.$f.yml"
+            docker compose -f docker-compose.ha.yml -f docker-compose.ha.$f.yml config --quiet
+          done
+          echo "== combination: multilingual + multimodal + records + rabitq"
+          docker compose -f docker-compose.yml -f docker-compose.multilingual.yml \
+            -f docker-compose.multimodal.yml -f docker-compose.records.yml \
+            -f docker-compose.rabitq.yml config --quiet
+
       - name: Lint Dockerfiles
         uses: hadolint/hadolint-action@v3.4.0
         with:
@@ -88,4 +116,13 @@ jobs:
         run: |
           echo "Rendered $(wc -l < /tmp/kustomize-output.yaml) lines"
           grep "^kind:" /tmp/kustomize-output.yaml | sort | uniq -c | sort -rn
+
+      - name: kustomize build (v0.12 feature overlays)
+        run: |
+          set -e
+          for o in k8s-features/overlays/*/; do
+            echo "== $o"
+            kustomize build "$o" > /tmp/kustomize-overlay.yaml
+            grep -c "^kind:" /tmp/kustomize-overlay.yaml
+          done
 

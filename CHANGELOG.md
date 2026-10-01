@@ -32,6 +32,58 @@ v0.11 is preserved on the `release/0.11` branch; `main` targets v0.12.0 from her
   Kubernetes one-off Jobs `k8s/dakera/check-config-job.yaml` and `k8s/dakera/downgrade-job.yaml`.
 - README: "Versions", "Upgrading from v0.11 to v0.12.0", "Rolling back to v0.11".
 
+### Added: v0.12 features, all opt-in (docs/features-v0.12.md)
+
+- `docs/features-v0.12.md`: "Features in v0.12.0": a capability matrix (feature, switch, variables, resources,
+  constraints, how to verify) and per-feature sections: multilingual (bge-m3, per-language full-text, CJK
+  bigrams, `DAKERA_QUERY_LANG`, per-request `lang`, the full-text reindex route), multimodal (attachments, speech to
+  text, image / page indexing and the visual lane, memory admission and `503` + `Retry-After`), multi-vector
+  records, late interaction, RaBitQ, rerank controls, the model store (`dakera models list / pull / prune`,
+  baked images, proxies, a Hugging Face mirror, offline and air-gapped installs), switching the embedding
+  model, which features can be combined, security (gRPC authentication, scoped keys, the encryption keyring and
+  rotation, the cluster secret), reliability, observability, and sizing derived from the release notes' measurements.
+- Compose overlays, each opt-in and validated with `docker compose config`: `docker-compose.{multilingual,
+  multimodal,vision,late-interaction,records,rabitq}.yml` and the HA twins `docker-compose.ha.{multilingual,
+  multimodal,late-interaction,records,rabitq}.yml`.
+- `k8s-features/`: Kustomize components (`models-cache`, `multilingual`, `multimodal`, `vision`, `records`,
+  `late-interaction`, `rabitq`) and overlays; `models-cache` adds a model-cache PVC and a `dakera models pull configured`
+  init container; the `vision` overlay is a dedicated stack in its own namespace.
+- `docker/.env.example`, `.env.ha.example`: sections per feature, model downloads (mirror, proxy, offline), encryption.
+- `examples/production-checklist.md`, `examples/environment-variables.md`: v0.12 features, security, sizing.
+- CI validates the HA file, every overlay (single node and HA) and every Kustomize overlay.
+
+### Changed: observability
+
+- `monitoring/` follows what v0.12 emits. Added `monitoring/dakera.rules.yml` (the server's alert rules, loaded by
+  Prometheus in the compose files and in `k8s/monitoring/prometheus.yaml`) and replaced the Grafana overview with
+  the server's v0.12 dashboard. Removed the alerts and panels that read metrics v0.12 does not emit
+  (`dakera_cache_*`, `dakera_l2_cache_*`, `dakera_decay_*`, `dakera_total_vectors`, `dakera_cluster_nodes_total`,
+  `dakera_memory_count`, ...) and the replica-count alerts (`dakera_replica_count` is a constant 1 in v0.12, so they
+  fired on every node). The HA stack now scrapes `dakera-1..3` as job `dakera` (`monitoring/prometheus.ha.yml`; it
+  scraped the non-existent `dakera:3000`) and alerts on the node count.
+
+### Fixed
+
+- Compose files passed to the container only the variables they list, so most of what `docker/.env.example` offered
+  (`DAKERA_ENCRYPTION_KEY`, the search and ranking levers, the tiering settings, `DAKERA_MAX_BODY_SIZE`, ...) had no
+  effect: encryption stayed off with a key in `.env`. They are now passed (empty = the server default).
+- `minio-setup` did not receive `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`, so bucket creation failed once the
+  credentials were changed as `.env.example` asks (single node and HA).
+- `.env.example`: `DAKERA_SEARCH_MODE` accepts `hybrid`, `binary`, `float`, `scalar`, `rabitq` (not `vector` / `text`);
+  `DAKERA_HYBRID_FETCH_MULT` is an integer (default 5x); the defaults of `DAKERA_BM25_DELTA` (1.0), `DAKERA_NAME_BOOST`
+  (0.3), `DAKERA_ADAPTIVE_WVEC_THRESHOLD` (0.15), `DAKERA_REQUEST_TIMEOUT` (300) and `DAKERA_MAX_BODY_SIZE` (10 MiB);
+  `DAKERA_ONNX_POOL_SIZE` is gone (it applies to the GPU path only).
+- `DAKERA_L1_CACHE_SIZE`: the hot-tier budget of tiered storage (default 100000 vectors); a bare byte count at or above
+  10 million is read as bytes with a warning, so the compose files use `512MB` and the ConfigMap `1GB`. The devcontainer
+  and playground files no longer set it (no tiered storage there, so it only produced a warning).
+- Compose `stop_grace_period` is 30 s (the default 10 s killed the server during its graceful shutdown).
+- README: the telemetry paragraph (hostname and IP are sent), the defaults of `DAKERA_AUTO_TIER`, `DAKERA_MAX_BODY_SIZE`,
+  `DAKERA_REQUEST_TIMEOUT`, `DAKERA_ENCRYPTION_KEY`, and the rollback section (a store on bge-m3, colbert-small or the
+  visual lane cannot be downgraded). `examples/production-checklist.md` said the default limits were 4G / 2 CPUs
+  (compose: 12G / 4).
+- Grafana: the memory-API dashboard referred to a datasource uid that was never provisioned; panels over
+  metrics v0.12 does not emit were removed.
+
 ### Removed
 
 - `DAKERA_L2_CACHE_PATH` (v0.12 reads no such name), `DAKERA_CACHE_REDIS_URL` (use `DAKERA_REDIS_URL`).

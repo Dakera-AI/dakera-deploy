@@ -229,7 +229,13 @@ docker compose -f docker-compose.ha.yml --profile monitoring up -d
 - Prometheus: http://localhost:9090
 - Grafana: http://localhost:3003 (admin/dakera)
 
-Pre-configured dashboards include request rates, latency percentiles, cache hit ratios, storage metrics, cluster health, and memory decay metrics (v0.8.0+).
+The "Dakera Overview" dashboard is the server's v0.12 dashboard: request rates and latency percentiles,
+HTTP statuses and errors, health and configuration (config warnings, degraded components, WAL and
+memory-read failures, backups), models and memory admission, recall and ingest stage latencies, derived caches
+and late interaction, tiered storage, cluster replication, encryption and the RocksDB hot tier. Prometheus loads
+the server's alert rules (`monitoring/dakera.rules.yml`) next to the deploy-side ones
+(`monitoring/alerting-rules.yml`); the HA stack scrapes its three nodes (`monitoring/prometheus.ha.yml`) and alerts
+on the node count. Every expression reads a metric the v0.12 server emits.
 
 ### Kubernetes
 
@@ -301,7 +307,10 @@ Summary for the files in this repo:
 
 ## Rolling back to v0.11
 
-Going back from v0.12.0 to v0.11.108 is supported (every v0.11 embedding model, encrypted or not).
+Going back from v0.12.0 to v0.11.108 is supported (every v0.11 embedding model, encrypted or not),
+**except for a store that uses a v0.12-only feature**: `dakera downgrade` refuses (exit 78, nothing changed)
+a store on `bge-m3` (multilingual), `colbert-small` / late interaction or the visual lane. Move such a
+store to a v0.11 model under v0.12 first, or restore a backup taken before you turned the feature on.
 `dakera downgrade` converts the data back, and must run as a one-off job **after** the server has
 stopped (it refuses, exit 78 with nothing changed, while a server runs on the data):
 
@@ -320,12 +329,53 @@ DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.108 docker compose up -d
   `docker/docker-compose.ha.yml`).
 - Air-gapped, after `dakera models prune`: re-seed the model volume first (server UPGRADE.md, "Going back to v0.11").
 
+## Features in v0.12.0
+
+v0.12.0 adds multilingual search, multimodal memory, multi-vector records, late interaction, a RaBitQ
+search mode, rerank controls, a model store, a keyring for encryption keys, and a reworked reliability and
+observability layer. **Every new feature is off by default**: the files above deploy a server that behaves
+like v0.11.108's. Each feature is switched on by an overlay file, a Kustomize component or a Helm value,
+and is described, with its variables, resources, constraints and how to verify it, in
+**[docs/features-v0.12.md](docs/features-v0.12.md)**.
+
+| Feature | Compose overlay (`docker/`) | HA twin | Kubernetes (`k8s-features/overlays/`) |
+|---|---|---|---|
+| Multilingual (bge-m3, per-language full-text, CJK, `lang`) | `docker-compose.multilingual.yml` | `docker-compose.ha.multilingual.yml` | `multilingual` |
+| Attachments + speech to text | `docker-compose.multimodal.yml` | `docker-compose.ha.multimodal.yml` | `multimodal` |
+| Image / page indexing + visual recall (dedicated stack) | `docker-compose.vision.yml` | n/a | `vision` |
+| Multi-vector records | `docker-compose.records.yml` | `docker-compose.ha.records.yml` | `records` |
+| Late interaction (colbert-small) | `docker-compose.late-interaction.yml` | `docker-compose.ha.late-interaction.yml` | `late-interaction` |
+| RaBitQ search mode | `docker-compose.rabitq.yml` | `docker-compose.ha.rabitq.yml` | `rabitq` |
+
+```bash
+cd docker
+docker compose -f docker-compose.yml -f docker-compose.multilingual.yml -f docker-compose.multimodal.yml up -d
+docker compose -f docker-compose.ha.yml -f docker-compose.ha.multilingual.yml up -d
+kubectl apply -k k8s-features/overlays/multilingual-multimodal
+```
+
+Things to know before you switch one on:
+
+- **Multilingual, late interaction and vision change the embedding model or the lane.** The store records
+  its model and refuses to start with another one, so use a **fresh store**, or migrate
+  (`DAKERA_ALLOW_MODEL_CHANGE=1` for one start, then `POST /admin/namespaces/migrate-dimensions`). They set
+  `DAKERA_TIERED=0`: the tiered embedding engine, which the quick-start files enable, pins `bge-large` and
+  refuses late interaction.
+- **Vision is a store of its own** (a dedicated data root and bucket): never over an existing text store.
+- **RaBitQ saves latency, not memory.**
+- Models other than `bge-large` and the reranker are **not in the image**: they download into the
+  `dakera-models` volume on first use (`docker compose run --rm dakera models pull bge-m3 whisper vision`
+  ahead of time; `HF_ENDPOINT`, `HTTPS_PROXY` and `HF_HUB_OFFLINE` in `.env` for mirrors, proxies and
+  air-gapped hosts).
+- Check what a running server has on with `GET /v1/capabilities`, and `GET /health`.
+
 ## Deployment Guides
 
 Step-by-step guides in the [`examples/`](examples/) directory:
 
 - **[Quickstart](examples/quickstart.md)** — Store and recall your first memory in 5 minutes
 - **[REST API Integration Guide](examples/api-notes.md)** — Building a client directly against the API: auth & scopes, conventions, the full memory lifecycle (store/recall/update/forget), sessions, the consolidation family, scoring, error/retry handling, and a worked example
+- **[Features in v0.12.0](docs/features-v0.12.md)** — Multilingual, multimodal, records, late interaction, RaBitQ, the model store, security, reliability, observability: variables, resources, constraints, verification, sizing
 - **[Environment Variables](examples/environment-variables.md)** — Complete reference for all configuration options
 - **[Production Checklist](examples/production-checklist.md)** — Security, storage, HA, and monitoring checklist
 - **[Backup & Restore](examples/backup-restore.md)** — MinIO backup procedures and disaster recovery
@@ -345,6 +395,9 @@ dakera-deploy/
 │   ├── docker-compose.dev.yml       # Dev: MinIO only (run Dakera locally)
 │   ├── docker-compose.local.yml     # Local: single instance, in-memory
 │   ├── docker-compose.ha.yml        # HA: 3-node cluster + Traefik LB
+│   ├── docker-compose.<feature>.yml     # v0.12 opt-in overlays: multilingual, multimodal, vision,
+│   │                                    #   late-interaction, records, rabitq
+│   ├── docker-compose.ha.<feature>.yml  # their HA twins (all but vision)
 │   └── traefik-dynamic.yml          # Traefik routing and load balancer config
 ├── k8s/                             # Kubernetes manifests (production)
 │   ├── namespace.yaml               # dakera namespace
@@ -370,9 +423,19 @@ dakera-deploy/
 │   │   └── grafana.yaml
 │   ├── ingress.yaml                 # Nginx ingress (edit hostnames)
 │   └── kustomization.yaml           # kubectl apply -k k8s/
+├── k8s-features/                    # v0.12 opt-in features for Kubernetes (Kustomize)
+│   ├── components/                  # models-cache, multilingual, multimodal, vision, records,
+│   │                                #   late-interaction, rabitq
+│   └── overlays/                    # ready-made combinations: kubectl apply -k k8s-features/overlays/<name>
+├── docs/
+│   └── features-v0.12.md            # What v0.12.0 adds, per feature: variables, resources, constraints, verify
 ├── monitoring/                      # Observability stack
 │   ├── docker-compose.yml           # Standalone monitoring compose
-│   ├── prometheus.yml               # Prometheus scrape configuration
+│   ├── prometheus.yml               # Prometheus scrape configuration (single node)
+│   ├── prometheus.ha.yml            # ... and for the 3-node HA stack
+│   ├── alerting-rules.yml           # Deploy-side alert rules (latency, resources, MinIO)
+│   ├── alerting-rules.ha.yml        # HA node-count alerts
+│   ├── dakera.rules.yml             # The server's v0.12 alert rules (copied verbatim)
 │   └── grafana/                     # Grafana provisioning
 │       └── provisioning/
 │           ├── datasources/
@@ -380,7 +443,8 @@ dakera-deploy/
 │           └── dashboards/
 │               ├── dashboards.yml   # Dashboard auto-provisioning config
 │               └── json/
-│                   └── dakera-overview.json  # Overview + decay dashboards
+│                   ├── dakera-overview.json    # The server's v0.12 dashboard
+│                   └── dakera-memory-api.json  # Memory API throughput and latency
 ├── examples/                        # Deployment guides and references
 │   ├── quickstart.md                # Zero-to-running tutorial
 │   ├── environment-variables.md     # Complete env var reference
@@ -403,11 +467,11 @@ dakera-deploy/
 | `DAKERA_STORAGE` | `memory` | Storage backend (`memory`, `filesystem`, `s3`) |
 | `DAKERA_STORAGE_PATH` | `/data` | Data root: write-ahead log, knowledge graph, filesystem backend, hot and warm tiers all derive from it |
 | `RUST_LOG` | `info` | Log verbosity level |
-| `DAKERA_TELEMETRY` | `enabled` | Anonymous operational telemetry. Set to `0`/`off` to disable (see [Telemetry](#telemetry)) |
+| `DAKERA_TELEMETRY` | `enabled` | Product telemetry (hostname and IP included; see below). Set to `0`/`off` to disable (see [Telemetry](#telemetry)) |
 
 ### Telemetry
 
-Dakera sends **anonymous operational telemetry** by default — engine version, OS family, and deployment type — approximately once per uptime interval, to help us understand which platforms to support. **Your memory contents, agent outputs, and personal data are never transmitted**, and there is no license check against a remote server.
+Dakera sends **product telemetry** by default, to count how many engines run and how they run. In v0.12 it is lifecycle events (`engine_started`, `engine_stopped`, `engine_crashed`, `engine_version_changed`) and a heartbeat every 6 hours: version, platform, deployment kind, storage topology, resource use, request counts and latency bands by type, memory / agent / namespace counts, the **names** of the configuration variables that are set and the values of the non-text ones. It also sends **the machine's hostname**, and PostHog keeps the **connecting IP address** and derives a coarse location from it, so it is not anonymous at the network level. **Memory content, queries, ids, keys, secrets, paths and URLs are never transmitted**, and there is no license check against a remote server. Everything sent is listed in the server's [docs/telemetry.md](https://github.com/Dakera-AI/dakera/blob/main/docs/telemetry.md).
 
 To disable it, set either of:
 
@@ -416,7 +480,7 @@ DAKERA_TELEMETRY=off   # or 0 / false / no
 DO_NOT_TRACK=1         # honored as an unconditional opt-out
 ```
 
-Fully air-gapped operation is supported. Inspect the exact payload before it is sent with `DAKERA_TELEMETRY_DEBUG=1`.
+Fully air-gapped operation is supported (a failed send is one debug log line). Inspect the exact payload before it is sent with `DAKERA_TELEMETRY_DEBUG=1`.
 
 ### S3/MinIO Storage
 
@@ -432,7 +496,7 @@ Fully air-gapped operation is supported. Inspect the exact payload before it is 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_L1_CACHE_SIZE` | `1073741824` (1GB) | In-memory L1 cache size in bytes |
+| `DAKERA_L1_CACHE_SIZE` | `100000` vectors | Hot-tier budget of tiered storage (no effect without `DAKERA_TIERED_STORAGE`). A unit suffix (`512MB`, `1g`) makes it bytes; a bare number below 10 million is a vector count. The compose files set `512MB`, the Kubernetes ConfigMap `1GB` |
 | `DAKERA_DISK_CACHE_DIR` | - | Enables the L2 on-disk read cache (replaces v0.11's ignored `DAKERA_L2_CACHE_PATH`) |
 | `DAKERA_CACHE_DIR` | `{root}/cache/warm` | The warm tier's directory (tiered storage only) |
 
@@ -442,7 +506,24 @@ The image ships `bge-large` and the reranker and loads them in seconds with no n
 model (`DAKERA_MODEL=bge-m3`, whisper, vision, GLiNER) downloads on first use into the model cache
 (`/app/models`, the `dakera-models` volume). Pre-pull / air-gapped:
 `docker compose run --rm dakera models pull <model>`; inspect with `models list`; free space with
-`models prune`. See the server's [models-and-docker.md](https://github.com/Dakera-AI/dakera/blob/main/docs/models-and-docker.md).
+`models prune`. Mirrors, proxies and offline hosts: `HF_ENDPOINT`, `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` / `NO_PROXY` and `HF_HUB_OFFLINE` in `.env`. See [docs/features-v0.12.md](docs/features-v0.12.md#the-model-store) and the server's [models-and-docker.md](https://github.com/Dakera-AI/dakera/blob/main/docs/models-and-docker.md).
+
+### v0.12 features (all off by default)
+
+Set by the overlay files listed under [Features in v0.12.0](#features-in-v0120); the variables, their defaults
+and constraints are in [docs/features-v0.12.md](docs/features-v0.12.md) and `docker/.env.example`.
+
+| Variable | Default | Feature |
+|----------|---------|---------|
+| `DAKERA_MODEL` | `bge-large` | Embedding model: `bge-m3` (multilingual), `colbert-small` (late interaction) |
+| `DAKERA_FULLTEXT_LANGUAGE` / `DAKERA_FULLTEXT_CJK_BIGRAMS` / `DAKERA_QUERY_LANG` / `DAKERA_MAX_SEQ_LENGTH` | `en` / follows the language / `en` / model maximum (`bge-m3`: 2048) | Multilingual |
+| `DAKERA_ATTACHMENTS` / `DAKERA_ATTACHMENT_MAX_BYTES` / `DAKERA_WHISPER_MODEL` | off / 26214400 / `whisper-tiny.en` | Attachments and speech to text |
+| `DAKERA_VISION` / `DAKERA_VISION_MODEL` | off / `colmodernvbert` | Image indexing and visual recall |
+| `DAKERA_RECORDS` / `DAKERA_RECORD_MAX_VECTORS` / `DAKERA_RECORD_MAX_BYTES` | off / 4096 / 8388608 | Multi-vector records |
+| `DAKERA_SCORING_STRATEGY` | `single-vector` | `late-interaction` (with `DAKERA_MODEL=colbert-small`) |
+| `DAKERA_SEARCH_MODE` / `DAKERA_RABITQ_BITS` | `hybrid` / `1` | `rabitq`: latency, not memory |
+| `DAKERA_RERANK_MAX_CANDIDATES` | unset (whole pool) | Caps the candidates the cross-encoder scores |
+| `DAKERA_MEM_HIGH_WATER_FRACTION` | `0.85` | Memory budget media jobs reserve against (`503` + `Retry-After` when full) |
 
 ### Cluster (HA Mode)
 
@@ -461,18 +542,18 @@ model (`DAKERA_MODEL=bge-m3`, whisper, vision, GLiNER) downloads on first use in
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_TIERED_STORAGE` | `false` | Enable L1→L2→L3 tiered storage |
+| `DAKERA_TIERED_STORAGE` | `false` | Enable L1→L2→L3 tiered storage (needs `DAKERA_STORAGE=s3`). The hot tier is RocksDB by default in v0.12 (`DAKERA_HOT_TIER`, fsynced writes: `DAKERA_ROCKSDB_SYNC`) |
 | `DAKERA_HOT_TO_WARM_SECS` | `3600` | Seconds before hot data moves to warm (RocksDB) |
 | `DAKERA_WARM_TO_COLD_SECS` | `86400` | Seconds before warm data moves to cold (S3) |
-| `DAKERA_AUTO_TIER` | `false` | Automatic tier promotion/demotion |
+| `DAKERA_AUTO_TIER` | `true` | Automatic tier promotion/demotion (no effect without `DAKERA_TIERED_STORAGE`) |
 | `DAKERA_TIER_CHECK_INTERVAL_SECS` | `300` | Interval for tier check sweep |
 
 ### Request Limits
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_MAX_BODY_SIZE` | `524288000` | Max request body size in bytes (500MB) |
-| `DAKERA_REQUEST_TIMEOUT` | `120` | Request timeout in seconds |
+| `DAKERA_MAX_BODY_SIZE` | `10485760` (10 MiB) | Max request body size in bytes. The compose files and the ConfigMap set `524288000` (500 MB) |
+| `DAKERA_REQUEST_TIMEOUT` | `300` | Request timeout in seconds (the outer ceiling). `docker-compose.yml` sets 600, the HA file and the ConfigMap 120 |
 
 ### Redis (HA Mode)
 
@@ -486,13 +567,13 @@ model (`DAKERA_MODEL=bge-m3`, whisper, vision, GLiNER) downloads on first use in
 |----------|---------|-------------|
 | `DAKERA_AUTH_ENABLED` | `true` | Enable API authentication (default on; server refuses to start if enabled with no keys configured) |
 | `DAKERA_ROOT_API_KEY` | - | Root API key (**required** in production compose) |
-| `DAKERA_ENCRYPTION_KEY` | - | AES-256-GCM key for at-rest memory encryption (32-byte hex) |
+| `DAKERA_ENCRYPTION_KEY` | - | AES-256-GCM at rest: 64 hex characters (a raw 256-bit key) or a passphrase of at least 8 characters; the same on every node. Keys rotate through a keyring (see the [features guide](docs/features-v0.12.md#security)) |
 
 ### gRPC
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_GRPC_ENABLED` | `true` | Enable the gRPC endpoint |
+| `DAKERA_GRPC_ENABLED` | `true` | Enable the gRPC endpoint. v0.12 requires an API key in the call metadata (`x-api-key` or `authorization: Bearer`) whenever authentication is on |
 
 ## HA Architecture
 

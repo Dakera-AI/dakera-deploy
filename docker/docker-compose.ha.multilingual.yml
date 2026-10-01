@@ -1,0 +1,57 @@
+# =============================================================================
+# Dakera v0.12.0 - Multilingual search (opt-in overlay), HA
+# =============================================================================
+# bge-m3 embeddings + per-language full-text (stemming, stop words, CJK bigrams) +
+# multilingual query routing. Everything else is the base file.
+#
+# Use:
+#   docker compose -f docker-compose.ha.yml -f docker-compose.ha.multilingual.yml up -d
+#
+# READ FIRST
+#   * FRESH STORE ONLY (new volumes and bucket). The store records the model that
+#     embedded it; a store embedded with bge-large REFUSES to start with bge-m3
+#     (exit 1, both models named). To switch an existing store follow
+#     docs/features-v0.12.md, "Switching the embedding model" (DAKERA_ALLOW_MODEL_CHANGE=1
+#     for ONE start + POST /admin/namespaces/migrate-dimensions).
+#   * Sets DAKERA_TIERED=0 (the tiered embedding engine pins bge-large).
+#   * Not combinable with docker-compose.ha.late-interaction.yml (they set
+#     another DAKERA_MODEL). Combinable with multimodal, records and rabitq.
+#   * One-way for v0.11: `dakera downgrade` refuses a store on bge-m3.
+#
+# Resources: the model is NOT in the image: ~570 MB downloaded into the dakera-models
+# volume (plus an ORT-format copy of about the same size), memory-mapped, CPU only.
+# Pre-pull:  docker compose -f docker-compose.ha.yml run --rm --no-deps dakera-1 models pull bge-m3
+#
+# Verify:   curl -s localhost:3100/v1/capabilities -H "X-API-Key: $DAKERA_ROOT_API_KEY" |
+#             jq "{default_model, fulltext_language, query_languages}"
+#   default_model must be "bge-m3"; /health/ready answers 200 once it is loaded.
+#
+# HA: the three nodes share one dakera-models volume (a model downloads once, the
+# others wait for it); the setting must be IDENTICAL on every node, so this file sets
+# all three. Cluster nodes replicate: do not enable it on part of the cluster.
+# =============================================================================
+
+x-dakera-multilingual-env: &multilingual-env
+  # The tiered embedding engine always embeds with bge-large and ignores DAKERA_MODEL.
+  DAKERA_TIERED: "0"
+  # Multilingual embedding model (1024-d, CPU ONNX only; ~570 MB download on first start).
+  DAKERA_MODEL: bge-m3
+  # BM25 analyzer of NEWLY created namespace indexes (de, french, pt-BR, ... or multilingual = no stemming).
+  DAKERA_FULLTEXT_LANGUAGE: "${DAKERA_FULLTEXT_LANGUAGE:-multilingual}"
+  # Empty = follow the language (on unless en). true forces CJK / Thai bigrams on.
+  DAKERA_FULLTEXT_CJK_BIGRAMS: "${DAKERA_FULLTEXT_CJK_BIGRAMS:-}"
+  # Query routing / temporal expressions: en de fr es it pt nl, or auto (per query).
+  DAKERA_QUERY_LANG: "${DAKERA_QUERY_LANG:-auto}"
+  # Empty = 2048 for bge-m3 (it supports 8192, at ~4 GiB of attention scores per layer per row).
+  DAKERA_MAX_SEQ_LENGTH: "${DAKERA_MAX_SEQ_LENGTH:-}"
+
+services:
+  dakera-1:
+    environment:
+      <<: *multilingual-env
+  dakera-2:
+    environment:
+      <<: *multilingual-env
+  dakera-3:
+    environment:
+      <<: *multilingual-env

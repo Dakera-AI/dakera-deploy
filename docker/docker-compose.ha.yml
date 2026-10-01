@@ -13,8 +13,8 @@
 #
 # Usage:
 #   docker compose -f docker-compose.ha.yml up -d
-#   docker compose -f docker-compose.ha.yml up -d --profile monitoring
-#   docker compose -f docker-compose.ha.yml up -d --profile full
+#   docker compose -f docker-compose.ha.yml --profile monitoring up -d
+#   docker compose -f docker-compose.ha.yml --profile full up -d
 #   docker compose -f docker-compose.ha.yml down
 #
 # Endpoints (default HA_ port overrides — safe for single-server co-deployment):
@@ -62,6 +62,9 @@ name: dakera-ha
 x-dakera-common: &dakera-common
   image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.0}
   restart: unless-stopped
+  # SIGTERM starts the graceful shutdown (running media-job stores are waited for up to
+  # 15 s, then the final flushes); compose's default of 10 s would kill it first.
+  stop_grace_period: 30s
   ulimits:
     nofile:
       soft: 65536
@@ -102,27 +105,62 @@ x-dakera-env: &dakera-env
   AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
   DAKERA_S3_REGION: "us-east-1"
   # Cache
-  DAKERA_L1_CACHE_SIZE: "536870912"
+  # Hot-tier byte budget (tiered storage); a bare number below 10 million would be a vector count.
+  DAKERA_L1_CACHE_SIZE: "${DAKERA_L1_CACHE_SIZE:-512MB}"
   # OPS-3: shared Redis for rate-limit counters, SSE pub/sub fan-out, leader lock
   DAKERA_REDIS_URL: "redis://redis:6379"
   # Tiered storage (L1 hot → L2 warm → L3 cold)
-  DAKERA_TIERED_STORAGE: "true"
-  DAKERA_HOT_TO_WARM_SECS: "3600"
-  DAKERA_WARM_TO_COLD_SECS: "86400"
-  DAKERA_AUTO_TIER: "true"
-  DAKERA_TIER_CHECK_INTERVAL_SECS: "300"
+  DAKERA_TIERED_STORAGE: "${DAKERA_TIERED_STORAGE:-true}"
+  DAKERA_HOT_TO_WARM_SECS: "${DAKERA_HOT_TO_WARM_SECS:-3600}"
+  DAKERA_WARM_TO_COLD_SECS: "${DAKERA_WARM_TO_COLD_SECS:-86400}"
+  DAKERA_AUTO_TIER: "${DAKERA_AUTO_TIER:-true}"
+  DAKERA_TIER_CHECK_INTERVAL_SECS: "${DAKERA_TIER_CHECK_INTERVAL_SECS:-300}"
   # DAK-6209/DAK-6284: tiered embeddings ON. Must be IDENTICAL on all nodes (they
   # replicate vectors to each other; the tiered engine always embeds with the
   # default model and ignores DAKERA_MODEL; a node whose effective model differs
   # from the store's refuses to start).
-  DAKERA_TIERED: "1"
-  DAKERA_SEARCH_MODE: "hybrid"
+  DAKERA_TIERED: "${DAKERA_TIERED:-1}"
+  DAKERA_SEARCH_MODE: "${DAKERA_SEARCH_MODE:-hybrid}"
   # Request limits
-  DAKERA_MAX_BODY_SIZE: "524288000"
+  DAKERA_MAX_BODY_SIZE: "${DAKERA_MAX_BODY_SIZE:-524288000}"
   DAKERA_REQUEST_TIMEOUT: "${DAKERA_REQUEST_TIMEOUT:-120}"
   # Auth
   DAKERA_AUTH_ENABLED: "${DAKERA_AUTH_ENABLED:-false}"
   DAKERA_ROOT_API_KEY: "${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.ha.example)}"
+  # Model downloads behind a proxy / mirror, or none at all (air-gapped). All empty
+  # = unset = the Hugging Face Hub, directly (.env.ha.example, "Model downloads").
+  # Settings documented in .env.ha.example / .env.example. Compose passes ONLY what is listed here
+  # (a variable in .env that is not, never reaches the container); empty = unset = the server's
+  # default. DAKERA_ENCRYPTION_KEY must be the SAME on every node.
+  DAKERA_ENCRYPTION_KEY: "${DAKERA_ENCRYPTION_KEY:-}"
+  DAKERA_HYBRID_FETCH_MULT: "${DAKERA_HYBRID_FETCH_MULT:-}"
+  DAKERA_BM25_K1: "${DAKERA_BM25_K1:-}"
+  DAKERA_BM25_B: "${DAKERA_BM25_B:-}"
+  DAKERA_BM25_DELTA: "${DAKERA_BM25_DELTA:-}"
+  DAKERA_RRF_K: "${DAKERA_RRF_K:-}"
+  DAKERA_FUSION_STRATEGY: "${DAKERA_FUSION_STRATEGY:-}"
+  DAKERA_TEMPORAL_RERANK_GAMMA: "${DAKERA_TEMPORAL_RERANK_GAMMA:-}"
+  DAKERA_ADAPTIVE_WVEC_BOOST: "${DAKERA_ADAPTIVE_WVEC_BOOST:-}"
+  DAKERA_ADAPTIVE_WVEC_THRESHOLD: "${DAKERA_ADAPTIVE_WVEC_THRESHOLD:-}"
+  DAKERA_PPR_FUSION: "${DAKERA_PPR_FUSION:-}"
+  DAKERA_BITEMPORAL_WEIGHT: "${DAKERA_BITEMPORAL_WEIGHT:-}"
+  DAKERA_NAME_BOOST: "${DAKERA_NAME_BOOST:-}"
+  DAKERA_SUPERSEDE_DEMOTE: "${DAKERA_SUPERSEDE_DEMOTE:-}"
+  DAKERA_RERANK_MAX_CANDIDATES: "${DAKERA_RERANK_MAX_CANDIDATES:-}"
+  DAKERA_HOT_TIER: "${DAKERA_HOT_TIER:-}"
+  DAKERA_ROCKSDB_SYNC: "${DAKERA_ROCKSDB_SYNC:-}"
+  DAKERA_HNSW_CACHE_TTI_SECS: "${DAKERA_HNSW_CACHE_TTI_SECS:-}"
+  DAKERA_RATE_LIMIT_RPS: "${DAKERA_RATE_LIMIT_RPS:-}"
+  DAKERA_RATE_LIMIT_BURST: "${DAKERA_RATE_LIMIT_BURST:-}"
+  # gRPC listener: an EMPTY value would read as OFF on an upgraded deployment (v0.11's reading).
+  DAKERA_GRPC_ENABLED: "${DAKERA_GRPC_ENABLED:-true}"
+  HF_TOKEN: "${HF_TOKEN:-}"
+  HF_ENDPOINT: "${HF_ENDPOINT:-}"
+  HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-}"
+  HTTPS_PROXY: "${HTTPS_PROXY:-}"
+  HTTP_PROXY: "${HTTP_PROXY:-}"
+  ALL_PROXY: "${ALL_PROXY:-}"
+  NO_PROXY: "${NO_PROXY:-}"
   # Logging
   RUST_LOG: "${RUST_LOG:-info,dakera=debug}"
 
@@ -308,6 +346,10 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    # The credentials MinIO was started with (see docker-compose.yml, minio-setup).
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     entrypoint: >
       /bin/sh -c "
       mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin};
@@ -348,8 +390,11 @@ services:
     ports:
       - "${HA_PROMETHEUS_PORT:-9190}:9090"
     volumes:
-      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # The HA config scrapes dakera-1..3 (job "dakera", which the rules match).
+      - ../monitoring/prometheus.ha.yml:/etc/prometheus/prometheus.yml:ro
       - ../monitoring/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
+      - ../monitoring/dakera.rules.yml:/etc/prometheus/dakera.rules.yml:ro
+      - ../monitoring/alerting-rules.ha.yml:/etc/prometheus/alerting-rules.ha.yml:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"

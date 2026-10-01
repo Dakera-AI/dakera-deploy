@@ -1,6 +1,6 @@
 # Environment Variable Reference
 
-Reference for the Dakera server environment variables used by the v0.12.0 compose files and manifests (v0.11: the `release/0.11` branch). The authoritative list is the server's [env-vars.md](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/env-vars.md); a name the server does not read is reported at startup (`dakera --check-config`). Set these in `docker/.env` (Docker Compose) or in your Kubernetes Secret/ConfigMap.
+Reference for the Dakera server environment variables used by the v0.12.0 compose files and manifests (v0.11: the `release/0.11` branch). The v0.12 features, their variables and constraints are in [docs/features-v0.12.md](../docs/features-v0.12.md). Compose passes to the container only the variables its `environment:` lists: a name in `.env` that no file passes never reaches the server (the base files pass the ones below and in `.env.example`; the overlays pass their feature's). The authoritative list is the server's [env-vars.md](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/env-vars.md); a name the server does not read is reported at startup (`dakera --check-config`). Set these in `docker/.env` (Docker Compose) or in your Kubernetes Secret/ConfigMap.
 
 ## Required (Production)
 
@@ -38,7 +38,7 @@ Required when `DAKERA_STORAGE=s3`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_L1_CACHE_SIZE` | `536870912` (512MB) | In-memory L1 cache size in bytes |
+| `DAKERA_L1_CACHE_SIZE` | `100000` (vectors) | Hot-tier budget of tiered storage; no effect without `DAKERA_TIERED_STORAGE`. With a unit suffix (`512MB`, `1g`) it is bytes; a bare number below 10 million is a vector count (10 million or more: bytes, with a warning). The compose files use `512MB`, the ConfigMap `1GB` |
 | `DAKERA_DISK_CACHE_DIR` | — | Enables the L2 on-disk read cache (v0.11's `DAKERA_L2_CACHE_PATH` is no longer read) |
 | `DAKERA_CACHE_DIR` | `{root}/cache/warm` | Warm-tier directory (tiered storage only) |
 
@@ -48,10 +48,10 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_TIERED_STORAGE` | `false` | Enable tiered storage |
+| `DAKERA_TIERED_STORAGE` | `false` | Enable tiered storage (needs `DAKERA_STORAGE=s3`; the compose files and manifests turn it on). The hot tier is RocksDB by default in v0.12 (`DAKERA_HOT_TIER=memory` keeps the v0.11 tier; `DAKERA_ROCKSDB_SYNC=false` skips the per-write fsync) |
 | `DAKERA_HOT_TO_WARM_SECS` | `3600` | Seconds before hot → warm tier transition |
 | `DAKERA_WARM_TO_COLD_SECS` | `86400` | Seconds before warm → cold tier transition |
-| `DAKERA_AUTO_TIER` | `false` | Enable automatic tier transitions |
+| `DAKERA_AUTO_TIER` | `true` | Automatic tier transitions |
 | `DAKERA_TIER_CHECK_INTERVAL_SECS` | `300` | Interval between tier sweep checks |
 
 ## Cluster (HA Mode)
@@ -74,14 +74,64 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 |----------|---------|-------------|
 | `DAKERA_MODEL` | `bge-large` | Embedding model. `bge-large` and the reranker ship in the image; any other model downloads into the model cache (`/app/models`) on first use or via `dakera models pull` |
 | `DAKERA_ALLOW_MODEL_CHANGE` | — | Set `1` for ONE start to acknowledge that the store was embedded by another model (then re-embed with `POST /admin/namespaces/migrate-dimensions` and remove it) |
+| `DAKERA_TIERED` | `false` (compose: `1`) | The tiered **embedding** engine (not tiered storage): it always embeds with `bge-large`, ignores `DAKERA_MODEL` and refuses late interaction. Identical on every node sharing a store |
+| `DAKERA_MAX_SEQ_LENGTH` | model maximum (`bge-m3`: 2048) | Truncation length in tokens for text models |
 | `HF_TOKEN` | — | Hugging Face token for model downloads (optional) |
+| `HF_ENDPOINT` | `https://huggingface.co` | A Hugging Face mirror or internal proxy of the Hub |
+| `HF_HUB_OFFLINE` | — | `1`: never download; a missing file fails at once naming it (air-gapped) |
+| `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` / `NO_PROXY` | — | Proxy for model downloads (`http://` or `socks4/4a/5/5h://`; **not** `https://`). Include `127.0.0.1,localhost,minio,redis` in `NO_PROXY` |
+| `DAKERA_MODEL_PATH` / `DAKERA_WHISPER_MODEL_PATH` / `DAKERA_VISION_MODEL_PATH` | — | Operator directories holding the model files (offline); SHA-256-checked unless `DAKERA_MODEL_PATH_SKIP_VERIFY=1` |
+
+## Multilingual (docker-compose.multilingual.yml)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_FULLTEXT_LANGUAGE` | `en` (overlay: `multilingual`) | BM25 analyzer of new namespace indexes: an ISO 639-1 code or English name, or `zh`/`ja`/`ko`/`th`/`none`/`multilingual` (no stemming). Existing namespaces: `POST /admin/fulltext/reindex` with `rebuild` |
+| `DAKERA_FULLTEXT_CJK_BIGRAMS` | follows the language (off for `en`) | Character-bigram indexing of unsegmented scripts |
+| `DAKERA_QUERY_LANG` | `en` (overlay: `auto`) | `en`, `de`, `fr`, `es`, `it`, `pt`, `nl` or `auto`: query routing patterns, temporal expressions, date extraction. Per request: `lang` |
+
+## Attachments, speech to text, vision (docker-compose.multimodal.yml, docker-compose.vision.yml)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_ATTACHMENTS` | off | Attachment routes and speech to text; `501 FEATURE_DISABLED` when off |
+| `DAKERA_ATTACHMENT_MAX_BYTES` | `26214400` | Largest upload; over it `413` |
+| `DAKERA_WHISPER_MODEL` | `whisper-tiny.en` | Speech-to-text model (English, WAV only) |
+| `DAKERA_VISION` | off | Image/page indexing and the visual recall lane (needs `DAKERA_ATTACHMENTS`; use a dedicated data root and bucket) |
+| `DAKERA_VISION_MODEL` | `colmodernvbert` | The visual model |
+| `DAKERA_MEM_HIGH_WATER_FRACTION` | `0.85` | Media jobs reserve memory against limit x this; waits up to 10 s, then `503` + `Retry-After` |
+| `DAKERA_MEM_BACKPRESSURE` | on | `0` turns the memory refusals off |
+| `DAKERA_HNSW_CACHE_TTI_SECS` | `3600` | Idle time after which whisper, the visual model and GLiNER are unloaded (also the ANN / full-text index idle horizon) |
+
+## Records, late interaction, RaBitQ, rerank
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_RECORDS` | off | Record routes: one vector + named extra representations (`docker-compose.records.yml`) |
+| `DAKERA_RECORD_MAX_VECTORS` / `DAKERA_RECORD_MAX_BYTES` | `4096` / `8388608` | Limits of one record's extras; over = `413` |
+| `DAKERA_SCORING_STRATEGY` | `single-vector` | `late-interaction` (with `DAKERA_MODEL=colbert-small`, `DAKERA_TIERED=0`: `docker-compose.late-interaction.yml`) |
+| `DAKERA_SEARCH_MODE` | `hybrid` | `hybrid`, `binary`, `float`, `scalar` (alias `sq`), `rabitq` (`docker-compose.rabitq.yml`; saves latency, not memory) |
+| `DAKERA_RABITQ_BITS` | `1` | 1-8 bits per dimension, only in `rabitq` mode |
+| `DAKERA_RERANK_MAX_CANDIDATES` | unset (whole pool) | Most candidates any recall sends to the cross-encoder; request field `rerank_candidates` is capped by it |
+| `DAKERA_RERANK_WARMUP` | on | Load the reranker at boot (the exact words `0`/`false` load it on first use) |
+| `DAKERA_RERANKER_MODEL` | `bge-reranker-v2-m3` | `bge-reranker-base` selects the smaller reranker |
+
+## Security
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_ENCRYPTION_KEY` | — | AES-256-GCM at rest: 64 hex characters or a passphrase of at least 8; identical on every node. Rotation uses a keyring (`POST /admin/encryption/rotate-key`) and needs no change to this value |
+| `DAKERA_CLUSTER_SECRET` | — | Cluster mode: >= 16 characters, identical on every node |
+| `DAKERA_GRPC_ENABLED` | `true` | gRPC listener; v0.12 gRPC needs an API key in the call metadata when authentication is on |
+| `DAKERA_CONFIG_LENIENT` | — | `1`: start on a fresh install although a value cannot be honoured or a `DAKERA_*` name is unknown (listed in `/health` `config_warnings`) |
 
 ## Request Limits
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_MAX_BODY_SIZE` | `524288000` | Max request body size in bytes (500 MB) |
-| `DAKERA_REQUEST_TIMEOUT` | `120` | Request timeout in seconds |
+| `DAKERA_MAX_BODY_SIZE` | `10485760` (10 MiB) | Max request body size in bytes. The compose files and the ConfigMap set `524288000` (500 MB) |
+| `DAKERA_REQUEST_TIMEOUT` | `300` | Request timeout in seconds, the outer ceiling. `docker-compose.yml` sets 600, `docker-compose.ha.yml` and the ConfigMap 120 |
+| `DAKERA_RATE_LIMIT_RPS` / `DAKERA_RATE_LIMIT_BURST` / `DAKERA_RATE_LIMIT_ENABLED` | `100` / `50` / `true` | Server-wide rate limit (REST and gRPC). v0.11's `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` still work, deprecated |
 
 ## Docker Compose Port Overrides
 

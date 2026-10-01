@@ -45,7 +45,6 @@ services:
       - AWS_ACCESS_KEY_ID=minioadmin
       - AWS_SECRET_ACCESS_KEY=minioadmin
       - DAKERA_S3_REGION=us-east-1
-      - DAKERA_L1_CACHE_SIZE=536870912
       # The data root (v0.12; replaces DAKERA_L2_CACHE_PATH, which is no longer read)
       - DAKERA_STORAGE_PATH=/data
       # Auth disabled for local dev — enable in production

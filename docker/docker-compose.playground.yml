@@ -34,8 +34,8 @@ services:
       - DAKERA_S3_REGION=us-east-1
       - DAKERA_AUTH_ENABLED=true
       - DAKERA_ROOT_API_KEY=${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env}
-      # Playground resource limits
-      - DAKERA_L1_CACHE_SIZE=134217728
+      # Playground resource limits (DAKERA_L1_CACHE_SIZE sizes the TIERED-storage hot
+      # tier; with tiered storage off it does nothing and v0.12 warns about it)
       # (v0.12: DAKERA_L2_CACHE_PATH is no longer read; the data root is /data)
       - DAKERA_STORAGE_PATH=/data
       - DAKERA_MAX_BODY_SIZE=5242880
