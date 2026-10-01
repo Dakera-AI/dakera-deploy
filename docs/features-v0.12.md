@@ -722,6 +722,11 @@ from `docker compose up` (or pod creation) on fresh volumes; download times depe
 
 ## Verifying a running server
 
+After upgrading data from v0.11.108, rebuild the full-text indexes once (required until v0.12.1 applies
+it automatically): see README, "After the upgrade: rebuild the full-text indexes". Until then, keyword
+search and keyword-style recall can return nothing. Afterwards a keyword search
+(`POST /v1/namespaces/<ns>/fulltext/search` with a common word) returns hits.
+
 ```bash
 KEY=...                                   # any key with Read scope for /v1/capabilities
 curl -s localhost:3000/health/ready       # 200 once the embedding model is loaded, 503 + progress while starting

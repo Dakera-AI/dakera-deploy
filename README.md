@@ -308,6 +308,48 @@ Summary for the files in this repo:
    threshold. Details: the server UPGRADE.md, "Before you upgrade".
 5. **Start v0.12.0**: `docker compose pull && docker compose up -d` (Kubernetes: `kubectl apply -k k8s/`).
    Watch `GET /health` (`config_warnings`, `embed_migration`).
+6. **Rebuild the full-text indexes once (required)**: see the next section.
+
+### After the upgrade: rebuild the full-text indexes
+
+**Required post-upgrade step.** After you upgrade a deployment that holds data from v0.11.108,
+rebuild its full-text indexes once. Until you do, keyword search and keyword-style recall can return
+nothing. Fresh v0.12.0 installs do not need it. From v0.12.1 (not released yet) Dakera applies it
+automatically; until then, run it yourself.
+
+Full-text indexes built by v0.11 are re-analysed under v0.12's text analysis. The rebuild does that
+once, so keyword search and keyword-style recall return results again. It only rebuilds derived search
+indexes; memories are not touched. On a production deployment with about 18,000 memories it took about
+18 seconds. Run it once the server is ready (`GET /health/ready` answers `200`):
+
+```bash
+docker compose exec dakera curl -s -X POST http://localhost:3000/admin/fulltext/reindex \
+  -H "x-api-key: $DAKERA_ROOT_API_KEY" -H 'content-type: application/json' -d '{"rebuild":true}'
+```
+
+This needs `curl` inside the container; the v0.12 image's healthcheck uses it. If your image does not
+have it, run the same request from the host against the published port:
+
+```bash
+curl -X POST http://localhost:3000/admin/fulltext/reindex \
+  -H "x-api-key: <global admin key>" -H "content-type: application/json" \
+  -d '{"rebuild": true}'
+```
+
+Omit `namespace` to cover every agent memory namespace; add `"namespace": "<ns>"` to the body for
+one. The helper [`scripts/post-upgrade-reindex.sh`](scripts/post-upgrade-reindex.sh) does the same
+from the environment (`DAKERA_URL`, `DAKERA_ADMIN_KEY` or `DAKERA_ROOT_API_KEY`, optional
+`DAKERA_NAMESPACE`), prints the result and exits non-zero on an error:
+
+```bash
+DAKERA_URL=http://localhost:3000 DAKERA_ROOT_API_KEY=... scripts/post-upgrade-reindex.sh
+```
+
+On Kubernetes, forward the service (`kubectl port-forward svc/dakera 3000:3000`) and run the same
+script or `curl` against `http://localhost:3000`, or run it as a one-off Job from an image with `curl`.
+
+**Check it:** a keyword search (`POST /v1/namespaces/<ns>/fulltext/search` with a common word) returns
+hits, and a short keyword recall returns memories.
 
 ## Rolling back to v0.11
 

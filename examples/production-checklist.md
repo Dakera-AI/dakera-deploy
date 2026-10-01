@@ -20,6 +20,7 @@ Use this checklist before exposing Dakera to the internet or handling real workl
 - [ ] **Mount volumes**: Ensure the `dakera-data` (data root: WAL, knowledge graph), `dakera-cache`, `dakera-rocksdb`, `dakera-models` and `minio-data` volumes are on reliable storage
 - [ ] **Configure backups**: See [backup-restore.md](backup-restore.md) for backup procedures
 - [ ] **Know your way back**: `docker compose run --rm dakera downgrade` (server stopped first) returns v0.12.0 data to v0.11.108; see README "Rolling back to v0.11"
+- [ ] **After upgrading from v0.11.108, rebuild the full-text indexes once**: `scripts/post-upgrade-reindex.sh` (or `POST /admin/fulltext/reindex` with `{"rebuild": true}` and a global admin key), then check that a keyword search returns hits. Required until v0.12.1 applies it automatically; fresh installs do not need it. See README "Upgrading from v0.11 to v0.12.0"
 - [ ] **Run `--check-config` before every upgrade**: `docker compose run --rm --no-deps dakera --check-config` (exit 0 = would start, 78 = would refuse)
 
 ## Performance
