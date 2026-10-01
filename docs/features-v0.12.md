@@ -150,7 +150,9 @@ curl -X POST localhost:3000/admin/fulltext/reindex -H "X-API-Key: $ADMIN" \
 **Resources.** The model is not in the image. ~570 MB downloads into the model cache on first start
 (the server answers `/health/live` meanwhile and `/health/ready` with `503` and the progress), is converted
 once to an ORT-format copy next to it, then memory-mapped. Pre-pull it:
-`docker compose run --rm dakera models pull bge-m3`. Quality and latency of bge-m3 against
+`docker compose run --rm dakera models pull bge-m3`. Measured (see "Measured in the deployment
+validation"): ready 12 s after the container started, download included; 1.1 GB on the model volume (the
+570 MB file and its ORT copy); container peak 1.29 GiB. Quality and latency of bge-m3 against
 bge-large on your data are **not measured** in the release notes; measure before committing.
 
 **Verify.**
@@ -216,7 +218,8 @@ ViDoRe sets are not measured yet).
   deployment (data root **and bucket**) dedicated to it; never turn `DAKERA_VISION` on over an
   existing text store. `docker-compose.vision.yml` and `k8s-features/overlays/vision` do this.
 - **One page at a time** (the model has one page session), in submission order, about **10.7 s per
-  page on CPU**. Submit a whole document at once: up to 2 500 jobs wait; past that a new job is `503` +
+  page on CPU** (release notes; 13.8 s measured for one 1000 x 1300 px page, 17 tiles, on 4 cores).
+  Submit a whole document at once: up to 2 500 jobs wait; past that a new job is `503` +
   `Retry-After`. A page waits up to 30 s for each page ahead of it. At shutdown the queued pages end
   without running: start them again.
 - Late interaction is refused (`501`) under `DAKERA_TIERED=1`, so the vision overlay sets
@@ -295,7 +298,8 @@ vectors. Memories are written with `colbert` / `colbert.fde` slots next to their
   matters and measure on your own data.
 - **Speed.** Steady recall p50 0.10 s at 1k memories and 0.23 s at 10k. A recall right after a bulk
   ingest is served by the dense first stage while the late-interaction stage rebuilds in the
-  background (it reports `late_interaction_first_stage`). 
+  background (it reports `late_interaction_first_stage`: `dense_while_building` on the first recall of
+  the validation, `fde_exact` from the next one).
 - **Constraints.** Cannot be combined with `DAKERA_TIERED=1` (`501`, naming the settings); any other
   model answers stores and recalls with `503` naming the requirement; a fresh store or a
   [migration](#switching-the-embedding-model); `dakera downgrade` refuses it.
@@ -346,8 +350,9 @@ The measured gain of v0.12 itself (4 CPU / 8 GiB container, `top_k` 16): 11.5 s 
 The image ships **`bge-large`** (embedding, INT8) and **`bge-reranker-v2-m3`** (reranker, INT8) in a
 model store next to the binary (`/usr/local/share/dakera/models`, already converted). A default start
 needs **no network** (`--network none` works), downloads, converts and writes nothing, works with a
-read-only root filesystem, and is not affected by anything mounted at `/app/models`. Image: ~0.8 GB
-(783 MB measured, amd64), ready 4.4 s after start. The `:gpu` image (NVIDIA GPU required, ~4-5 GB) ships
+read-only root filesystem, and is not affected by anything mounted at `/app/models`. Image: 783 MB
+(release notes, amd64; 1.24 GB unpacked in `docker images`), ready 4.4 s after start (release notes;
+4.2 s measured in the deployment validation). The `:gpu` image (NVIDIA GPU required, ~4-5 GB) ships
 FP32 models for CUDA.
 
 Everything else downloads on first use into the **model cache** (`HF_HOME`, `/app/models`, a volume):
@@ -388,7 +393,7 @@ Hub) and `HF_TOKEN` (sent to the Hub's own origin only). Proxy URLs: `http://`, 
 `socks4a://`, `socks5://`, `socks5h://`; an `https://` proxy URL (TLS to the proxy), another scheme or
 an IPv6 proxy address is **not supported** and fails naming the variable. The base compose files pass all
 of these from `.env` (empty = unset). Put the compose service names and loopback in `NO_PROXY`
-(`127.0.0.1,localhost,minio,redis,dakera-1,dakera-2,dakera-3`) so no other traffic of the container is
+(`127.0.0.1,localhost,minio,dakera-1,dakera-2,dakera-3`) so no other traffic of the container is
 sent through the proxy; the container's own health check runs `curl` against `127.0.0.1`.
 
 **Offline and air-gapped.** The default image needs nothing. For other models, on a connected machine:
@@ -420,8 +425,10 @@ vision model are downloaded in the background right after ready. A store into a 
 to 10 s for the model, then gets `503` + `Retry-After`. The compose health check starts counting after
 600 s; the Kubernetes startup probe covers 10 minutes.
 
-**Disk.** Plan the model volume from the table: `bge-m3` + `whisper` + `vision` + GLiNER is about 4.8 GB
-with the ORT copies (derived: 2 x (570 + 151 + 966 + 782) MB). 10 GiB leaves room for upgrades.
+**Disk.** Plan the model volume from what each model takes once converted (measured: the download plus
+its ORT copy): `bge-m3` 1.1 GB, `whisper` 367 MB (154 MB downloaded), `colbert-small` 66 MB, `vision`
+1.9 GB. With GLiNER (not measured here; ~782 MB download, about twice that converted) the four text and
+media models need about 5 GB. 10 GiB leaves room for upgrades.
 
 ---
 
@@ -569,7 +576,7 @@ replica alerts fired on every node). Now:
 | File | What |
 |---|---|
 | `monitoring/dakera.rules.yml` | The server's own alert rules (`prometheus/alerts/dakera.rules.yml`), loaded next to the older file. Group `dakera-signals`: config warnings, degraded components, WAL replay dropped entries, memory read failures, Redis cache failures, held cluster changes, WAL write failures, failed model loads, failed backups, unreadable encrypted values. Group `dakera-service`: down, 5xx ratio, 503 shedding, memory-budget refusals, cold-tier circuit and backlog, RocksDB write stop, dropped cluster changes, storage write stalls, clock skew, corrupt records |
-| `monitoring/alerting-rules.yml` | The deploy-side rules (latency, memory and CPU via cAdvisor, MinIO, Prometheus). The cache, decay and replica alerts are removed; `DakeraDown` lives in `dakera.rules.yml` |
+| `monitoring/alerting-rules.yml` | The deploy-side rules (latency, memory, MinIO, Prometheus). Memory reads the server's `dakera_process_resident_bytes` against the 12 GiB compose limit (the earlier `process_resident_memory_bytes` / cAdvisor expression read series nothing here exports); the server exports no CPU metric, so there is no CPU alert. MinIO latency reads `minio_s3_requests_ttfb_seconds_distribution`. The cache, decay and replica alerts are removed; `DakeraDown` lives in `dakera.rules.yml` |
 | `monitoring/alerting-rules.ha.yml`, `monitoring/prometheus.ha.yml` | HA: scrape dakera-1..3 as job `dakera` and alert on `count(up{job="dakera"} == 1) < 3` |
 | `monitoring/grafana/.../dakera-overview.json` | The server's v0.12 dashboard: health and configuration, models and memory admission, recall / ingest stage latencies, derived caches and late interaction, tiered storage, cluster replication, encryption, RocksDB |
 | `k8s/monitoring/prometheus.yaml` | Now loads `dakera.rules.yml` |
@@ -582,7 +589,22 @@ New metrics worth knowing: `dakera_model_loads_total{model,outcome}`,
 `dakera_encryption_*`, the `dakera_cluster_*` set (outbox, tombstones, clock skew, reconciliation),
 `dakera_tiered_*`. Refusals (`429`, `401` / `403`, `408`, `413`, `503`, unmatched paths) now appear in
 `dakera_http_requests_total`; expect those statuses in dashboards after the upgrade. About **25 Prometheus
-series per active agent**: many thousands of agents make a large scrape.
+series per active agent** (server `docs/v0.12/scale-footprint.md`, derived; one agent that stored,
+recalled and forgot measured 13 series families, 35 exposition lines): many thousands of agents make a
+large scrape.
+
+**Checked against a running 0.12.0 server.** Every rule file passes `promtool check rules`; Prometheus
+(the `monitoring` profile) loads them all with health `ok` and scrapes `dakera`, `minio` and `prometheus`
+(the MinIO target needs `MINIO_PROMETHEUS_AUTH_TYPE=public`, which the compose files and `k8s/minio` now
+set: without it the target is down with 403 and `MinIODown` fires). Every metric the dashboards and rules
+read is emitted by the server, but many only once their event has happened, so an idle server does not
+list them in `/metrics` and their panels stay empty until then: the failure counters (`*_failures_total`,
+`dakera_wal_write_failures_total`, `dakera_storage_*`, `dakera_tiered_cold_*_failures_total`), the cluster
+series (only in cluster mode), the encryption series (only with `DAKERA_ENCRYPTION_KEY`), the Redis series
+(only with `DAKERA_REDIS_URL`), `dakera_memory_budget_reserved_bytes` / `dakera_memory_reclaims_total`
+(first media job), `dakera_late_interaction_cold_fallbacks_total`, `dakera_component_degraded` (first
+degraded component), `dakera_errors_total` (first refused request), `dakera_namespace_vectors` (first
+namespace listing) and `dakera_ingest_stage_duration_seconds` (first batch store).
 
 Per feature, watch:
 
@@ -649,9 +671,30 @@ saved and reloaded instead of rebuilt; concurrent writes share the log's fsync.
 Stated by the release notes as pending: the 50k capacity re-run (E8), the embedder benchmark (E7), the
 load sweep (F6) and durable writes per second (K20). No v0.12 ingest rate, no per-memory RAM figure at scale,
 no bge-m3 versus bge-large quality or latency number, and no ViDoRe set other than TabFQuAD and Shift Project.
-This repository's compose files and manifests have not been run against a v0.12.0 image (none was
-published when they were written): `docker compose config` and `kubectl kustomize` validate them, and
-`dakera --check-config` should be run with the real image before the first rollout.
+
+## Measured in the deployment validation
+
+The compose files, the Kustomize manifests and the Helm chart were run against the v0.12.0 server
+(an image built with the release Dockerfile from the release commit's CI binary; `server_version`
+`0.12.0`) on one x86-64 host (8 cores; each container capped: 3 GiB / 4 CPUs for a single node,
+1.5 GiB per HA node, 3.5 GiB for vision), with the Hugging Face Hub reachable over a fast link. Times are
+from `docker compose up` (or pod creation) on fresh volumes; download times depend on your link.
+
+| What | Measured |
+|---|---|
+| Single node, default | `/health/live` 200 after 0.5 s, `/health/ready` 200 after 4.2 s; 373 MiB at idle, 787 MiB RSS after a store / recall / backup round |
+| Store, stop, `down` (volumes kept), `up` | the memory is recalled after the restart; graceful stop took 0.5 s |
+| `--check-config` | exit 0 on the stack's configuration; exit 78 with a misspelled `DAKERA_*` name (it names the closest real one) |
+| `downgrade` | stopped stack with data: exit 0, `completed: true`; while the server runs: exit 78, nothing changed; an empty store: exit 78, "no data found" |
+| HA (3 nodes) | every node ready, leader elected about 30 s after start (HTTP vote), a write on any node visible on the two others within 0.1 s (all 6 pairs); about 450 MiB per node |
+| Multilingual (`bge-m3`) | ready 12 s after start, download included; recall with `lang` (de, fr, es, it) and across languages; 1.29 GiB peak |
+| Records | `POST .../records` 200, `GET .../records/{id}` returns the manifest, `?include_vectors=true` the vectors; `501 FEATURE_DISABLED` without the overlay |
+| RaBitQ | `search_mode` `rabitq`; recall returns the expected memory |
+| Attachments + speech to text | whisper fetched and converted 4 s after start (background); a 3.8 s WAV transcribed in 1.5 s and recalled; 749 MiB peak |
+| Late interaction (`colbert-small`) | ready 3.2 s after start, download included; `late_interaction_first_stage` reported; 643 MiB peak |
+| Vision (`colmodernvbert`) | fetched and converted 38 s after start (background); one page indexed in 13.8 s and recalled; 2.43 GiB peak (during the conversion) |
+| Monitoring | rules load with health `ok`; targets `dakera`, `minio`, `prometheus` up (HA: the three nodes) |
+| Kubernetes (`k8s/`, kind) | server Ready 34 s after `kubectl apply -k` (images present); store / recall; `overlays/multilingual` Ready in 27 s with the `models pull` init container (11 s for bge-m3); check-config Job "the configuration is valid" |
 
 ---
 

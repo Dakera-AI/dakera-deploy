@@ -22,7 +22,12 @@ services:
 
   # Optional: MinIO for S3-compatible storage testing
   minio:
-    image: minio/minio:latest
+    # minio/minio and minio/mc are no longer published on Docker Hub (the repositories
+    # are gone; a fresh `docker compose pull` fails). Chainguard's MinIO build is
+    # maintained and ships `mc`. Root, as minio/minio ran: a minio-data volume written
+    # by the old image stays writable.
+    image: cgr.dev/chainguard/minio:latest
+    user: "0:0"
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -33,7 +38,7 @@ services:
     volumes:
       - minio-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      test: ["CMD", "mc", "ready", "local"]
       interval: 10s
       timeout: 5s
       retries: 3

@@ -178,7 +178,12 @@ services:
   # MinIO - S3-Compatible Object Storage
   # ==========================================================================
   minio:
-    image: minio/minio:latest
+    # minio/minio and minio/mc are no longer published on Docker Hub (the repositories
+    # are gone; a fresh `docker compose pull` fails). Chainguard's MinIO build is
+    # maintained and ships `mc`. Root, as minio/minio ran: a minio-data volume written
+    # by the old image stays writable.
+    image: cgr.dev/chainguard/minio:latest
+    user: "0:0"
     container_name: dakera-minio
     command: server /data --console-address ":9001"
     ports:
@@ -192,6 +197,9 @@ services:
       # 'connection closed before message completed') fail fast rather than
       # accumulating and exhausting the connection pool.
       - MINIO_API_REQUESTS_DEADLINE=${MINIO_API_REQUESTS_DEADLINE:-2m}
+      # Lets the monitoring profile's Prometheus scrape /minio/v2/metrics/cluster
+      # (without it the minio target is DOWN: 403). The port is bound to 127.0.0.1.
+      - MINIO_PROMETHEUS_AUTH_TYPE=public
     volumes:
       - minio-data:/data
     deploy:
@@ -252,7 +260,8 @@ services:
   # MinIO Setup - Create bucket on startup
   # ==========================================================================
   minio-setup:
-    image: minio/mc:latest
+    # The MinIO image above (it has a shell and `mc`); minio/mc is no longer published.
+    image: cgr.dev/chainguard/minio:latest
     container_name: dakera-minio-setup
     depends_on:
       minio:

@@ -66,7 +66,7 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 | `DAKERA_GOSSIP_PORT` | `7946` | Gossip protocol port |
 | `DAKERA_GOSSIP_BIND` | `0.0.0.0:7946` | Gossip bind address |
 | `DAKERA_API_ADVERTISE` | — | Advertised API URL for the node |
-| `DAKERA_REDIS_URL` | — | Redis URL for the distributed cache, rate-limit counters and SSE pub/sub (v0.11's `DAKERA_CACHE_REDIS_URL` is no longer read) |
+| `DAKERA_REDIS_URL` | — | Redis URL for the L1.5 cache, rate-limit counters and SSE pub/sub (v0.11's `DAKERA_CACHE_REDIS_URL` is no longer read). Not set by the compose files: one Redis shared by the nodes of a v0.12.0 cluster kept replicated writes from being applied |
 
 ## Models
 
@@ -79,7 +79,7 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 | `HF_TOKEN` | — | Hugging Face token for model downloads (optional) |
 | `HF_ENDPOINT` | `https://huggingface.co` | A Hugging Face mirror or internal proxy of the Hub |
 | `HF_HUB_OFFLINE` | — | `1`: never download; a missing file fails at once naming it (air-gapped) |
-| `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` / `NO_PROXY` | — | Proxy for model downloads (`http://` or `socks4/4a/5/5h://`; **not** `https://`). Include `127.0.0.1,localhost,minio,redis` in `NO_PROXY` |
+| `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` / `NO_PROXY` | — | Proxy for model downloads (`http://` or `socks4/4a/5/5h://`; **not** `https://`). Include `127.0.0.1,localhost,minio` in `NO_PROXY` |
 | `DAKERA_MODEL_PATH` / `DAKERA_WHISPER_MODEL_PATH` / `DAKERA_VISION_MODEL_PATH` | — | Operator directories holding the model files (offline); SHA-256-checked unless `DAKERA_MODEL_PATH_SKIP_VERIFY=1` |
 
 ## Multilingual (docker-compose.multilingual.yml)
@@ -160,7 +160,6 @@ All HA ports use the `HA_` prefix to avoid conflicts with the default profile.
 | `HA_TRAEFIK_PORT` | `8080` | Traefik dashboard |
 | `HA_MINIO_API_PORT` | `9100` | MinIO S3 API |
 | `HA_MINIO_CONSOLE_PORT` | `9101` | MinIO web console |
-| `HA_REDIS_PORT` | `6480` | Redis |
 | `HA_DASHBOARD_PORT` | `3202` | Dashboard UI |
 | `HA_PROMETHEUS_PORT` | `9190` | Prometheus (monitoring profile) |
 | `HA_GRAFANA_PORT` | `3203` | Grafana (monitoring profile) |

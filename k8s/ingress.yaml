@@ -1,7 +1,7 @@
 # =============================================================================
 # Dakera - Kubernetes Ingress
 # =============================================================================
-# Routes external traffic to Dakera server, Dashboard, and MCP server.
+# Routes external traffic to the Dakera server and the Dashboard.
 # Requires an Ingress controller (nginx recommended).
 #
 # Install nginx ingress controller:
@@ -53,13 +53,14 @@ spec:
                 name: dakera-dashboard
                 port:
                   name: http
-    - host: mcp.dakera.yourdomain.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: dakera-mcp
-                port:
-                  name: http
+    # MCP: dakera-mcp is stdio-only and not deployed by kustomization.yaml.
+    # - host: mcp.dakera.yourdomain.com
+    #   http:
+    #     paths:
+    #       - path: /
+    #         pathType: Prefix
+    #         backend:
+    #           service:
+    #             name: dakera-mcp
+    #             port:
+    #               name: http

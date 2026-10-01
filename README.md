@@ -204,7 +204,11 @@ docker compose -f docker-compose.ha.yml up -d
 - Cluster status: http://localhost:3100/admin/cluster/status
 
 Set `DAKERA_CLUSTER_SECRET` (>= 16 characters, `openssl rand -hex 32`) in `.env.ha` first; the file
-refuses to start without it. Each node uses its own MinIO bucket.
+refuses to start without it. Each node uses its own MinIO bucket. Authentication is on (`DAKERA_AUTH_ENABLED`
+defaults to `true` here too: the load balancer port is published on every interface). The nodes share no
+Redis: with one Redis shared by the three nodes, v0.12.0's replication applied nothing on some peers
+(measured: 3 of 6 node pairs never converged); without it every write reached the two other nodes within
+0.1 s.
 
 ### Monitoring (Prometheus + Grafana)
 
@@ -317,12 +321,15 @@ stopped (it refuses, exit 78 with nothing changed, while a server runs on the da
 ```bash
 cd docker
 docker compose stop dakera-watchdog dakera
-docker compose run --rm dakera downgrade        # JSON report on stdout; exit 0 = data is v0.11.108's
+docker compose run --rm -T dakera downgrade > downgrade-report.json   # JSON report on stdout (the log goes to stderr); exit 0 = data is v0.11.108's
 # then start v0.11.108 with the v0.11 files (git checkout release/0.11):
 DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.108 docker compose up -d
 ```
 
-- Exit `0`: done. Exit `1`: not yet (do not start v0.11; fix the cause and rerun). Exit `78`: refused.
+- Exit `0`: done. Exit `1`: not yet (do not start v0.11; fix the cause and rerun). Exit `78`: refused,
+  nothing changed: a server still runs on the data (its marker is refreshed every few seconds; a killed one
+  stays live up to 120 s), the store uses a v0.12-only feature, or no data was found where the
+  configuration looks (an empty or wrong volume / bucket).
 - Kubernetes: `kubectl apply -f k8s/dakera/downgrade-job.yaml` after scaling the Deployment to 0.
 - Docker run: `docker run --rm <same env and volumes> ghcr.io/dakera-ai/dakera:0.12.0 downgrade`.
 - Clusters: roll back the whole cluster, not one node (HA recipe in the header of
@@ -412,7 +419,7 @@ dakera-deploy/
 │   ├── dashboard/                   # Dashboard UI
 │   │   ├── deployment.yaml
 │   │   └── service.yaml
-│   ├── mcp/                         # MCP server (AI agent memory tools)
+│   ├── mcp/                         # MCP server manifests (not applied: dakera-mcp is stdio-only)
 │   │   ├── deployment.yaml
 │   │   └── service.yaml
 │   ├── minio/                       # MinIO (use native S3 in cloud)
@@ -555,17 +562,17 @@ and constraints are in [docs/features-v0.12.md](docs/features-v0.12.md) and `doc
 | `DAKERA_MAX_BODY_SIZE` | `10485760` (10 MiB) | Max request body size in bytes. The compose files and the ConfigMap set `524288000` (500 MB) |
 | `DAKERA_REQUEST_TIMEOUT` | `300` | Request timeout in seconds (the outer ceiling). `docker-compose.yml` sets 600, the HA file and the ConfigMap 120 |
 
-### Redis (HA Mode)
+### Redis
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_REDIS_URL` | - | Redis URL for the distributed cache, rate-limit counters and SSE fan-out (replaces `DAKERA_CACHE_REDIS_URL`, which v0.12 no longer reads) |
+| `DAKERA_REDIS_URL` | - | Redis URL for the L1.5 cache, rate-limit counters and SSE fan-out (replaces `DAKERA_CACHE_REDIS_URL`, which v0.12 no longer reads). Not set by any file here: do not point the nodes of one cluster at one shared Redis with v0.12.0 (replicated writes were not applied on some nodes, see "High Availability (3-Node Cluster)") |
 
 ### Authentication
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_AUTH_ENABLED` | `true` | Enable API authentication (default on; server refuses to start if enabled with no keys configured) |
+| `DAKERA_AUTH_ENABLED` | `true` | Enable API authentication (default on). With it on and no key configured the server still starts, logs an error and rejects every authenticated request: set `DAKERA_ROOT_API_KEY` |
 | `DAKERA_ROOT_API_KEY` | - | Root API key (**required** in production compose) |
 | `DAKERA_ENCRYPTION_KEY` | - | AES-256-GCM at rest: 64 hex characters (a raw 256-bit key) or a passphrase of at least 8 characters; the same on every node. Keys rotate through a keyring (see the [features guide](docs/features-v0.12.md#security)) |
 
@@ -670,7 +677,7 @@ docker compose -f docker-compose.dev.yml up -d --build
 
 ## Kubernetes Deployment
 
-Production-grade deployment on Kubernetes. Covers Dakera server, Dashboard, and MCP server. Use **docker-compose** for local/development; use **Kubernetes** for production.
+Production-grade deployment on Kubernetes. Covers the Dakera server, the Dashboard, MinIO and monitoring (the MCP server is stdio-only and runs next to the MCP client; `k8s/mcp/` is not applied). Use **docker-compose** for local/development; use **Kubernetes** for production.
 
 ### Prerequisites
 
@@ -740,7 +747,6 @@ See [dakera-ai/dakera-helm](https://github.com/dakera-ai/dakera-helm) for chart 
 |-----------|------------|---------------|-----------------|
 | Dakera server | 500m | 512Mi | 1 (one server per data root; no HPA) |
 | Dashboard | 100m | 64Mi | 1 |
-| MCP server | 50m | 64Mi | 1 |
 | MinIO | 250m | 256Mi | 1 (StatefulSet) |
 | Prometheus | 250m | 256Mi | 1 |
 | Grafana | 100m | 128Mi | 1 |

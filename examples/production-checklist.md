@@ -39,7 +39,7 @@ Everything below is off by default; see [docs/features-v0.12.md](../docs/feature
 - [ ] **`DAKERA_TIERED=0`** with multilingual, late interaction or vision (the tiered embedding engine pins `bge-large` and refuses late interaction); identical on every node
 - [ ] **Vision is a dedicated store** (data root and bucket of its own); never turn it on over a text store
 - [ ] **Model volume**: `dakera-models` on persistent storage, ~10 GiB for every optional model (the image ships only `bge-large` and the reranker); pre-pull (`models pull bge-m3 whisper vision`) so the first start does not wait on a download; air-gapped hosts seed it with `models pull --dir` and set `HF_HUB_OFFLINE=1`
-- [ ] **Behind a proxy or mirror**: `HTTPS_PROXY` (an `http://` or `socks5h://` URL, never `https://`), `NO_PROXY=127.0.0.1,localhost,minio,redis,...`, `HF_ENDPOINT`
+- [ ] **Behind a proxy or mirror**: `HTTPS_PROXY` (an `http://` or `socks5h://` URL, never `https://`), `NO_PROXY=127.0.0.1,localhost,minio,...`, `HF_ENDPOINT`
 - [ ] **Memory for media**: at least 8 GiB for transcription and image pages (measured: 530 MiB anonymous with every model loaded, +1.9 GiB image peak); clients retry `503` + `Retry-After`
 - [ ] **Verify**: `GET /v1/capabilities` shows the feature on (and `default_model`), `GET /health` has no unexpected `degraded` or `config_warnings`
 
@@ -49,7 +49,7 @@ Everything below is off by default; see [docs/features-v0.12.md](../docs/feature
 - [ ] **Deploy 3+ nodes**: The HA compose includes 3 Dakera nodes by default
 - [ ] **Set `DAKERA_CLUSTER_SECRET`**: required in cluster mode, >= 16 characters, identical on every node (keep it in `.env.ha` / a Secret)
 - [ ] **One bucket per node**: nodes must not share one S3 bucket as their store (the HA compose gives each its own)
-- [ ] **Set up Redis**: Required for HA mode — distributed cache, rate-limit counters, SSE fan-out
+- [ ] **No shared Redis for an HA cluster**: with one Redis shared by the nodes, v0.12.0 did not apply replicated writes on some nodes (measured); `docker-compose.ha.yml` sets no `DAKERA_REDIS_URL`. Rate limits are then per node
 - [ ] **Configure seed nodes**: Each node needs `DAKERA_CLUSTER_SEEDS` pointing to other nodes
 - [ ] **Test failover**: Stop one node and verify traffic routes to remaining nodes
 

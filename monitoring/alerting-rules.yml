@@ -10,12 +10,14 @@
 #
 # Tuning notes:
 #   - "for" durations prevent alert flapping on transient spikes.
-#   - Resource alerts depend on container_spec_memory_limit_bytes being set
-#     via deploy.resources.limits.memory in docker-compose. Without limits,
-#     these alerts will not fire. Requires cAdvisor to be scraped by
-#     Prometheus (add a cadvisor service to docker-compose if needed).
-#   - v0.12.0: every expression below reads a metric the v0.12 server emits (checked
-#     against the server source). Removed because v0.12 does not emit what they read:
+#   - Memory alerts read dakera_process_resident_bytes (the server's own RSS gauge)
+#     against the 12 GiB limit of docker/docker-compose.yml (deploy.resources.limits.memory):
+#     change the 12 below with the limit. The server emits no CPU metric (no
+#     process_cpu_seconds_total), so there is no CPU alert; scrape cAdvisor or
+#     node-exporter for CPU.
+#   - v0.12.0: every dakera_* expression below reads a metric the v0.12 server emits
+#     (checked against the server source and a running v0.12.0 server's /metrics); the
+#     minio_* and prometheus_* ones are read from the minio and prometheus jobs. Removed because v0.12 does not emit what they read:
 #     the L1 / L2 cache hit-rate alerts (dakera_cache_*, dakera_l2_cache_*), the decay
 #     engine alerts (dakera_decay_*) and the replica-count alerts (dakera_replica_count
 #     is a constant 1 in v0.12, so "< 3" fired on every node). DakeraDown moved to
@@ -134,45 +136,30 @@ groups:
   - name: dakera_resources
     rules:
       - alert: DakeraHighMemoryUsage
+        # 12 GiB = deploy.resources.limits.memory in docker/docker-compose.yml.
         expr: >
-          process_resident_memory_bytes{job="dakera"}
-          / on(instance) group_left()
-          container_spec_memory_limit_bytes > 0.85
+          dakera_process_resident_bytes{job="dakera"} > 0.85 * 12 * 1024^3
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Dakera memory usage above 85% of limit on {{ $labels.instance }}"
+          summary: "Dakera memory usage above 85% of the 12 GiB limit on {{ $labels.instance }}"
           description: >
-            Memory usage is {{ $value | humanizePercentage }} of the container
-            limit on {{ $labels.instance }}. Threshold is 85%.
+            Resident memory is {{ $value | humanize1024 }}B on {{ $labels.instance }}.
+            Threshold is 85% of the container limit (12 GiB in docker-compose.yml).
 
       - alert: DakeraCriticalMemoryUsage
         expr: >
-          process_resident_memory_bytes{job="dakera"}
-          / on(instance) group_left()
-          container_spec_memory_limit_bytes > 0.95
+          dakera_process_resident_bytes{job="dakera"} > 0.95 * 12 * 1024^3
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "Dakera memory usage above 95% of limit on {{ $labels.instance }}"
+          summary: "Dakera memory usage above 95% of the 12 GiB limit on {{ $labels.instance }}"
           description: >
-            Memory usage is {{ $value | humanizePercentage }} of the container
-            limit on {{ $labels.instance }}. The OOM killer may terminate the
-            process. Threshold is 95%.
-
-      - alert: DakeraHighCpuUsage
-        expr: >
-          rate(process_cpu_seconds_total{job="dakera"}[5m]) > 3.5
-        for: 15m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Dakera CPU usage sustained above 3.5 cores on {{ $labels.instance }}"
-          description: >
-            CPU usage is {{ $value | humanize }} cores on {{ $labels.instance }}
-            for the last 15 minutes. The container limit is 4 cores.
+            Resident memory is {{ $value | humanize1024 }}B on {{ $labels.instance }}.
+            The OOM killer may terminate the process. Threshold is 95% of the
+            container limit (12 GiB in docker-compose.yml).
 
       - alert: DakeraHighActiveRequests
         expr: dakera_active_requests > 50
@@ -212,15 +199,15 @@ groups:
 
       - alert: MinIOHighLatency
         expr: >
-          histogram_quantile(0.95, sum(rate(minio_s3_request_duration_seconds_bucket[5m])) by (le, API))
+          histogram_quantile(0.95, sum(rate(minio_s3_requests_ttfb_seconds_distribution[5m])) by (le, api))
           > 1.0
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "MinIO S3 API {{ $labels.API }} p95 latency above 1s"
+          summary: "MinIO S3 API {{ $labels.api }} p95 time to first byte above 1s"
           description: >
-            MinIO S3 API {{ $labels.API }} p95 latency is
+            MinIO S3 API {{ $labels.api }} p95 time to first byte is
             {{ $value | humanizeDuration }}. Threshold is 1 second.
 
   - name: dakera_prometheus

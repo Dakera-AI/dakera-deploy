@@ -25,29 +25,15 @@ spec:
         app.kubernetes.io/component: storage
     spec:
       terminationGracePeriodSeconds: 30
-      initContainers:
-        - name: init-bucket
-          image: minio/mc:latest
-          command:
-            - /bin/sh
-            - -c
-            - |
-              until mc alias set myminio http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD; do sleep 2; done
-              mc mb myminio/dakera --ignore-existing
-          env:
-            - name: MINIO_ROOT_USER
-              valueFrom:
-                secretKeyRef:
-                  name: dakera-secrets
-                  key: MINIO_ROOT_USER
-            - name: MINIO_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: dakera-secrets
-                  key: MINIO_ROOT_PASSWORD
       containers:
         - name: minio
-          image: minio/minio:latest
+          # minio/minio and minio/mc are no longer published on Docker Hub (the
+          # repositories are gone). Chainguard's maintained MinIO build ships `mc`.
+          # Root, as minio/minio ran: a volume written by the old image stays writable.
+          image: cgr.dev/chainguard/minio:latest
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
           args:
             - server
             - /data
@@ -69,6 +55,23 @@ spec:
                 secretKeyRef:
                   name: dakera-secrets
                   key: MINIO_ROOT_PASSWORD
+            # Lets k8s/monitoring's Prometheus scrape /minio/v2/metrics/cluster (403 otherwise).
+            - name: MINIO_PROMETHEUS_AUTH_TYPE
+              value: public
+          # Creates the server's bucket once MinIO answers. (It was an init container
+          # waiting for this same MinIO, which only starts after init containers
+          # finish: the pod never started.)
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - >-
+                    i=0; until mc --config-dir /tmp/.mc alias set local http://127.0.0.1:9000
+                    "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1;
+                    do i=$((i+1)); [ "$i" -ge 120 ] && exit 1; sleep 1; done;
+                    mc --config-dir /tmp/.mc mb --ignore-existing local/dakera
           livenessProbe:
             httpGet:
               path: /minio/health/live

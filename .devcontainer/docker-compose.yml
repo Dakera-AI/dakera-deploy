@@ -69,7 +69,12 @@ services:
   # MinIO — S3-Compatible Object Storage
   # ==========================================================================
   minio:
-    image: minio/minio:latest
+    # minio/minio and minio/mc are no longer published on Docker Hub (the repositories
+    # are gone; a fresh `docker compose pull` fails). Chainguard's MinIO build is
+    # maintained and ships `mc`. Root, as minio/minio ran: a minio-data volume written
+    # by the old image stays writable.
+    image: cgr.dev/chainguard/minio:latest
+    user: "0:0"
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -92,7 +97,8 @@ services:
   # MinIO Setup — Initialize the 'dakera' bucket on first start
   # ==========================================================================
   minio-setup:
-    image: minio/mc:latest
+    # The MinIO image above (it has a shell and `mc`); minio/mc is no longer published.
+    image: cgr.dev/chainguard/minio:latest
     depends_on:
       minio:
         condition: service_healthy

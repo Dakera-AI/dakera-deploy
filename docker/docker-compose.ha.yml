@@ -1,8 +1,8 @@
 # =============================================================================
 # Dakera - High Availability Cluster
 # =============================================================================
-# Full production-like stack: 3-node cluster with load balancer, shared storage,
-# caching, monitoring, and dashboard.
+# Full production-like stack: 3-node cluster with load balancer, object storage
+# (one bucket per node), monitoring, and dashboard.
 #
 # All services use published container images — no local builds required.
 #
@@ -24,7 +24,6 @@
 #   Traefik Dashboard:  http://localhost:8080   (HA_TRAEFIK_PORT)
 #   MinIO API:          http://localhost:9100   (HA_MINIO_API_PORT)
 #   MinIO Console:      http://localhost:9101   (HA_MINIO_CONSOLE_PORT)
-#   Redis:              localhost:6480          (HA_REDIS_PORT)
 #   Prometheus:         http://localhost:9190   (--profile monitoring, HA_PROMETHEUS_PORT)
 #   Grafana:            http://localhost:3203   (--profile monitoring, HA_GRAFANA_PORT)
 #   Jaeger UI:          http://localhost:16787  (--profile monitoring, HA_JAEGER_UI_PORT)
@@ -50,11 +49,11 @@
 #
 # Going back to v0.11.108: roll back the WHOLE cluster, never one node. Wait until
 # every node's sync outbox is empty (GET /admin/cluster/status), stop every node,
-# run downgrade on each (it needs MinIO and Redis up), start v0.11.108 everywhere:
+# run downgrade on each (it needs MinIO up), start v0.11.108 everywhere:
 #   docker compose -f docker-compose.ha.yml stop dakera-1 dakera-2 dakera-3 dashboard traefik
 #   for n in dakera-1 dakera-2 dakera-3; do
 #     docker compose -f docker-compose.ha.yml run --rm --no-deps $n downgrade
-#   done        # --no-deps: keep it from starting other nodes; minio + redis must be running
+#   done        # --no-deps: keep it from starting other nodes; minio must be running
 # =============================================================================
 
 name: dakera-ha
@@ -107,8 +106,12 @@ x-dakera-env: &dakera-env
   # Cache
   # Hot-tier byte budget (tiered storage); a bare number below 10 million would be a vector count.
   DAKERA_L1_CACHE_SIZE: "${DAKERA_L1_CACHE_SIZE:-512MB}"
-  # OPS-3: shared Redis for rate-limit counters, SSE pub/sub fan-out, leader lock
-  DAKERA_REDIS_URL: "redis://redis:6379"
+  # No DAKERA_REDIS_URL: with one Redis shared by the three nodes, v0.12.0's
+  # replication applied nothing (a peer's write was reported "written=0" because
+  # the shared cache already held that version), so a write on one node never
+  # reached some of the others. Measured on 0.12.0: with the shared Redis, 3 of 6
+  # node pairs never converged (300 s); without it, all 6 within 0.1 s. Leader
+  # election does not use Redis (HTTP vote between nodes). Rate limits are per node.
   # Tiered storage (L1 hot → L2 warm → L3 cold)
   DAKERA_TIERED_STORAGE: "${DAKERA_TIERED_STORAGE:-true}"
   DAKERA_HOT_TO_WARM_SECS: "${DAKERA_HOT_TO_WARM_SECS:-3600}"
@@ -124,8 +127,9 @@ x-dakera-env: &dakera-env
   # Request limits
   DAKERA_MAX_BODY_SIZE: "${DAKERA_MAX_BODY_SIZE:-524288000}"
   DAKERA_REQUEST_TIMEOUT: "${DAKERA_REQUEST_TIMEOUT:-120}"
-  # Auth
-  DAKERA_AUTH_ENABLED: "${DAKERA_AUTH_ENABLED:-false}"
+  # Auth: on by default, as in docker-compose.yml (the load balancer port is published
+  # on every interface; with it off, any client that reaches it is a SuperAdmin).
+  DAKERA_AUTH_ENABLED: "${DAKERA_AUTH_ENABLED:-true}"
   DAKERA_ROOT_API_KEY: "${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env (see .env.ha.example)}"
   # Model downloads behind a proxy / mirror, or none at all (air-gapped). All empty
   # = unset = the Hugging Face Hub, directly (.env.ha.example, "Model downloads").
@@ -228,8 +232,6 @@ services:
     depends_on:
       minio-setup:
         condition: service_completed_successfully
-      redis:
-        condition: service_healthy
 
   # ==========================================================================
   # Dakera Node 2 (Replica)
@@ -257,8 +259,6 @@ services:
     depends_on:
       minio-setup:
         condition: service_completed_successfully
-      redis:
-        condition: service_healthy
       dakera-1:
         condition: service_healthy
 
@@ -288,36 +288,19 @@ services:
     depends_on:
       minio-setup:
         condition: service_completed_successfully
-      redis:
-        condition: service_healthy
       dakera-1:
         condition: service_healthy
-
-  # ==========================================================================
-  # Redis — Distributed Cache
-  # ==========================================================================
-  redis:
-    image: redis:7-alpine
-    container_name: dakera-redis
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
-    ports:
-      - "${HA_REDIS_PORT:-6480}:6379"
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    restart: unless-stopped
-    networks:
-      - dakera-ha-net
 
   # ==========================================================================
   # MinIO — S3-Compatible Object Storage (one bucket per node)
   # ==========================================================================
   minio:
-    image: minio/minio:latest
+    # minio/minio and minio/mc are no longer published on Docker Hub (the repositories
+    # are gone; a fresh `docker compose pull` fails). Chainguard's MinIO build is
+    # maintained and ships `mc`. Root, as minio/minio ran: a minio-data volume written
+    # by the old image stays writable.
+    image: cgr.dev/chainguard/minio:latest
+    user: "0:0"
     container_name: dakera-ha-minio
     command: server /data --console-address ":9001"
     ports:
@@ -326,6 +309,8 @@ services:
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+      # Lets Prometheus (monitoring profile) scrape /minio/v2/metrics/cluster; without it: 403.
+      - MINIO_PROMETHEUS_AUTH_TYPE=public
     volumes:
       - minio-data:/data
     healthcheck:
@@ -341,7 +326,8 @@ services:
   # MinIO Setup — Create the buckets (one per node) on startup
   # ==========================================================================
   minio-setup:
-    image: minio/mc:latest
+    # The MinIO image above (it has a shell and `mc`); minio/mc is no longer published.
+    image: cgr.dev/chainguard/minio:latest
     container_name: dakera-ha-minio-setup
     depends_on:
       minio:
@@ -457,7 +443,6 @@ volumes:
   dakera-3-cache:
   dakera-3-rocksdb:
   dakera-models:
-  redis-data:
   minio-data:
   prometheus-data:
   grafana-data:

@@ -64,6 +64,34 @@ v0.11 is preserved on the `release/0.11` branch; `main` targets v0.12.0 from her
 
 ### Fixed
 
+Found by running every stack against the v0.12.0 server (see docs/features-v0.12.md, "Measured in the
+deployment validation"):
+
+- **MinIO images**: `minio/minio` and `minio/mc` are no longer published on Docker Hub (both repositories
+  are gone), so a fresh `docker compose pull` / `up` and the `k8s/minio` StatefulSet failed to pull. Every
+  file now uses `cgr.dev/chainguard/minio:latest` (it ships `mc`, which `minio-setup` and the health check
+  use), run as root like the old image so an existing `minio-data` volume stays writable (checked: a volume
+  written by the old image is read and written by the new one).
+- **`k8s/minio`**: the bucket was created by an init container that waited for the MinIO of its own pod,
+  which starts only after init containers finish: the pod never started. A `postStart` hook creates it now.
+- **HA replication**: with the three nodes sharing one Redis (`DAKERA_REDIS_URL`), v0.12.0 reported
+  replicated writes as applied but stored nothing on some peers (`written=0`; 3 of 6 node pairs never
+  converged in 300 s). The HA file no longer wires Redis (the `redis` service is removed): all 6 pairs then
+  converge within 0.1 s. Leader election does not use Redis.
+- **HA authentication** defaulted to off (`DAKERA_AUTH_ENABLED:-false`) on a load balancer published on every
+  interface; it now defaults to `true` like `docker-compose.yml`.
+- **Monitoring**: the MinIO scrape target was down (403: MinIO metrics need `MINIO_PROMETHEUS_AUTH_TYPE=public`,
+  now set), so `MinIODown` fired permanently; the memory and CPU alerts read `process_*` and
+  `container_spec_memory_limit_bytes`, which nothing scraped here exports (memory now reads
+  `dakera_process_resident_bytes`; there is no CPU metric, so no CPU alert); `MinIOHighLatency` read a metric
+  MinIO does not export (now `minio_s3_requests_ttfb_seconds_distribution`).
+- **`k8s/mcp`** is no longer applied: `dakera-mcp` speaks MCP over stdio only and crash-looped as a pod
+  (it also read `DAKERA_API_URL`, not the `DAKERA_URL` the manifest set: fixed in the manifest).
+- `docker-compose.local.yml`: the MinIO health check used `curl`, which the MinIO image does not ship.
+- README: the server does not refuse to start with authentication on and no key (it starts and rejects
+  every authenticated request); `downgrade` also exits 78 when it finds no data; its JSON report is alone
+  on stdout only without a TTY (`run -T`).
+
 - Compose files passed to the container only the variables they list, so most of what `docker/.env.example` offered
   (`DAKERA_ENCRYPTION_KEY`, the search and ranking levers, the tiering settings, `DAKERA_MAX_BODY_SIZE`, ...) had no
   effect: encryption stayed off with a key in `.env`. They are now passed (empty = the server default).
