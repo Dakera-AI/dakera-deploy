@@ -14,9 +14,11 @@ Use this checklist before exposing Dakera to the internet or handling real workl
 ## Storage
 
 - [ ] **Use persistent storage**: Use the default profile (MinIO-backed) or native S3, not in-memory mode
-- [ ] **Pin image versions**: Set `DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.66` explicitly — never use `latest` in production
-- [ ] **Mount volumes**: Ensure `dakera-cache`, `dakera-rocksdb`, and `minio-data` volumes are on reliable storage
+- [ ] **Pin image versions**: Set `DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.0` explicitly — never use `latest` in production
+- [ ] **Mount volumes**: Ensure the `dakera-data` (data root: WAL, knowledge graph), `dakera-cache`, `dakera-rocksdb`, `dakera-models` and `minio-data` volumes are on reliable storage
 - [ ] **Configure backups**: See [backup-restore.md](backup-restore.md) for backup procedures
+- [ ] **Know your way back**: `docker compose run --rm dakera downgrade` (server stopped first) returns v0.12.0 data to v0.11.108; see README "Rolling back to v0.11"
+- [ ] **Run `--check-config` before every upgrade**: `docker compose run --rm --no-deps dakera --check-config` (exit 0 = would start, 78 = would refuse)
 
 ## Performance
 
@@ -29,6 +31,8 @@ Use this checklist before exposing Dakera to the internet or handling real workl
 
 - [ ] **Use the HA profile** for production: `docker compose -f docker-compose.ha.yml up -d`
 - [ ] **Deploy 3+ nodes**: The HA compose includes 3 Dakera nodes by default
+- [ ] **Set `DAKERA_CLUSTER_SECRET`**: required in cluster mode, >= 16 characters, identical on every node (keep it in `.env.ha` / a Secret)
+- [ ] **One bucket per node**: nodes must not share one S3 bucket as their store (the HA compose gives each its own)
 - [ ] **Set up Redis**: Required for HA mode — distributed cache, rate-limit counters, SSE fan-out
 - [ ] **Configure seed nodes**: Each node needs `DAKERA_CLUSTER_SEEDS` pointing to other nodes
 - [ ] **Test failover**: Stop one node and verify traffic routes to remaining nodes
@@ -43,6 +47,7 @@ Use this checklist before exposing Dakera to the internet or handling real workl
 ## Kubernetes-Specific
 
 - [ ] **Use External Secrets**: Don't store secrets in YAML — use External Secrets Operator or HashiCorp Vault
-- [ ] **Configure HPA**: The included HPA scales Dakera pods 1–5 based on CPU; set `minReplicas: 3` for HA
+- [ ] **Do not autoscale one data root**: a server locks its data root and the volume is ReadWriteOnce, so the HPA is not applied by default in v0.12; scale out with cluster mode (one release per node)
+- [ ] **Probes**: liveness `/health/live` (+ startup probe), readiness `/health/ready` (the manifests do this)
 - [ ] **Add cert-manager**: Annotate the ingress for automatic TLS certificate management
 - [ ] **Use native S3**: In cloud environments (AWS, GCP), use native S3/GCS instead of MinIO

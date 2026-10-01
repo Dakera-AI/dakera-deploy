@@ -1,6 +1,6 @@
 services:
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:latest}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.0}
     ports:
       - "3000:3000"
       - "50051:50051"
@@ -11,10 +11,13 @@ services:
       - DAKERA_GRPC_PORT=50051
       - DAKERA_STORAGE=memory
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
+      # 503 while the models load (the port answers meanwhile); the first
+      # success ends the start period.
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 600s
     restart: unless-stopped
 
   # Optional: MinIO for S3-compatible storage testing

@@ -8,6 +8,24 @@
 #   docker compose up -d
 #   docker compose up -d --profile dashboard   # with Dashboard UI
 #   docker compose down
+#
+# Dakera v0.12.0. (v0.11 users: the previous version of this file is on the
+# `release/0.11` branch.)
+#
+# Upgrading from v0.11.108 (see README "Upgrading from v0.11"):
+#   1. Back up:           POST /admin/backups
+#   2. Check the config with the new image, against your env and data volumes
+#      (prints every warning the first start will give; exit 0 = would start,
+#      78 = would refuse; starts nothing):
+#        docker compose run --rm --no-deps dakera --check-config
+#   3. Upgrade:           docker compose pull && docker compose up -d
+#
+# Going back to v0.11.108 (stop the server FIRST; `downgrade` refuses to run
+# while a server uses the data; it needs MinIO up, so no --no-deps):
+#   docker compose stop dakera-watchdog dakera
+#   docker compose run --rm dakera downgrade     # JSON report on stdout; exit 0 = done
+#   DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.108 docker compose up -d   # with the v0.11 file
+# Docs: https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/UPGRADE.md
 # =============================================================================
 
 name: dakera
@@ -17,7 +35,7 @@ services:
   # Dakera - AI Agent Memory Platform
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:latest}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.0}
     container_name: dakera
     # DAK-9890 / FW-b5ad5a7f / DAK-9814: place the container under a systemd
     # slice that sets memory.high=10G (soft cgroup-v2 backpressure). The kernel
@@ -41,7 +59,10 @@ services:
       - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       - DAKERA_S3_REGION=us-east-1
       - DAKERA_L1_CACHE_SIZE=536870912
-      - DAKERA_L2_CACHE_PATH=/data/rocksdb
+      # The data root: write-ahead log, knowledge graph ({root}/graph.db), hot tier
+      # ({root}/hot), warm tier ({root}/cache/warm) all derive from it. Replaces
+      # v0.11's DAKERA_L2_CACHE_PATH, which v0.12 no longer reads.
+      - DAKERA_STORAGE_PATH=/data
       # Tiered storage (L1 hot → L2 warm → L3 cold via S3)
       - DAKERA_TIERED_STORAGE=true
       - DAKERA_HOT_TO_WARM_SECS=3600
@@ -62,8 +83,18 @@ services:
       # after allocation peaks instead of retaining decommitted heap.
       - MIMALLOC_PURGE_DELAY=0
     volumes:
+      # The data root, plus the warm and hot tiers on the volumes they had
+      # before v0.12 (dakera-cache held /data/cache, so the warm tier at
+      # /data/cache/warm is where it was), mounted where the root derives them.
+      - dakera-data:/data
       - dakera-cache:/data/cache
-      - dakera-rocksdb:/data/rocksdb
+      - dakera-rocksdb:/data/hot
+      # Model cache (HF_HOME): models the image does not ship (DAKERA_MODEL=bge-m3,
+      # whisper, ...), downloaded once. The image's own models (bge-large, the
+      # reranker) are read from the image itself. Pre-pull, e.g. air-gapped:
+      #   docker compose run --rm dakera models pull bge-m3
+      # and free what an older image left here: ... run --rm dakera models prune
+      - dakera-models:/app/models
     deploy:
       resources:
         limits:
@@ -84,13 +115,16 @@ services:
       minio-setup:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
+      # /health/ready is 503 while the models load (the port answers meanwhile,
+      # /health/live is 200); a model not in the image downloads first.
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health/ready"]
       interval: 10s
       timeout: 5s
       # Reduced 5→3: mark unhealthy faster (30s vs 50s) so watchdog triggers
       # sooner. The dakera-watchdog sidecar auto-restarts on streak ≥ 5 (50s).
       retries: 3
-      start_period: 10s
+      # Failures inside the start period do not count; the first success ends it.
+      start_period: 600s
     restart: unless-stopped
     networks:
       - dakera-net
@@ -290,8 +324,10 @@ services:
       - dakera-net
 
 volumes:
+  dakera-data:
   dakera-cache:
   dakera-rocksdb:
+  dakera-models:
   minio-data:
   prometheus-data:
   grafana-data:

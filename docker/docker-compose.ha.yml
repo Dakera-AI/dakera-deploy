@@ -30,12 +30,37 @@
 #   Jaeger UI:          http://localhost:16787  (--profile monitoring, HA_JAEGER_UI_PORT)
 #
 # Override any port by setting the corresponding HA_* env var. See .env.ha.example.
+#
+# Dakera v0.12.0. (v0.11 users: the previous version of this file is on the
+# `release/0.11` branch.)
+#
+# v0.12 cluster requirements:
+#   * DAKERA_CLUSTER_SECRET (>= 16 characters, identical on every node) and a
+#     stable DAKERA_CLUSTER_NODE_ID: set DAKERA_CLUSTER_SECRET in .env.ha.
+#   * Each node has its OWN bucket (dakera, dakera-2, dakera-3). Nodes sharing
+#     one bucket are refused on a fresh install and `shared_store`-degraded on an
+#     existing one. dakera-1 keeps `dakera`, so v0.11 data stays where it is;
+#     dakera-2 / dakera-3 start empty and fill from their peers (watch
+#     GET /admin/cluster/status: replication.startup_reconciled).
+#
+# Upgrading from v0.11.108 (README "Upgrading from v0.11"; server UPGRADE.md,
+# "Cluster"): back up, check the config with the new image per node
+#   docker compose -f docker-compose.ha.yml run --rm --no-deps dakera-1 --check-config
+# then `docker compose -f docker-compose.ha.yml down` (volumes kept), pull and `up -d`.
+#
+# Going back to v0.11.108: roll back the WHOLE cluster, never one node. Wait until
+# every node's sync outbox is empty (GET /admin/cluster/status), stop every node,
+# run downgrade on each (it needs MinIO and Redis up), start v0.11.108 everywhere:
+#   docker compose -f docker-compose.ha.yml stop dakera-1 dakera-2 dakera-3 dashboard traefik
+#   for n in dakera-1 dakera-2 dakera-3; do
+#     docker compose -f docker-compose.ha.yml run --rm --no-deps $n downgrade
+#   done        # --no-deps: keep it from starting other nodes; minio + redis must be running
 # =============================================================================
 
 name: dakera-ha
 
 x-dakera-common: &dakera-common
-  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:latest}
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.0}
   restart: unless-stopped
   ulimits:
     nofile:
@@ -48,11 +73,13 @@ x-dakera-common: &dakera-common
     - "50051"
     - "7946"
   healthcheck:
-    test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
+    # /health/ready is 503 while the models load (the port answers meanwhile);
+    # failures inside the start period do not count, the first success ends it.
+    test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health/ready"]
     interval: 10s
     timeout: 5s
     retries: 5
-    start_period: 15s
+    start_period: 600s
 
 x-dakera-env: &dakera-env
   DAKERA_HOST: "0.0.0.0"
@@ -60,17 +87,22 @@ x-dakera-env: &dakera-env
   DAKERA_GRPC_PORT: "50051"
   DAKERA_CLUSTER_MODE: "true"
   DAKERA_GOSSIP_PORT: "7946"
-  # Storage — shared MinIO
+  # Shared secret of the node-to-node routes (/internal/*) and gossip: required in
+  # cluster mode, at least 16 characters, identical on every node (openssl rand -hex 32).
+  # Rolling v0.11 -> v0.12 with mixed versions: leave it unset until every node
+  # runs v0.12 (server UPGRADE.md, "Cluster").
+  DAKERA_CLUSTER_SECRET: "${DAKERA_CLUSTER_SECRET:?Set DAKERA_CLUSTER_SECRET (>= 16 chars) in .env.ha (see .env.ha.example)}"
+  # Data root: write-ahead log, knowledge graph (/data/graph.db), hot tier
+  # (/data/hot) and warm tier (/data/cache/warm) derive from it.
+  DAKERA_STORAGE_PATH: "/data"
+  # Storage — MinIO, one bucket per node (set per node below)
   DAKERA_STORAGE: "s3"
   DAKERA_S3_ENDPOINT: "http://minio:9000"
-  DAKERA_S3_BUCKET: "dakera"
   AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-minioadmin}"
   AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
   DAKERA_S3_REGION: "us-east-1"
   # Cache
   DAKERA_L1_CACHE_SIZE: "536870912"
-  DAKERA_L2_CACHE_PATH: "/data/rocksdb"
-  DAKERA_CACHE_REDIS_URL: "redis://redis:6379"
   # OPS-3: shared Redis for rate-limit counters, SSE pub/sub fan-out, leader lock
   DAKERA_REDIS_URL: "redis://redis:6379"
   # Tiered storage (L1 hot → L2 warm → L3 cold)
@@ -79,7 +111,10 @@ x-dakera-env: &dakera-env
   DAKERA_WARM_TO_COLD_SECS: "86400"
   DAKERA_AUTO_TIER: "true"
   DAKERA_TIER_CHECK_INTERVAL_SECS: "300"
-  # DAK-6209/DAK-6284: TIERED ON — optA-baked-ec6ef91 has ONNX baked in (DAK-6272 cold-boot guard).
+  # DAK-6209/DAK-6284: tiered embeddings ON. Must be IDENTICAL on all nodes (they
+  # replicate vectors to each other; the tiered engine always embeds with the
+  # default model and ignores DAKERA_MODEL; a node whose effective model differs
+  # from the store's refuses to start).
   DAKERA_TIERED: "1"
   DAKERA_SEARCH_MODE: "hybrid"
   # Request limits
@@ -138,14 +173,20 @@ services:
     hostname: dakera-1
     environment:
       <<: *dakera-env
-      DAKERA_NODE_ID: "node-1"
+      DAKERA_CLUSTER_NODE_ID: "node-1"
+      DAKERA_S3_BUCKET: "dakera"
       DAKERA_CLUSTER_ROLE: "primary"
       DAKERA_CLUSTER_SEEDS: "dakera-2:7946,dakera-3:7946"
       DAKERA_GOSSIP_BIND: "0.0.0.0:7946"
       DAKERA_API_ADVERTISE: "http://dakera-1:3000"
     volumes:
-      - dakera-1-cache:/data/cache
-      - dakera-1-rocksdb:/data/rocksdb
+      # The data root, plus the hot and warm tiers on the volumes they had
+      # before v0.12, mounted where the root derives them.
+      - dakera-1-data:/data
+      - dakera-1-rocksdb:/data/hot
+      - dakera-1-cache:/data/cache/warm
+      # One model cache for the three nodes: a model downloads once.
+      - dakera-models:/app/models
     depends_on:
       minio-setup:
         condition: service_completed_successfully
@@ -161,14 +202,20 @@ services:
     hostname: dakera-2
     environment:
       <<: *dakera-env
-      DAKERA_NODE_ID: "node-2"
+      DAKERA_CLUSTER_NODE_ID: "node-2"
+      DAKERA_S3_BUCKET: "dakera-2"
       DAKERA_CLUSTER_ROLE: "replica"
       DAKERA_CLUSTER_SEEDS: "dakera-1:7946,dakera-3:7946"
       DAKERA_GOSSIP_BIND: "0.0.0.0:7946"
       DAKERA_API_ADVERTISE: "http://dakera-2:3000"
     volumes:
-      - dakera-2-cache:/data/cache
-      - dakera-2-rocksdb:/data/rocksdb
+      # The data root, plus the hot and warm tiers on the volumes they had
+      # before v0.12, mounted where the root derives them.
+      - dakera-2-data:/data
+      - dakera-2-rocksdb:/data/hot
+      - dakera-2-cache:/data/cache/warm
+      # One model cache for the three nodes: a model downloads once.
+      - dakera-models:/app/models
     depends_on:
       minio-setup:
         condition: service_completed_successfully
@@ -186,14 +233,20 @@ services:
     hostname: dakera-3
     environment:
       <<: *dakera-env
-      DAKERA_NODE_ID: "node-3"
+      DAKERA_CLUSTER_NODE_ID: "node-3"
+      DAKERA_S3_BUCKET: "dakera-3"
       DAKERA_CLUSTER_ROLE: "replica"
       DAKERA_CLUSTER_SEEDS: "dakera-1:7946,dakera-2:7946"
       DAKERA_GOSSIP_BIND: "0.0.0.0:7946"
       DAKERA_API_ADVERTISE: "http://dakera-3:3000"
     volumes:
-      - dakera-3-cache:/data/cache
-      - dakera-3-rocksdb:/data/rocksdb
+      # The data root, plus the hot and warm tiers on the volumes they had
+      # before v0.12, mounted where the root derives them.
+      - dakera-3-data:/data
+      - dakera-3-rocksdb:/data/hot
+      - dakera-3-cache:/data/cache/warm
+      # One model cache for the three nodes: a model downloads once.
+      - dakera-models:/app/models
     depends_on:
       minio-setup:
         condition: service_completed_successfully
@@ -223,7 +276,7 @@ services:
       - dakera-ha-net
 
   # ==========================================================================
-  # MinIO — Shared S3-Compatible Object Storage
+  # MinIO — S3-Compatible Object Storage (one bucket per node)
   # ==========================================================================
   minio:
     image: minio/minio:latest
@@ -247,7 +300,7 @@ services:
       - dakera-ha-net
 
   # ==========================================================================
-  # MinIO Setup — Create bucket on startup
+  # MinIO Setup — Create the buckets (one per node) on startup
   # ==========================================================================
   minio-setup:
     image: minio/mc:latest
@@ -259,7 +312,9 @@ services:
       /bin/sh -c "
       mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin};
       mc mb myminio/dakera --ignore-existing;
-      echo 'Dakera bucket ready';
+      mc mb myminio/dakera-2 --ignore-existing;
+      mc mb myminio/dakera-3 --ignore-existing;
+      echo 'Dakera buckets ready';
       exit 0;
       "
     networks:
@@ -347,12 +402,16 @@ services:
       - dakera-ha-net
 
 volumes:
+  dakera-1-data:
   dakera-1-cache:
   dakera-1-rocksdb:
+  dakera-2-data:
   dakera-2-cache:
   dakera-2-rocksdb:
+  dakera-3-data:
   dakera-3-cache:
   dakera-3-rocksdb:
+  dakera-models:
   redis-data:
   minio-data:
   prometheus-data:

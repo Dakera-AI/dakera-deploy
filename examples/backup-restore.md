@@ -7,10 +7,12 @@ Dakera stores all persistent data in S3-compatible storage (MinIO by default). B
 | Component | Location | Contains |
 |-----------|----------|----------|
 | MinIO data | `minio-data` Docker volume | All memory vectors, metadata, and namespace data |
-| RocksDB cache | `dakera-rocksdb` Docker volume | L2 warm-tier cache (rebuilds automatically from S3) |
+| Data root | `dakera-data` Docker volume (`/data`) | Write-ahead log, knowledge graph (`graph.db`); keep it on persistent storage (the graph is not in the bucket) |
+| Hot / warm tiers | `dakera-rocksdb` (`/data/hot`), `dakera-cache` (`/data/cache`) Docker volumes | Tier caches (rebuild from S3) |
+| Model cache | `dakera-models` Docker volume | Downloaded models (re-downloadable; seed ahead when air-gapped) |
 | Environment config | `docker/.env` | API keys, MinIO credentials, custom settings |
 
-**MinIO data is the critical backup target.** RocksDB is a cache that rebuilds from S3 on startup.
+**MinIO data is the critical backup target**, together with the data root (`dakera-data`: the knowledge graph lives there, not in the bucket). The hot and warm tiers are caches that rebuild from S3. Also take an API backup (`POST /admin/backups`) before every upgrade.
 
 ## Backup Procedures
 

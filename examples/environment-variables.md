@@ -1,6 +1,6 @@
 # Environment Variable Reference
 
-Complete reference for all Dakera server environment variables. Set these in `docker/.env` (Docker Compose) or in your Kubernetes Secret/ConfigMap.
+Reference for the Dakera server environment variables used by the v0.12.0 compose files and manifests (v0.11: the `release/0.11` branch). The authoritative list is the server's [env-vars.md](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/env-vars.md); a name the server does not read is reported at startup (`dakera --check-config`). Set these in `docker/.env` (Docker Compose) or in your Kubernetes Secret/ConfigMap.
 
 ## Required (Production)
 
@@ -17,7 +17,8 @@ Complete reference for all Dakera server environment variables. Set these in `do
 | `DAKERA_HOST` | `0.0.0.0` | Bind address |
 | `DAKERA_PORT` | `3000` | REST API port |
 | `DAKERA_GRPC_PORT` | `50051` | gRPC API port |
-| `DAKERA_STORAGE` | `memory` | Storage backend: `memory` (ephemeral) or `s3` (persistent) |
+| `DAKERA_STORAGE` | `memory` | Storage backend: `memory` (ephemeral), `filesystem` or `s3` (persistent) |
+| `DAKERA_STORAGE_PATH` | `/data` | Data root. WAL, knowledge graph, filesystem backend, hot tier (`{root}/hot`) and warm tier (`{root}/cache/warm`) derive from it; mount the data volume here |
 | `RUST_LOG` | `info` | Log verbosity (`error`, `warn`, `info`, `debug`, `trace`) |
 | `DAKERA_AUTH_ENABLED` | `true` (prod) / `false` (local) | Require API key authentication |
 
@@ -30,16 +31,16 @@ Required when `DAKERA_STORAGE=s3`.
 | `DAKERA_S3_ENDPOINT` | — | S3-compatible endpoint (e.g. `http://minio:9000`) |
 | `DAKERA_S3_BUCKET` | `dakera` | Storage bucket name |
 | `DAKERA_S3_REGION` | `us-east-1` | S3 region |
-| `AWS_ACCESS_KEY_ID` | — | S3 access key (or `DAKERA_S3_ACCESS_KEY`) |
-| `AWS_SECRET_ACCESS_KEY` | — | S3 secret key (or `DAKERA_S3_SECRET_KEY`) |
+| `AWS_ACCESS_KEY_ID` | — | S3 access key (`DAKERA_S3_ACCESS_KEY` is not read) |
+| `AWS_SECRET_ACCESS_KEY` | — | S3 secret key (`DAKERA_S3_SECRET_KEY` is not read) |
 
 ## Cache
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DAKERA_L1_CACHE_SIZE` | `536870912` (512MB) | In-memory L1 cache size in bytes |
-| `DAKERA_L2_CACHE_PATH` | `/data/rocksdb` | RocksDB L2 cache directory |
-| `DAKERA_CACHE_DIR` | `/data/cache` | General cache directory |
+| `DAKERA_DISK_CACHE_DIR` | — | Enables the L2 on-disk read cache (v0.11's `DAKERA_L2_CACHE_PATH` is no longer read) |
+| `DAKERA_CACHE_DIR` | `{root}/cache/warm` | Warm-tier directory (tiered storage only) |
 
 ## Tiered Storage
 
@@ -60,12 +61,20 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 | `DAKERA_CLUSTER_MODE` | `false` | Enable cluster mode |
 | `DAKERA_CLUSTER_ROLE` | — | Node role: `primary` or `replica` |
 | `DAKERA_CLUSTER_SEEDS` | — | Comma-separated seed nodes (`host:port,host:port`) |
-| `DAKERA_NODE_ID` | — | Unique node identifier |
+| `DAKERA_CLUSTER_SECRET` | — | **Required in cluster mode**: shared secret of node-to-node routes and gossip, >= 16 characters, identical on every node. Keep it in a Secret / `.env.ha`, never in a ConfigMap |
+| `DAKERA_CLUSTER_NODE_ID` | generated once | Stable node identifier (`DAKERA_NODE_ID` is its legacy alias) |
 | `DAKERA_GOSSIP_PORT` | `7946` | Gossip protocol port |
 | `DAKERA_GOSSIP_BIND` | `0.0.0.0:7946` | Gossip bind address |
 | `DAKERA_API_ADVERTISE` | — | Advertised API URL for the node |
-| `DAKERA_CACHE_REDIS_URL` | — | Redis URL for distributed cache |
-| `DAKERA_REDIS_URL` | — | Redis URL for rate-limit counters and SSE pub/sub |
+| `DAKERA_REDIS_URL` | — | Redis URL for the distributed cache, rate-limit counters and SSE pub/sub (v0.11's `DAKERA_CACHE_REDIS_URL` is no longer read) |
+
+## Models
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_MODEL` | `bge-large` | Embedding model. `bge-large` and the reranker ship in the image; any other model downloads into the model cache (`/app/models`) on first use or via `dakera models pull` |
+| `DAKERA_ALLOW_MODEL_CHANGE` | — | Set `1` for ONE start to acknowledge that the store was embedded by another model (then re-embed with `POST /admin/namespaces/migrate-dimensions` and remove it) |
+| `HF_TOKEN` | — | Hugging Face token for model downloads (optional) |
 
 ## Request Limits
 

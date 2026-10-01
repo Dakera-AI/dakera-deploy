@@ -4,6 +4,39 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+## [0.12.0] - Dakera server v0.12.0
+
+v0.11 is preserved on the `release/0.11` branch; `main` targets v0.12.0 from here on.
+
+### Changed
+
+- Default Dakera image `:latest` / `0.11.x` -> `0.12.0` (compose files, devcontainer, `k8s/`).
+- Health checks: `/health` -> `/health/ready` (compose) and `/health/live` + `/health/ready` + a startup
+  probe (Kubernetes); start period 10 minutes: the port answers while models load.
+- One data root: `DAKERA_STORAGE_PATH=/data`. The data volume (`dakera-data`) is mounted there; the old
+  warm-tier volume (`dakera-cache`) stays at `/data/cache`, the old RocksDB volume (`dakera-rocksdb`)
+  moves to `/data/hot`. HA nodes: `dakera-N-data` at `/data`, `dakera-N-rocksdb` at `/data/hot`,
+  `dakera-N-cache` at `/data/cache/warm`.
+- HA: each node has its own bucket (`dakera`, `dakera-2`, `dakera-3`; created by `minio-setup`); nodes
+  sharing one bucket are refused by v0.12 on a fresh install. `DAKERA_NODE_ID` -> `DAKERA_CLUSTER_NODE_ID`.
+- Kubernetes: `Recreate` strategy, `fsGroup: 1000`, data PVC (name kept: `dakera-rocksdb`) mounted at
+  `/data`; the HPA is no longer applied by `kustomization.yaml` (one server per data root).
+- Playground compose: removed `DAKERA_L2_CACHE_PATH`, data root volume, readiness health check.
+
+### Added
+
+- `DAKERA_CLUSTER_SECRET` (required in cluster mode) in `docker-compose.ha.yml`, `.env.ha.example`,
+  `k8s/secret.example.yaml`.
+- Model volume `dakera-models` at `/app/models` (HF_HOME); `models pull` / `prune` recipes.
+- `docker compose run --rm dakera --check-config` (pre-upgrade) and `... downgrade` (rollback) recipes;
+  Kubernetes one-off Jobs `k8s/dakera/check-config-job.yaml` and `k8s/dakera/downgrade-job.yaml`.
+- README: "Versions", "Upgrading from v0.11 to v0.12.0", "Rolling back to v0.11".
+
+### Removed
+
+- `DAKERA_L2_CACHE_PATH` (v0.12 reads no such name), `DAKERA_CACHE_REDIS_URL` (use `DAKERA_REDIS_URL`).
+  `DAKERA_S3_ACCESS_KEY` / `DAKERA_S3_SECRET_KEY` / `DAKERA_LOG_LEVEL` are not read either (docs corrected).
+
 ## [0.9.0] - 2026-06-25
 
 ### Changed

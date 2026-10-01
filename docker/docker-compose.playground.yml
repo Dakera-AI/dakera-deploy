@@ -18,7 +18,7 @@ services:
   # Dakera — AI Agent Memory Platform (playground limits)
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:latest}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.0}
     container_name: playground-dakera
     ports:
       - "127.0.0.1:3000:3000"
@@ -36,7 +36,8 @@ services:
       - DAKERA_ROOT_API_KEY=${DAKERA_ROOT_API_KEY:?Set DAKERA_ROOT_API_KEY in .env}
       # Playground resource limits
       - DAKERA_L1_CACHE_SIZE=134217728
-      - DAKERA_L2_CACHE_PATH=/data/rocksdb
+      # (v0.12: DAKERA_L2_CACHE_PATH is no longer read; the data root is /data)
+      - DAKERA_STORAGE_PATH=/data
       - DAKERA_MAX_BODY_SIZE=5242880
       - DAKERA_REQUEST_TIMEOUT=30
       # Keep tiered OFF — playground doesn't need tiered hot/warm/cold
@@ -45,8 +46,9 @@ services:
       # Token passthrough for HF model downloads (optional)
       - HF_TOKEN=${HF_TOKEN:-}
     volumes:
+      - dakera-data:/data
       - dakera-cache:/data/cache
-      - dakera-rocksdb:/data/rocksdb
+      - dakera-models:/app/models
     deploy:
       resources:
         limits:
@@ -59,11 +61,11 @@ services:
       minio-setup:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health/ready"]
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 600s
     restart: unless-stopped
     networks:
       - playground-net
@@ -185,8 +187,9 @@ services:
         max-file: "3"
 
 volumes:
+  dakera-data:
   dakera-cache:
-  dakera-rocksdb:
+  dakera-models:
   minio-data:
 
 networks:

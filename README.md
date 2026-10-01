@@ -29,6 +29,23 @@
 
 ---
 
+## Versions
+
+| | Dakera server | Where |
+|---|---|---|
+| **Latest (this branch, `main`)** | **v0.12.0** | `main`: compose files, Kubernetes manifests and guides in this repo target v0.12.0 |
+| Previous | v0.11.x (last: v0.11.108) | the [`release/0.11`](https://github.com/Dakera-AI/dakera-deploy/tree/release/0.11) branch, kept unchanged |
+
+**On v0.11?** Use the [`release/0.11`](https://github.com/Dakera-AI/dakera-deploy/tree/release/0.11)
+branch (`git clone -b release/0.11 https://github.com/Dakera-AI/dakera-deploy`): everything in it
+keeps working as before. Its Helm counterpart is the `0.11.x` chart on the
+[`release/0.11`](https://github.com/Dakera-AI/dakera-helm/tree/release/0.11) branch of dakera-helm.
+
+**Moving to v0.12.0?** Follow [Upgrading from v0.11](#upgrading-from-v011-to-v0120). Going back is
+supported ([Rolling back to v0.11](#rolling-back-to-v011)).
+
+---
+
 ## Why Dakera?
 
 Dakera is the **agent-native memory platform** — purpose-built for AI agents that need persistent, session-aware, cross-agent memory. A single self-hosted Rust binary gives you vector search, hybrid retrieval (BM25 + HNSW), knowledge graphs, session management, and built-in embeddings. No external dependencies. Your data stays on your infrastructure.
@@ -146,10 +163,10 @@ docker compose -f docker-compose.dev.yml up -d
 
 Production-grade single-node deployment with MinIO, caching, and health checks.
 
-> **Version pinning**: The default image tags are pinned to the latest stable release.
+> **Version pinning**: The default Dakera image tag is pinned to v0.12.0 (v0.11: `release/0.11`).
 > To run a specific version, set `DAKERA_IMAGE` and `DASHBOARD_IMAGE` in your `.env`:
 > ```bash
-> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.90
+> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.0
 > DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.3.29
 > ```
 > Pinning to explicit versions prevents unexpected upgrades in production.
@@ -173,7 +190,7 @@ docker compose up -d
 
 ### High Availability (3-Node Cluster)
 
-Production HA deployment with Traefik load balancer, 3 Dakera nodes, gossip-based clustering, and shared MinIO storage.
+Production HA deployment with Traefik load balancer, 3 Dakera nodes, gossip-based clustering, and MinIO storage (one bucket per node).
 
 ```bash
 cd docker
@@ -185,6 +202,9 @@ docker compose -f docker-compose.ha.yml up -d
 - Traefik Dashboard: http://localhost:8080
 - MinIO Console: http://localhost:9101
 - Cluster status: http://localhost:3100/admin/cluster/status
+
+Set `DAKERA_CLUSTER_SECRET` (>= 16 characters, `openssl rand -hex 32`) in `.env.ha` first; the file
+refuses to start without it. Each node uses its own MinIO bucket.
 
 ### Monitoring (Prometheus + Grafana)
 
@@ -234,6 +254,72 @@ npx @dakera-ai/dakera-mcp               # zero-install, latest version
 
 See [dakera-cli](https://github.com/dakera-ai/dakera-cli) and [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) for full documentation.
 
+## Upgrading from v0.11 to v0.12.0
+
+An unchanged v0.11.108 deployment upgrades in place: stop v0.11, start v0.12.0 on the same data and
+the same environment. It starts, keeps its data and answers as before, except for the defects v0.12
+fixes on purpose. The full guide is the server's
+[docs/v0.12/UPGRADE.md](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/UPGRADE.md)
+(release notes: [RELEASE_NOTES.md](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/RELEASE_NOTES.md)).
+Summary for the files in this repo:
+
+1. **Back up** (`POST /admin/backups`).
+2. **Check the configuration with the new image**, against your environment and data volumes. It
+   lists every warning the first start will give, starts nothing, and exits `0` (would start) or `78`
+   (would refuse):
+   ```bash
+   cd docker
+   docker compose run --rm --no-deps dakera --check-config      # single node
+   docker compose -f docker-compose.ha.yml run --rm --no-deps dakera-1 --check-config   # HA
+   ```
+3. **Take the new files** (`git pull` on `main`) and review what changed for your setup:
+   - image `ghcr.io/dakera-ai/dakera:0.12.0`;
+   - `DAKERA_L2_CACHE_PATH` is gone (v0.12 reads no such name; an upgraded deployment warns, a fresh
+     install refuses): the data root is `DAKERA_STORAGE_PATH` (`/data`), and every local path derives
+     from it. The compose files mount the data volume there and keep your old volumes where the
+     tiers expect them (`/data/cache` for the warm tier, `/data/hot` for the hot tier);
+   - `DAKERA_CACHE_REDIS_URL` is gone (use `DAKERA_REDIS_URL`), `DAKERA_NODE_ID` is now
+     `DAKERA_CLUSTER_NODE_ID` (the old name is still honoured as an alias),
+     `DAKERA_S3_ACCESS_KEY`/`DAKERA_S3_SECRET_KEY` are not read (use
+     `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`), `DAKERA_LOG_LEVEL` is not read (use `RUST_LOG`);
+   - health checks read `/health/ready` with a 10-minute start period (the port answers while models
+     load; Kubernetes uses `/health/live` for liveness and `/health/ready` for readiness);
+   - a **model volume** (`dakera-models` at `/app/models`): the image ships bge-large and the reranker
+     itself; any other model downloads there on first use. A model volume kept from v0.11 can be
+     freed with `docker compose run --rm dakera models prune` once you are staying on v0.12;
+   - **clusters** (`docker-compose.ha.yml`): set `DAKERA_CLUSTER_SECRET` (>= 16 characters, the same
+     on every node; the file refuses to start without it). Each node now has its **own bucket**
+     (`dakera`, `dakera-2`, `dakera-3`); nodes sharing one bucket are refused on a fresh install.
+     `dakera-1` keeps `dakera`; `dakera-2`/`dakera-3` fill from their peers at start. During a mixed
+     v0.11/v0.12 period (rolling upgrade) leave the secret unset until every node runs v0.12.0.
+4. **Things to know before the first start**: gRPC clients need an API key when authentication is on;
+   keys pinned to namespaces lose node-wide routes; namespace quotas are now enforced; a stored,
+   enabled backup schedule starts running; clients that cut on `smart_score` should re-check their
+   threshold. Details: the server UPGRADE.md, "Before you upgrade".
+5. **Start v0.12.0**: `docker compose pull && docker compose up -d` (Kubernetes: `kubectl apply -k k8s/`).
+   Watch `GET /health` (`config_warnings`, `embed_migration`).
+
+## Rolling back to v0.11
+
+Going back from v0.12.0 to v0.11.108 is supported (every v0.11 embedding model, encrypted or not).
+`dakera downgrade` converts the data back, and must run as a one-off job **after** the server has
+stopped (it refuses, exit 78 with nothing changed, while a server runs on the data):
+
+```bash
+cd docker
+docker compose stop dakera-watchdog dakera
+docker compose run --rm dakera downgrade        # JSON report on stdout; exit 0 = data is v0.11.108's
+# then start v0.11.108 with the v0.11 files (git checkout release/0.11):
+DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.108 docker compose up -d
+```
+
+- Exit `0`: done. Exit `1`: not yet (do not start v0.11; fix the cause and rerun). Exit `78`: refused.
+- Kubernetes: `kubectl apply -f k8s/dakera/downgrade-job.yaml` after scaling the Deployment to 0.
+- Docker run: `docker run --rm <same env and volumes> ghcr.io/dakera-ai/dakera:0.12.0 downgrade`.
+- Clusters: roll back the whole cluster, not one node (HA recipe in the header of
+  `docker/docker-compose.ha.yml`).
+- Air-gapped, after `dakera models prune`: re-seed the model volume first (server UPGRADE.md, "Going back to v0.11").
+
 ## Deployment Guides
 
 Step-by-step guides in the [`examples/`](examples/) directory:
@@ -267,7 +353,9 @@ dakera-deploy/
 │   ├── dakera/                      # Dakera server
 │   │   ├── deployment.yaml
 │   │   ├── service.yaml
-│   │   └── hpa.yaml                 # Horizontal Pod Autoscaler
+│   │   ├── hpa.yaml                 # Horizontal Pod Autoscaler (not applied by default in v0.12)
+│   │   ├── check-config-job.yaml    # One-off: pre-upgrade `dakera --check-config`
+│   │   └── downgrade-job.yaml       # One-off: rollback `dakera downgrade`
 │   ├── dashboard/                   # Dashboard UI
 │   │   ├── deployment.yaml
 │   │   └── service.yaml
@@ -312,8 +400,9 @@ dakera-deploy/
 | `DAKERA_HOST` | `0.0.0.0` | Bind address for the server |
 | `DAKERA_PORT` | `3000` | REST API port |
 | `DAKERA_GRPC_PORT` | `50051` | gRPC API port |
-| `DAKERA_STORAGE` | `memory` | Storage backend (`memory`, `s3`) |
-| `DAKERA_LOG_LEVEL` / `RUST_LOG` | `info` | Log verbosity level |
+| `DAKERA_STORAGE` | `memory` | Storage backend (`memory`, `filesystem`, `s3`) |
+| `DAKERA_STORAGE_PATH` | `/data` | Data root: write-ahead log, knowledge graph, filesystem backend, hot and warm tiers all derive from it |
+| `RUST_LOG` | `info` | Log verbosity level |
 | `DAKERA_TELEMETRY` | `enabled` | Anonymous operational telemetry. Set to `0`/`off` to disable (see [Telemetry](#telemetry)) |
 
 ### Telemetry
@@ -336,16 +425,24 @@ Fully air-gapped operation is supported. Inspect the exact payload before it is 
 | `DAKERA_S3_ENDPOINT` | - | S3-compatible endpoint URL |
 | `DAKERA_S3_BUCKET` | `dakera` | Storage bucket name |
 | `DAKERA_S3_REGION` | `us-east-1` | S3 region |
-| `DAKERA_S3_ACCESS_KEY` / `AWS_ACCESS_KEY_ID` | - | S3 access key |
-| `DAKERA_S3_SECRET_KEY` / `AWS_SECRET_ACCESS_KEY` | - | S3 secret key |
+| `AWS_ACCESS_KEY_ID` | - | S3 access key (there is no `DAKERA_S3_ACCESS_KEY`) |
+| `AWS_SECRET_ACCESS_KEY` | - | S3 secret key (there is no `DAKERA_S3_SECRET_KEY`) |
 
 ### Cache Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DAKERA_L1_CACHE_SIZE` | `1073741824` (1GB) | In-memory L1 cache size in bytes |
-| `DAKERA_L2_CACHE_PATH` | `/data/rocksdb` | RocksDB L2 cache directory |
-| `DAKERA_CACHE_DIR` | `/data/cache` | General cache directory |
+| `DAKERA_DISK_CACHE_DIR` | - | Enables the L2 on-disk read cache (replaces v0.11's ignored `DAKERA_L2_CACHE_PATH`) |
+| `DAKERA_CACHE_DIR` | `{root}/cache/warm` | The warm tier's directory (tiered storage only) |
+
+### Models
+
+The image ships `bge-large` and the reranker and loads them in seconds with no network. Any other
+model (`DAKERA_MODEL=bge-m3`, whisper, vision, GLiNER) downloads on first use into the model cache
+(`/app/models`, the `dakera-models` volume). Pre-pull / air-gapped:
+`docker compose run --rm dakera models pull <model>`; inspect with `models list`; free space with
+`models prune`. See the server's [models-and-docker.md](https://github.com/Dakera-AI/dakera/blob/main/docs/models-and-docker.md).
 
 ### Cluster (HA Mode)
 
@@ -354,7 +451,8 @@ Fully air-gapped operation is supported. Inspect the exact payload before it is 
 | `DAKERA_CLUSTER_MODE` | `false` | Enable cluster mode |
 | `DAKERA_CLUSTER_ROLE` | - | Node role (`primary`, `replica`) |
 | `DAKERA_CLUSTER_SEEDS` | - | Comma-separated seed nodes (`host:port`) |
-| `DAKERA_NODE_ID` | - | Unique node identifier |
+| `DAKERA_CLUSTER_SECRET` | - | Shared secret of the node-to-node routes and gossip: **required** in cluster mode, >= 16 characters, identical on every node |
+| `DAKERA_CLUSTER_NODE_ID` | generated once | Stable node identifier (`DAKERA_NODE_ID` is its legacy alias) |
 | `DAKERA_GOSSIP_PORT` | `7946` | Gossip protocol port |
 | `DAKERA_GOSSIP_BIND` | `0.0.0.0:7946` | Gossip bind address |
 | `DAKERA_API_ADVERTISE` | - | Advertised API URL for the node |
@@ -380,8 +478,7 @@ Fully air-gapped operation is supported. Inspect the exact payload before it is 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_CACHE_REDIS_URL` | - | Redis URL for distributed cache |
-| `DAKERA_REDIS_URL` | - | Redis URL for rate-limit counters and SSE fan-out |
+| `DAKERA_REDIS_URL` | - | Redis URL for the distributed cache, rate-limit counters and SSE fan-out (replaces `DAKERA_CACHE_REDIS_URL`, which v0.12 no longer reads) |
 
 ### Authentication
 
@@ -428,7 +525,7 @@ Fully air-gapped operation is supported. Inspect the exact payload before it is 
                                  │                         │
                          ┌───────▼───────┐                 │
                          │    MinIO      │                 │
-                         │ (shared S3)   │                 │
+                         │ (bucket/node) │                 │
                          │ :9000 / :9001 │                 │
                          └───────────────┘                 │
                                                            │
@@ -446,7 +543,7 @@ Fully air-gapped operation is supported. Inspect the exact payload before it is 
 - **Load Balancing**: Traefik distributes HTTP and gRPC traffic across all healthy nodes
 - **Health Checks**: Automatic removal of unhealthy nodes from the load balancer pool
 - **Gossip Protocol**: Nodes discover and monitor each other via port 7946
-- **Shared Storage**: All nodes share MinIO for persistent vector data
+- **Per-Node Storage**: each node keeps its own bucket and data root; writes are replicated to the peers (nodes must not share one bucket)
 - **Per-Node Caching**: Each node maintains independent L1 (memory) and L2 (RocksDB) caches
 - **Automatic Failover**: Traefik routes around failed nodes transparently
 
@@ -513,6 +610,7 @@ kubectl create secret generic dakera-secrets \
   --from-literal=AWS_ACCESS_KEY_ID=minioadmin \
   --from-literal=AWS_SECRET_ACCESS_KEY=<minio-password> \
   --namespace dakera
+# Cluster mode only: add --from-literal=DAKERA_CLUSTER_SECRET=$(openssl rand -hex 32)
 
 # 2. Edit ingress hostnames
 # Edit k8s/ingress.yaml — replace yourdomain.com with your real domain
@@ -525,7 +623,7 @@ kubectl get pods -n dakera
 
 # 5. Check Dakera health
 kubectl port-forward -n dakera svc/dakera 3000:3000
-curl http://localhost:3000/health
+curl http://localhost:3000/health/ready   # 503 while models load, then 200
 ```
 
 ### Option B: Helm
@@ -534,7 +632,7 @@ The Helm chart has moved to the dedicated **[dakera-helm](https://github.com/dak
 
 ```bash
 # Install from GHCR OCI
-helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.11.90 \
+helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.12.0 \
   --namespace dakera --create-namespace \
   --set dakera.rootApiKey=$(openssl rand -hex 32) \
   --set minio.rootPassword=$(openssl rand -hex 16)
@@ -559,7 +657,7 @@ See [dakera-ai/dakera-helm](https://github.com/dakera-ai/dakera-helm) for chart 
 
 | Component | CPU Request | Memory Request | Default Replicas |
 |-----------|------------|---------------|-----------------|
-| Dakera server | 500m | 512Mi | 1 (HPA: 1–5) |
+| Dakera server | 500m | 512Mi | 1 (one server per data root; no HPA) |
 | Dashboard | 100m | 64Mi | 1 |
 | MCP server | 50m | 64Mi | 1 |
 | MinIO | 250m | 256Mi | 1 (StatefulSet) |
@@ -569,7 +667,7 @@ See [dakera-ai/dakera-helm](https://github.com/dakera-ai/dakera-helm) for chart 
 ### Production Tips
 
 - **Use native S3** (AWS S3, GCS) instead of MinIO in cloud environments: set `DAKERA_S3_ENDPOINT` to your provider's endpoint and disable MinIO (`minio.enabled=false` in Helm)
-- **Enable autoscaling**: the HPA scales Dakera pods 1–5 based on CPU/memory. Set `minReplicas: 3` for HA
+- **Scaling**: a server locks its data root and the volume is ReadWriteOnce, so one Deployment is one server and `k8s/dakera/hpa.yaml` is not applied by default. Scale out with cluster mode (one release per node: own bucket, own volume, shared `DAKERA_CLUSTER_SECRET`)
 - **TLS**: add cert-manager annotations to `k8s/ingress.yaml` or `ingress.annotations` in Helm values
 - **Secrets management**: use an external secrets operator (External Secrets, Vault) instead of `kubectl create secret` for production
 - **Metrics**: Dakera exposes Prometheus metrics at `GET /metrics` — pods have `prometheus.io/scrape: "true"` annotations for auto-discovery
