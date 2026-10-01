@@ -12,8 +12,8 @@
 #     (docs/features-v0.12.md, "Switching the embedding model"): the store records its model.
 #   * Sets DAKERA_TIERED=0 and cannot be combined with it. Not combinable with
 #     docker-compose.multilingual.yml / .vision.yml (another DAKERA_MODEL / another lane).
-#   * Opt-in for a reason: on LoCoMo 1540Q colbert-small scored recall@10 0.8542 against
-#     bge-large's 0.8730 on the same harness (better only on multi-hop questions).
+#   * Opt-in for a reason: on the same LoCoMo harness colbert-small scored below bge-large
+#     (better only on multi-hop questions; server RELEASE_NOTES, Known limitations).
 #   * One-way for v0.11: `dakera downgrade` refuses a store on colbert-small.
 #   * A recall right after a bulk ingest is served by the dense first stage while the
 #     late-interaction stage rebuilds in the background.

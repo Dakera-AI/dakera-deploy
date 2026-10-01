@@ -290,9 +290,9 @@ with `DAKERA_SCORING_STRATEGY=late-interaction`: recall shortlists candidates by
 fixed-dimensional encoding, then reranks them with MaxSim over the query's and the memories' per-token
 vectors. Memories are written with `colbert` / `colbert.fde` slots next to their primary vector.
 
-- **Why it is opt-in.** On LoCoMo 1540Q, colbert-small scored recall@10 **0.8542** against bge-large's
-  **0.8730** on the same harness; it is better only on multi-hop questions. Use it where token-level
-  matching matters and measure on your own data.
+- **Why it is opt-in.** On the same LoCoMo harness, colbert-small scored below bge-large; it is better only
+  on multi-hop questions (server RELEASE_NOTES, "Known limitations"). Use it where token-level matching
+  matters and measure on your own data.
 - **Speed.** Steady recall p50 0.10 s at 1k memories and 0.23 s at 10k. A recall right after a bulk
   ingest is served by the dense first stage while the late-interaction stage rebuilds in the
   background (it reports `late_interaction_first_stage`). 
@@ -648,9 +648,7 @@ saved and reloaded instead of rebuilt; concurrent writes share the log's fsync.
 
 Stated by the release notes as pending: the 50k capacity re-run (E8), the embedder benchmark (E7), the
 load sweep (F6) and durable writes per second (K20). No v0.12 ingest rate, no per-memory RAM figure at scale,
-no bge-m3 versus bge-large quality or latency number, and ViDoRe sets other than TabFQuAD and Shift Project are
-published. Paired with v0.11.108, recall@10 is 70.2 % against 73.0 % on three conversations (within the release
-gate, p = 0.052; 11 of the 19 losses are in one conversation); the full LoCoMo run passes every category floor.
+no bge-m3 versus bge-large quality or latency number, and no ViDoRe set other than TabFQuAD and Shift Project.
 This repository's compose files and manifests have not been run against a v0.12.0 image (none was
 published when they were written): `docker compose config` and `kubectl kustomize` validate them, and
 `dakera --check-config` should be run with the real image before the first rollout.

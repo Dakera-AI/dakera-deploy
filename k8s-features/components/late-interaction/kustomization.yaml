@@ -2,9 +2,8 @@
 # Dakera v0.12.0 - Late interaction with colbert-small (opt-in component)
 # =============================================================================
 # Recall shortlists by each memory's fixed-dimensional encoding and reranks with MaxSim
-# over per-token vectors (96-d). Opt-in for a reason: on LoCoMo 1540Q colbert-small
-# scored recall@10 0.8542 against bge-large's 0.8730 on the same harness (better only on
-# multi-hop questions).
+# over per-token vectors (96-d). Opt-in for a reason: on the same LoCoMo harness colbert-small
+# scored below bge-large (better only on multi-hop questions; server RELEASE_NOTES).
 #
 #   components:
 #     - ../../components/models-cache     # colbert-small is ~34 MB, not in the image
