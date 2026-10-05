@@ -30,22 +30,28 @@
 #
 # Override any port by setting the corresponding HA_* env var. See .env.ha.example.
 #
-# Dakera v0.12.0. (v0.11 users: the previous version of this file is on the
+# Dakera v0.12.1. (v0.11 users: the previous version of this file is on the
 # `release/0.11` branch.)
 #
 # v0.12 cluster requirements:
-#   * DAKERA_CLUSTER_SECRET (>= 16 characters, identical on every node) and a
-#     stable DAKERA_CLUSTER_NODE_ID: set DAKERA_CLUSTER_SECRET in .env.ha.
+#   * DAKERA_CLUSTER_SECRET (>= 16 characters, identical on every node; generate
+#     with `openssl rand -hex 32`) and a stable DAKERA_CLUSTER_NODE_ID. From 0.12.1
+#     a node without the secret exits with code 78, fresh install or upgraded, so
+#     this file has no default for it: set it in the env file you start with.
 #   * Each node has its OWN bucket (dakera, dakera-2, dakera-3). Nodes sharing
 #     one bucket are refused on a fresh install and `shared_store`-degraded on an
 #     existing one. dakera-1 keeps `dakera`, so v0.11 data stays where it is;
 #     dakera-2 / dakera-3 start empty and fill from their peers (watch
 #     GET /admin/cluster/status: replication.startup_reconciled).
 #
-# Upgrading from v0.11.108 (README "Upgrading from v0.11"; server UPGRADE.md,
-# "Cluster"): back up, check the config with the new image per node
+# Upgrading from v0.12.0 or v0.11.108 (README "Upgrading from v0.12.0 to v0.12.1";
+# server UPGRADE.md, "Cluster secret"): ONE window for all three nodes. Nodes with
+# and without the secret do not see each other, and a cluster that ran without it
+# must not run half-and-half. Back up, set DAKERA_CLUSTER_SECRET, pull, check the
+# config with the new image
+#   docker compose -f docker-compose.ha.yml pull
 #   docker compose -f docker-compose.ha.yml run --rm --no-deps dakera-1 --check-config
-# then `docker compose -f docker-compose.ha.yml down` (volumes kept), pull and `up -d`.
+# then `docker compose -f docker-compose.ha.yml down` (volumes kept) and `up -d`.
 #
 # Going back to v0.11.108: roll back the WHOLE cluster, never one node. Wait until
 # every node's sync outbox is empty (GET /admin/cluster/status), stop every node,
@@ -59,7 +65,7 @@
 name: dakera-ha
 
 x-dakera-common: &dakera-common
-  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.0}
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.1}
   restart: unless-stopped
   # SIGTERM starts the graceful shutdown (running media-job stores are waited for up to
   # 15 s, then the final flushes); compose's default of 10 s would kill it first.
@@ -89,11 +95,12 @@ x-dakera-env: &dakera-env
   DAKERA_GRPC_PORT: "50051"
   DAKERA_CLUSTER_MODE: "true"
   DAKERA_GOSSIP_PORT: "7946"
-  # Shared secret of the node-to-node routes (/internal/*) and gossip: required in
-  # cluster mode, at least 16 characters, identical on every node (openssl rand -hex 32).
-  # Rolling v0.11 -> v0.12 with mixed versions: leave it unset until every node
-  # runs v0.12 (server UPGRADE.md, "Cluster").
-  DAKERA_CLUSTER_SECRET: "${DAKERA_CLUSTER_SECRET:?Set DAKERA_CLUSTER_SECRET (>= 16 chars) in .env.ha (see .env.ha.example)}"
+  # Shared secret of the node-to-node routes (/internal/*) and gossip: required on
+  # every cluster node from 0.12.1 (exit 78 without it, upgraded or not), at least
+  # 16 characters, identical on every node (openssl rand -hex 32). Nodes with and
+  # without it do not see each other: set it and upgrade all nodes in one window
+  # (server UPGRADE.md, "Cluster secret (required from 0.12.1)").
+  DAKERA_CLUSTER_SECRET: "${DAKERA_CLUSTER_SECRET:?Set DAKERA_CLUSTER_SECRET (>= 16 chars, same on every node: openssl rand -hex 32) in .env or .env.ha (see .env.ha.example); a 0.12.1 cluster node exits 78 without it}"
   # Data root: write-ahead log, knowledge graph (/data/graph.db), hot tier
   # (/data/hot) and warm tier (/data/cache/warm) derive from it.
   DAKERA_STORAGE_PATH: "/data"
@@ -352,11 +359,11 @@ services:
   # Dakera Dashboard — Web UI
   # ==========================================================================
   dashboard:
-    # 0.4.0: operators sign in at /login with their OWN Dakera API key (kept in
-    # server memory by the dashboard's session service); DAKERA_API_KEY and
-    # DAKERA_CLIENT_URL are gone. Serve it behind TLS that forwards
-    # X-Forwarded-Proto and Host (README, "Dashboard and TLS").
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.4.0}
+    # 0.5.0 (deploys like 0.4.0): operators sign in at /login with their OWN Dakera
+    # API key (kept in server memory by the dashboard's session service);
+    # DAKERA_API_KEY and DAKERA_CLIENT_URL are gone since 0.4.0. Serve it behind TLS
+    # that forwards X-Forwarded-Proto and Host (README, "Dashboard 0.5.0", TLS in front).
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.0}
     container_name: dakera-dashboard
     ports:
       - "${HA_DASHBOARD_PORT:-3202}:3000"

@@ -40,7 +40,7 @@ patches:
           spec:
             initContainers:
               - name: models
-                image: ghcr.io/dakera-ai/dakera:0.12.0
+                image: ghcr.io/dakera-ai/dakera:0.12.1
                 imagePullPolicy: IfNotPresent
                 # The binary itself (not the image entrypoint, which the GPU image
                 # guards with a GPU check).

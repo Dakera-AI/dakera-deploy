@@ -3,6 +3,9 @@
 # =============================================================================
 # The MCP server exposes Dakera memory tools to AI agents via the
 # Model Context Protocol (MCP). One instance per cluster is sufficient.
+# NOT applied by kustomization.yaml: dakera-mcp speaks MCP over stdio only.
+# 0.12.0: distroless/static image, runs as uid 65532 (was the `dakera` user),
+# no shell (no `kubectl exec ... sh`); the tools are unchanged.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,9 +27,13 @@ spec:
         app.kubernetes.io/component: mcp
     spec:
       terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
       containers:
         - name: dakera-mcp
-          image: ghcr.io/dakera-ai/dakera-mcp:0.10.8
+          image: ghcr.io/dakera-ai/dakera-mcp:0.12.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

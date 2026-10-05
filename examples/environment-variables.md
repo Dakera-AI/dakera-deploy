@@ -1,6 +1,6 @@
 # Environment Variable Reference
 
-Reference for the Dakera server environment variables used by the v0.12.0 compose files and manifests (v0.11: the `release/0.11` branch). The v0.12 features, their variables and constraints are in [docs/features-v0.12.md](../docs/features-v0.12.md). Compose passes to the container only the variables its `environment:` lists: a name in `.env` that no file passes never reaches the server (the base files pass the ones below and in `.env.example`; the overlays pass their feature's). The authoritative list is the server's [env-vars.md](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/env-vars.md); a name the server does not read is reported at startup (`dakera --check-config`). Set these in `docker/.env` (Docker Compose) or in your Kubernetes Secret/ConfigMap.
+Reference for the Dakera server environment variables used by the v0.12 compose files and manifests (Dakera v0.12.1) (v0.11: the `release/0.11` branch). The v0.12 features, their variables and constraints are in [docs/features-v0.12.md](../docs/features-v0.12.md). Compose passes to the container only the variables its `environment:` lists: a name in `.env` that no file passes never reaches the server (the base files pass the ones below and in `.env.example`; the overlays pass their feature's). The authoritative list is the server's [env-vars.md](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/env-vars.md); a name the server does not read is reported at startup (`dakera --check-config`). Set these in `docker/.env` (Docker Compose) or in your Kubernetes Secret/ConfigMap.
 
 ## Required (Production)
 
@@ -73,7 +73,7 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DAKERA_MODEL` | `bge-large` | Embedding model. `bge-large` and the reranker ship in the image; any other model downloads into the model cache (`/app/models`) on first use or via `dakera models pull` |
-| `DAKERA_ALLOW_MODEL_CHANGE` | — | Set `1` for ONE start to acknowledge that the store was embedded by another model (then re-embed with `POST /admin/namespaces/migrate-dimensions` and remove it) |
+| `DAKERA_ALLOW_MODEL_CHANGE` | — | From 0.12.1 only needed where the background re-embed cannot run (`DAKERA_TIERED=1`, late-interaction scoring, the visual lane, a recorded model this build does not know): set `1` for ONE start to acknowledge that the store was embedded by another model, then re-embed with `POST /admin/namespaces/migrate-dimensions` and remove it. Otherwise a changed `DAKERA_MODEL` re-embeds the store in the background |
 | `DAKERA_TIERED` | `false` (compose: `1`) | The tiered **embedding** engine (not tiered storage): it always embeds with `bge-large`, ignores `DAKERA_MODEL` and refuses late interaction. Identical on every node sharing a store |
 | `DAKERA_MAX_SEQ_LENGTH` | model maximum (`bge-m3`: 2048) | Truncation length in tokens for text models |
 | `HF_TOKEN` | — | Hugging Face token for model downloads (optional) |
@@ -86,7 +86,7 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_FULLTEXT_LANGUAGE` | `en` (overlay: `multilingual`) | BM25 analyzer of new namespace indexes: an ISO 639-1 code or English name, or `zh`/`ja`/`ko`/`th`/`none`/`multilingual` (no stemming). Existing namespaces: `POST /admin/fulltext/reindex` with `rebuild` |
+| `DAKERA_FULLTEXT_LANGUAGE` | `en` (overlay: `multilingual`) | BM25 analyzer: an ISO 639-1 code or English name, or `zh`/`ja`/`ko`/`th`/`none`/`multilingual` (no stemming). Stored with each index; from 0.12.1 an existing index built with another analyzer is re-analysed in the background at the next start |
 | `DAKERA_FULLTEXT_CJK_BIGRAMS` | follows the language (off for `en`) | Character-bigram indexing of unsegmented scripts |
 | `DAKERA_QUERY_LANG` | `en` (overlay: `auto`) | `en`, `de`, `fr`, `es`, `it`, `pt`, `nl` or `auto`: query routing patterns, temporal expressions, date extraction. Per request: `lang` |
 
@@ -148,8 +148,8 @@ The default and HA compose files expose different ports to allow co-deployment o
 | `PROMETHEUS_PORT` | `9090` | Prometheus (monitoring profile) |
 | `GRAFANA_PORT` | `3003` | Grafana (monitoring profile) |
 | `DASHBOARD_PORT` | `3002` | Dashboard UI (dashboard profile) |
-| `DASHBOARD_IMAGE` | `ghcr.io/dakera-ai/dakera-dashboard:0.4.0` | Dashboard image |
-| `DAKERA_SESSION_TTL_HOURS` | `12` | Dashboard 0.4.0: longest an operator sign-in lasts (idle sessions end after 2 h) |
+| `DASHBOARD_IMAGE` | `ghcr.io/dakera-ai/dakera-dashboard:0.5.0` | Dashboard image |
+| `DAKERA_SESSION_TTL_HOURS` | `12` | Dashboard 0.4.0+: longest an operator sign-in lasts (idle sessions end after 2 h) |
 
 ### HA Profile (`docker-compose.ha.yml`)
 

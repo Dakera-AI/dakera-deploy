@@ -1,5 +1,5 @@
 # =============================================================================
-# Dakera v0.12.0 - pre-upgrade configuration check (one-off Job)
+# Dakera v0.12.1 - pre-upgrade configuration check (one-off Job)
 # =============================================================================
 # `dakera --check-config` runs the startup configuration check alone, with the
 # same environment and the same data volume as the server, prints every warning
@@ -38,7 +38,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: check-config
-          image: ghcr.io/dakera-ai/dakera:0.12.0
+          image: ghcr.io/dakera-ai/dakera:0.12.1
           imagePullPolicy: IfNotPresent
           command: ["dakera"]
           args: ["--check-config"]

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Rebuild Dakera's full-text indexes once after upgrading a deployment that
-# holds v0.11.108 data to v0.12.0.
+# holds v0.11.108 data to v0.12.0. Not needed on v0.12.1, which re-analyses
+# them in the background at startup (README, "After the upgrade: full-text
+# indexes").
 #
 # Why: full-text indexes built by v0.11 are re-analysed under v0.12's text
 # analysis. Until this runs, keyword search and keyword-style recall can

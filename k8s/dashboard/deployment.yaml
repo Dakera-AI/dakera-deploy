@@ -9,7 +9,7 @@ metadata:
   labels:
     app.kubernetes.io/name: dakera-dashboard
     app.kubernetes.io/component: dashboard
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "0.5.0"
 spec:
   # One replica: sessions live in the pod's memory. More replicas need sticky
   # sessions at the ingress, otherwise users are signed out when a request lands
@@ -24,12 +24,12 @@ spec:
       labels:
         app.kubernetes.io/name: dakera-dashboard
         app.kubernetes.io/component: dashboard
-        app.kubernetes.io/version: "0.4.0"
+        app.kubernetes.io/version: "0.5.0"
     spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: dashboard
-          image: ghcr.io/dakera-ai/dakera-dashboard:0.4.0
+          image: ghcr.io/dakera-ai/dakera-dashboard:0.5.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -38,7 +38,7 @@ spec:
           env:
             - name: DAKERA_API_UPSTREAM
               value: "http://dakera:3000"
-            # 0.4.0: no API key on the dashboard. Operators sign in at /login with their
+            # Since 0.4.0: no API key on the dashboard. Operators sign in at /login with their
             # own key, kept in server memory (DAKERA_API_KEY / DAKERA_CLIENT_URL are gone).
             # Optional: longest a sign-in lasts, in hours (default 12; idle ends after 2 h).
             # - name: DAKERA_SESSION_TTL_HOURS

@@ -18,7 +18,7 @@ services:
   # Dakera — AI Agent Memory Platform (playground limits)
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.0}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.1}
     container_name: playground-dakera
     ports:
       - "127.0.0.1:3000:3000"

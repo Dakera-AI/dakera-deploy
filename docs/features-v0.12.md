@@ -7,6 +7,11 @@ exactly as v0.11.108 did (apart from the fixes and behaviour changes in the serv
 files in this repository switch it on, what it costs in CPU, memory and disk, what it cannot be
 combined with, and how to verify it is running.
 
+The files in this repository run **v0.12.1**, which adds no feature and changes three things this page
+covers: a changed embedding model is re-embedded in the background
+([Switching the embedding model](#switching-the-embedding-model)), full-text indexes built under another
+analyzer are re-analysed at startup, and every cluster node needs `DAKERA_CLUSTER_SECRET` ([Security](#security)).
+
 Sources: the server's `docs/v0.12/RELEASE_NOTES.md`, `docs/multimodal.md`,
 `docs/models-and-docker.md`, `docs/grpc.md`, `docs/v0.12/UPGRADE.md`, the CHANGELOG `[0.12.0]`
 section, and `crates/config/src/known_env.rs` (the registry of every variable the server reads: a
@@ -42,7 +47,7 @@ All rows are **off by default**. "Overlay" is the compose file in `docker/` (add
 
 | Feature | Switch (compose overlay / K8s / Helm) | Variables | Resources | Constraints | Verify (`GET /v1/capabilities`) |
 |---|---|---|---|---|---|
-| **Multilingual** (bge-m3, per-language full-text, CJK bigrams, per-language query routing) | `docker-compose.multilingual.yml` / `overlays/multilingual` / `features.multilingual` | `DAKERA_MODEL=bge-m3`, `DAKERA_TIERED=0`, `DAKERA_FULLTEXT_LANGUAGE`, `DAKERA_FULLTEXT_CJK_BIGRAMS`, `DAKERA_QUERY_LANG`, `DAKERA_MAX_SEQ_LENGTH`; per request `lang` | bge-m3 ~570 MB download (+ an ORT-format copy), CPU ONNX only, 1024-d, truncation 2048 tokens by default | Fresh store or model-change migration; not with `DAKERA_TIERED=1`, GPU, Candle or the static backend; not with late interaction / vision; `dakera downgrade` refuses it | `default_model` = `bge-m3`; `fulltext_language`; `query_languages` |
+| **Multilingual** (bge-m3, per-language full-text, CJK bigrams, per-language query routing) | `docker-compose.multilingual.yml` / `overlays/multilingual` / `features.multilingual` | `DAKERA_MODEL=bge-m3`, `DAKERA_TIERED=0`, `DAKERA_FULLTEXT_LANGUAGE`, `DAKERA_FULLTEXT_CJK_BIGRAMS`, `DAKERA_QUERY_LANG`, `DAKERA_MAX_SEQ_LENGTH`; per request `lang` | bge-m3 ~570 MB download (+ an ORT-format copy), CPU ONNX only, 1024-d, truncation 2048 tokens by default | Fresh store, or an existing one re-embedded in the background (v0.12.1); not with `DAKERA_TIERED=1`, GPU, Candle or the static backend; not with late interaction / vision; `dakera downgrade` refuses it | `default_model` = `bge-m3`; `fulltext_language`; `query_languages` |
 | **Attachments** | `docker-compose.multimodal.yml` / `overlays/multimodal` / `features.multimodal` | `DAKERA_ATTACHMENTS`, `DAKERA_ATTACHMENT_MAX_BYTES` (25 MiB) | Stored per namespace, counted by quotas, backed up, replicated | `501 FEATURE_DISABLED` when off; upload over the limit is `413` | `attachments.enabled`, `attachments.max_bytes` |
 | **Speech to text** | same overlay | `DAKERA_ATTACHMENTS`, `DAKERA_WHISPER_MODEL` (default `whisper-base`; five choices, see the model table in [Speech to text](#speech-to-text)) | see the model table (`whisper-tiny.en`: ~151 MB download); one 30-second window of activations (128 MiB) reserved per job | multilingual by default (language auto-detected), English-only models are a choice; WAV only (PCM 8/16/24/32-bit or float); jobs are in memory only (lost on restart; the stored memory stays) | `attachments.transcription.model` |
 | **Image / page indexing and visual recall** (colmodernvbert) | `docker-compose.vision.yml` / `overlays/vision` / `features.vision` | `DAKERA_VISION`, `DAKERA_ATTACHMENTS`, `DAKERA_SCORING_STRATEGY=late-interaction`, `DAKERA_TIERED=0`, `DAKERA_VISION_MODEL` | ~966 MB download (+ ORT copy), conversion reserves ~1 GB, ~10.7 s per page on CPU, one page at a time; image peak +1.9 GiB at 17 tiles | **A dedicated data root and bucket** (the namespaces hold 128-d page vectors); PNG only, at most 64 megapixels; not with text models; `dakera downgrade` refuses it | `vision.enabled`, `vision.model`, `scoring.late_interaction.lane` = `visual` |
@@ -94,7 +99,8 @@ the dakera-helm README.
 
 **Before you switch on** a feature that changes the embedding model or the lane (multilingual, late
 interaction, vision), read [Switching the embedding model](#switching-the-embedding-model): the
-store records its model and refuses to start with another one.
+store records its model; from v0.12.1 an existing store is re-embedded in the background where that can
+run (multilingual), and refused otherwise (late interaction, vision).
 
 ---
 
@@ -112,7 +118,7 @@ English-only deployments gain nothing from it: `bge-large` stays the default and
 | Variable | Default | Values | Effect |
 |---|---|---|---|
 | `DAKERA_MODEL` | `bge-large` | `bge-large`, `bge-m3`, `minilm`, `bge-small`, `e5-small`, `modernbert-embed-base`, `gte-modernbert-base`, `colbert-small` | The embedding model. An unrecognised name refuses a fresh install; on a deployment that holds data it is a warning and the model is `bge-large` (then the model guard refuses the start if the store used another) |
-| `DAKERA_FULLTEXT_LANGUAGE` | `en` | an ISO 639-1 code or English name of a Snowball language (`de`, `french`, `pt-BR`, ...); `zh` / `ja` / `ko` / `th` or `none` / `multilingual` = no stemming | BM25 analyzer of **newly created** namespace indexes. The analyzer is stored with each index |
+| `DAKERA_FULLTEXT_LANGUAGE` | `en` | an ISO 639-1 code or English name of a Snowball language (`de`, `french`, `pt-BR`, ...); `zh` / `ja` / `ko` / `th` or `none` / `multilingual` = no stemming | BM25 analyzer. Stored with each index; from v0.12.1 an existing index built with another analyzer is re-analysed in the background at the next start |
 | `DAKERA_FULLTEXT_CJK_BIGRAMS` | on unless the language is `en` | `1/0`, `true/false`, `yes/no`, `on/off` | Index unsegmented scripts as character bigrams. Set `true` on an English deployment that also stores such text |
 | `DAKERA_QUERY_LANG` | `en`, or `DAKERA_FULLTEXT_LANGUAGE` when that is a supported query language | `en`, `de`, `fr`, `es`, `it`, `pt`, `nl`, `auto` | Language of the query-routing patterns ("when", "how long ago", ...), temporal expressions and date extraction. `auto` detects per query and falls back to the deployment language |
 | `DAKERA_MAX_SEQ_LENGTH` | model maximum (`bge-m3`: 2048) | integer, clamped to `[16, model maximum]` | Truncation in tokens. `bge-m3` supports 8192, but one 8192-token row needs about 4 GiB of attention scores per layer, so its default cap is 2048 |
@@ -124,9 +130,11 @@ selects the routing patterns and temporal expressions of the query (it does not 
 on a write it selects how the content's event date and date entities are parsed and is recorded on the
 memory (`_dakera_lang`). An unsupported value is `400`. Omitted = the server-wide language.
 
-**Switching an existing namespace's analyzer.** The analyzer is a property of each index.
-`DAKERA_FULLTEXT_LANGUAGE` applies to new indexes; to re-analyse an existing namespace (global admin
-key):
+**Switching an existing namespace's analyzer.** The analyzer is a property of each index. From v0.12.1
+an index built with another analyzer than the configured `DAKERA_FULLTEXT_LANGUAGE` is re-analysed in the
+background at the next start, one namespace at a time, while it keeps serving (log: `Full-text index
+re-analysed under the configured analyzer`); an index holding documents that exist only in the index keeps
+its analyzer. On v0.12.0, or for one namespace now, re-analyse by hand (global admin key):
 
 ```bash
 curl -X POST localhost:3000/admin/fulltext/reindex -H "X-API-Key: $ADMIN" \
@@ -142,7 +150,8 @@ curl -X POST localhost:3000/admin/fulltext/reindex -H "X-API-Key: $ADMIN" \
 - With `DAKERA_TIERED=1` the tiered embedding engine **always embeds with bge-large and ignores
   `DAKERA_MODEL`** (a warning). The quick-start compose file and the Helm chart default to
   `DAKERA_TIERED=1`; the overlay sets it to `0`. All nodes sharing a store must agree on both values.
-- The store records its model: use a fresh store or the [migration](#switching-the-embedding-model).
+- The store records its model: use a fresh store, or let v0.12.1 re-embed an existing one in the background
+  ([Switching the embedding model](#switching-the-embedding-model)).
 - v0.11 cannot read it: `dakera downgrade` refuses a store on `bge-m3` (move it to a v0.11 model
   under v0.12 first).
 - `DAKERA_MAX_SEQ_LENGTH` applies to text models only (the visual model has its own 2048-token cap).
@@ -403,7 +412,7 @@ layout) and `--bake` (fill the image's own store, for a `RUN` in a Dockerfile).
 **Baked images.** Your own image with models inside, no volume, no download:
 
 ```dockerfile
-FROM ghcr.io/dakera-ai/dakera:0.12.0
+FROM ghcr.io/dakera-ai/dakera:0.12.1
 RUN dakera models pull --bake whisper vision
 ```
 
@@ -421,7 +430,7 @@ sent through the proxy; the container's own health check runs `curl` against `12
 **Offline and air-gapped.** The default image needs nothing. For other models, on a connected machine:
 
 ```bash
-docker run --rm -v "$PWD/models:/seed" ghcr.io/dakera-ai/dakera:0.12.0 \
+docker run --rm -v "$PWD/models:/seed" ghcr.io/dakera-ai/dakera:0.12.1 \
   models pull --dir /seed bge-m3 whisper vision
 ```
 
@@ -456,13 +465,23 @@ media models need about 5 GB. 10 GiB leaves room for upgrades.
 
 ## Switching the embedding model
 
-The store records the model (and embedding recipe) that produced its vectors. If the server starts with
-a different effective model it **refuses to start** (exit 1) and names both models, because serving would
-mix two embedding spaces (`bge-large` and `bge-m3` are both 1024-d). A request whose `model` differs from
-the server's is `400`. Two ways:
+The store records the model (and embedding recipe) that produced its vectors. A request whose `model`
+differs from the server's is `400`.
+
+**v0.12.1: set `DAKERA_MODEL` and restart.** The server starts and re-embeds every agent namespace in the
+background, one at a time (the leader does it in a cluster); until its turn each namespace is answered,
+queries and writes, with the model its memories are in, so recall stays correct throughout. Same dimension
+(`bge-large` -> `bge-m3`, both 1024-d): re-embedded in place while serving; another dimension: a fenced
+rewrite whose writes answer `503` + `Retry-After` for a few seconds. Progress: `/health`
+`embedding_model_change`, `/v1/capabilities` `reembed_pending`; a restart resumes. Pull the model first
+(`models pull bge-m3`) and take a backup. This is how the multilingual overlay switches an existing store.
+
+Where the change cannot run in the background, startup is **refused** (exit 1, both models named), as
+v0.12.0 refused every model change: `DAKERA_TIERED=1`, late-interaction scoring, the visual lane, or a
+recorded model this build does not know. There (and on v0.12.0), two ways:
 
 1. **A fresh store** (new volumes and bucket / a new host): start with the new model. This is what the
-   compose overlays and Kustomize components assume.
+   late-interaction and vision overlays and components assume.
 2. **Migrate** an existing store: start once with `DAKERA_ALLOW_MODEL_CHANGE=1` (acknowledges the change,
    re-embeds nothing), pull the model first (`models pull bge-m3`), then re-embed (global admin key):
 
@@ -539,11 +558,13 @@ interaction; the quick-start's `DAKERA_TIERED=1` stays only for stacks without t
   stays in WAL segments, snapshots, SST files until compaction, S3 object versions and backups until
   rewritten; it is all still ciphertext. Metrics: `dakera_encryption_*`; alert
   `DakeraEncryptionValuesUnreadable`.
-- **The cluster secret.** `DAKERA_CLUSTER_SECRET` (at least 16 characters, identical on every node) authenticates
-  every node-to-node request under `/internal/*` and HMACs gossip packets. A **fresh** cluster install
-  without it, or without a stable `DAKERA_CLUSTER_NODE_ID`, is refused. An upgraded node without them
-  starts as v0.11 did, `cluster_auth` degraded in `/health`. During a mixed v0.11 / v0.12 period leave it
-  unset until every node runs v0.12. Keep it in `.env.ha` or a Secret, never in a ConfigMap.
+- **The cluster secret.** `DAKERA_CLUSTER_SECRET` (at least 16 characters, identical on every node;
+  `openssl rand -hex 32`) authenticates every node-to-node request under `/internal/*` and HMACs gossip
+  packets. From v0.12.1 a cluster node without it **exits with code 78**, fresh install or upgraded (v0.12.0
+  let an upgraded node run unauthenticated). A fresh install also needs a stable `DAKERA_CLUSTER_NODE_ID`; an
+  upgraded node without one generates it and is `cluster_auth` degraded in `/health`. Nodes with and without
+  the secret do not see each other (v0.11 nodes send none): set it on every node and upgrade them in one
+  window (README, "Upgrading from v0.12.0 to v0.12.1"). Keep it in `.env.ha` or a Secret, never in a ConfigMap.
 - **With authentication off**, only loopback web origins may call the server and a state-changing request from
   another origin is `403 CROSS_ORIGIN_REQUEST_REFUSED`. Secrets are kept out of logs, the audit log and
   `/health`. Knowledge-graph edges are private to their agent. Imports, extractor responses and graph
@@ -686,7 +707,8 @@ saved and reloaded instead of rebuilt; concurrent writes share the log's fsync.
   even on S3) and attachments: size it above your corpus, and keep it on persistent storage (the compose files and
   manifests default to 20Gi for the Kubernetes PVC).
 - **First recall after a restart that follows a write** costs about 13 s at 10k memories while the ANN index is rebuilt
-  (planned for 0.12.1); without a write the saved index loads. Schedule restarts accordingly.
+  (not addressed in 0.12.1; planned for a later release); without a write the saved index loads. Schedule
+  restarts accordingly.
 
 ## What is not measured
 
@@ -722,10 +744,9 @@ from `docker compose up` (or pod creation) on fresh volumes; download times depe
 
 ## Verifying a running server
 
-After upgrading data from v0.11.108, rebuild the full-text indexes once (required until v0.12.1 applies
-it automatically): see README, "After the upgrade: rebuild the full-text indexes". Until then, keyword
-search and keyword-style recall can return nothing. Afterwards a keyword search
-(`POST /v1/namespaces/<ns>/fulltext/search` with a common word) returns hits.
+After upgrading data from v0.11.108, v0.12.1 re-analyses the full-text indexes in the background at
+startup (v0.12.0 needed a manual rebuild: README, "After the upgrade: full-text indexes"). A keyword
+search (`POST /v1/namespaces/<ns>/fulltext/search` with a common word) then returns hits.
 
 ```bash
 KEY=...                                   # any key with Read scope for /v1/capabilities

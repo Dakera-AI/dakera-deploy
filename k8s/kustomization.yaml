@@ -32,9 +32,9 @@ resources:
   # Dashboard UI
   - dashboard/deployment.yaml
   - dashboard/service.yaml
-  # MCP server: NOT applied. dakera-mcp (0.10.x) speaks MCP over stdio only; as a pod
-  # nothing writes to its stdin, so it exits at once and restarts in a loop
-  # (CrashLoopBackOff, measured). Run it next to the MCP client instead.
+  # MCP server: NOT applied. dakera-mcp speaks MCP over stdio only (0.12.0 as 0.10.x;
+  # measured on 0.10.x): as a pod nothing writes to its stdin, so it exits at once and
+  # restarts in a loop (CrashLoopBackOff). Run it next to the MCP client instead.
   # - mcp/deployment.yaml
   # - mcp/service.yaml
   # Ingress (edit ingress.yaml hostnames before applying)

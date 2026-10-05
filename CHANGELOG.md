@@ -4,7 +4,41 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
-### Changed
+### Changed: Dakera server v0.12.1, Dashboard 0.5.0, dakera-mcp 0.12.0
+
+- Default Dakera image `0.12.0` -> `0.12.1` (compose files, `.env` examples, devcontainer, playground, `k8s/`
+  including the `check-config` and `downgrade` Jobs, the `models-cache` component, README and guides).
+- Dashboard image `0.4.0` -> `0.5.0` (both compose files, `k8s/dashboard/`, `.env` examples, README). Deployment is
+  unchanged from 0.4.0 (same variables, port `3000`, healthcheck `/_session/healthz`); every 0.4 URL redirects.
+- `k8s/mcp/deployment.yaml` (not applied by `kustomization.yaml`): `dakera-mcp` `0.10.8` -> `0.12.0` (distroless
+  image, uid 65532, no shell; `securityContext` set to match).
+- **Breaking for clusters: v0.12.1 requires `DAKERA_CLUSTER_SECRET` on every cluster node**, upgraded or not (exit 78
+  without it). `docker-compose.ha.yml` already refused to start without it; its comments, `.env.ha.example`,
+  `k8s/secret.example.yaml`, the production checklist and the features guide no longer say to leave it unset during
+  a mixed-version period: generate it with `openssl rand -hex 32` and upgrade every node in one window.
+- Full-text indexes: v0.12.1 re-analyses v0.11-built indexes at startup, so the v0.12.0 manual
+  `POST /admin/fulltext/reindex {"rebuild": true}` step is no longer required (README section rewritten; kept for
+  deployments still on v0.12.0; `scripts/post-upgrade-reindex.sh` kept).
+- Embedding model: a changed `DAKERA_MODEL` is re-embedded in the background on v0.12.1 (multilingual overlays,
+  `.env` examples, environment reference, features guide); late interaction and vision still need a fresh store or
+  the manual migration.
+- **Source-build Dockerfiles follow engine v0.12.1.** `docker/Dockerfile` is now the engine's own Dockerfile at tag
+  v0.12.1 (the one that builds the released image: `rust:1.95-slim-trixie`, cargo-chef, models baked in), with
+  hadolint-only differences. The previous copy could not build v0.12.x: it copied `vendor/` and the manifests of
+  `client`, `cli`, `mcp` and `dashboard`, which the engine no longer has, and missed `core-types`, `scorer`,
+  `codec`, `index` and `config`. `Dockerfile.dev` builds on `rust:1.95-trixie` without `vendor/`, cleans
+  `dakera-api` / `dakera-common`, and runs on `debian:trixie-slim` like the engine; `Dockerfile.local` runs on
+  `debian:trixie-slim` (a binary from the engine's toolchain needs trixie's glibc). README table updated.
+- `docker-compose.tif-phase1.yml`: default image `0.11.90` -> `0.12.1`.
+
+### Added: v0.12.1
+
+- README: "Upgrading from v0.12.0 to v0.12.1" (backup, cluster secret and the one-window procedure, what the first
+  start does by itself, the memory / session totals that change meaning); "Dashboard 0.5.0".
+- `examples/api-notes.md`: v0.12.1 memory and session totals. The Prometheus rules and Grafana dashboards read none
+  of those fields and no metric name changed between v0.12.0 and v0.12.1: `monitoring/` is unchanged.
+
+### Changed: Dashboard 0.4.0
 
 - Dashboard `ghcr.io/dakera-ai/dakera-dashboard` `0.3.30` (single node) / `0.3.29` (HA, `k8s/`, README) -> `0.4.0`
   (`docker/docker-compose.yml` profile `dashboard`, `docker/docker-compose.ha.yml`, `k8s/dashboard/`).
@@ -15,7 +49,7 @@ All notable changes to the Dakera deployment configurations will be documented i
   written into every page the dashboard served (#296). `DAKERA_API_UPSTREAM` is unchanged.
 - Dashboard healthcheck / probes use `/_session/healthz` (compose `healthcheck`, Kubernetes liveness and readiness).
 
-### Added
+### Added: Dashboard 0.4.0
 
 - Optional `DAKERA_SESSION_TTL_HOURS` (default `12`) passed to the dashboard in both compose files; documented in
   `.env.example`, `.env.ha.example`, `examples/environment-variables.md` and as a commented env var in `k8s/`.

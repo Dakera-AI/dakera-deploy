@@ -8,11 +8,13 @@
 #   docker compose -f docker-compose.yml -f docker-compose.multilingual.yml up -d
 #
 # READ FIRST
-#   * FRESH STORE ONLY (new volumes and bucket). The store records the model that
-#     embedded it; a store embedded with bge-large REFUSES to start with bge-m3
-#     (exit 1, both models named). To switch an existing store follow
-#     docs/features-v0.12.md, "Switching the embedding model" (DAKERA_ALLOW_MODEL_CHANGE=1
-#     for ONE start + POST /admin/namespaces/migrate-dimensions).
+#   * Fresh store, or an existing one re-embedded in the background (0.12.1). The
+#     store records the model that embedded it; on an existing bge-large store
+#     0.12.1 starts and re-embeds every agent namespace with bge-m3 in the
+#     background, each answered with its own model until its turn (progress:
+#     /health embedding_model_change). Existing full-text indexes are re-analysed
+#     under the new language at startup too. Take a backup first
+#     (docs/features-v0.12.md, "Switching the embedding model").
 #   * Sets DAKERA_TIERED=0 (the tiered embedding engine pins bge-large).
 #   * Not combinable with docker-compose.late-interaction.yml / .vision.yml (they set
 #     another DAKERA_MODEL). Combinable with multimodal, records and rabitq.

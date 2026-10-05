@@ -8,9 +8,9 @@
 #     - ../../components/models-cache     # bge-m3 is ~570 MB, not in the image
 #     - ../../components/multilingual
 #
-# FRESH STORE ONLY: the store records its embedding model and a pod with another one
-# exits at startup (both models named). Switching an existing store:
-# docs/features-v0.12.md, "Switching the embedding model". Sets DAKERA_TIERED=0
+# Fresh store, or an existing one: the store records its embedding model, and from
+# 0.12.1 a pod with another one starts and re-embeds the store in the background
+# (docs/features-v0.12.md, "Switching the embedding model"). Sets DAKERA_TIERED=0
 # (the tiered embedding engine pins bge-large and ignores DAKERA_MODEL). Not
 # combinable with the late-interaction or vision components. One-way for v0.11
 # (`dakera downgrade` refuses a store on bge-m3).

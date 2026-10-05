@@ -1,8 +1,10 @@
 # =============================================================================
-# Dakera Server - Kubernetes Deployment (Dakera v0.12.0)
+# Dakera Server - Kubernetes Deployment (Dakera v0.12.1)
 # =============================================================================
-# v0.11 manifests: the `release/0.11` branch. Upgrading from v0.11.108: see the
-# README ("Upgrading from v0.11") and the server's docs/v0.12/UPGRADE.md.
+# v0.11 manifests: the `release/0.11` branch. Upgrading from v0.12.0: change the
+# image and apply (nothing to migrate by hand; this single server is not in
+# cluster mode, so DAKERA_CLUSTER_SECRET is not needed). Upgrading from v0.11.108:
+# see the README ("Upgrading from v0.11") and the server's docs/v0.12/UPGRADE.md.
 # One server per data root: the pod keeps its data root (/data) on the
 # ReadWriteOnce volume, so the update strategy is Recreate and the Deployment is
 # not autoscaled (see kustomization.yaml).
@@ -14,7 +16,7 @@ metadata:
   labels:
     app.kubernetes.io/name: dakera
     app.kubernetes.io/component: server
-    app.kubernetes.io/version: "0.12.0"
+    app.kubernetes.io/version: "0.12.1"
 spec:
   replicas: 1
   # A server locks its data root while it runs: stop the old pod before the new
@@ -30,7 +32,7 @@ spec:
       labels:
         app.kubernetes.io/name: dakera
         app.kubernetes.io/component: server
-        app.kubernetes.io/version: "0.12.0"
+        app.kubernetes.io/version: "0.12.1"
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"
@@ -47,7 +49,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: dakera
-          image: ghcr.io/dakera-ai/dakera:0.12.0
+          image: ghcr.io/dakera-ai/dakera:0.12.1
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

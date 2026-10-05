@@ -9,8 +9,11 @@
 #   docker compose --profile dashboard up -d   # with Dashboard UI
 #   docker compose down
 #
-# Dakera v0.12.0. (v0.11 users: the previous version of this file is on the
+# Dakera v0.12.1. (v0.11 users: the previous version of this file is on the
 # `release/0.11` branch.)
+#
+# Upgrading from v0.12.0: back up, then `docker compose pull && docker compose up -d`.
+# Nothing to migrate by hand (README "Upgrading from v0.12.0 to v0.12.1").
 #
 # Upgrading from v0.11.108 (see README "Upgrading from v0.11"):
 #   1. Back up:           POST /admin/backups
@@ -35,7 +38,7 @@ services:
   # Dakera - AI Agent Memory Platform
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.0}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.1}
     container_name: dakera
     # DAK-9890 / FW-b5ad5a7f / DAK-9814: place the container under a systemd
     # slice that sets memory.high=10G (soft cgroup-v2 backpressure). The kernel
@@ -333,12 +336,13 @@ services:
   # Dakera Dashboard (optional)
   # ==========================================================================
   dashboard:
-    # 0.4.0: operators sign in at /login with their OWN Dakera API key, held in
-    # server memory by the dashboard's session service (no key in this container:
-    # DAKERA_API_KEY and DAKERA_CLIENT_URL are gone). Sessions are in memory, so a
-    # restart signs everyone out. Put TLS in front (see README, "Dashboard and TLS"):
+    # 0.5.0 (deploys like 0.4.0): operators sign in at /login with their OWN Dakera
+    # API key, held in server memory by the dashboard's session service (no key in
+    # this container: DAKERA_API_KEY and DAKERA_CLIENT_URL are gone since 0.4.0).
+    # Sessions are in memory, so a restart signs everyone out. Put TLS in front
+    # (README, "Dashboard 0.5.0", TLS in front):
     # the proxy must forward X-Forwarded-Proto and the original Host.
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.4.0}
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.0}
     container_name: dakera-dashboard
     profiles: ["dashboard", "full"]
     ports:
