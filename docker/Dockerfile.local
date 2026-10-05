@@ -1,12 +1,16 @@
 # Dakera Dockerfile - Local Binary
-# Uses pre-built binary to avoid network issues during Docker build
+# Uses pre-built binary to avoid network issues during Docker build.
+# The runtime matches the engine's (debian:trixie-slim): a binary built with the
+# engine's toolchain image needs trixie's glibc.
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     curl \
+    libssl3 \
+    libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user

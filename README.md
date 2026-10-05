@@ -786,11 +786,14 @@ and constraints are in [docs/features-v0.12.md](docs/features-v0.12.md) and `doc
 
 ## Dockerfiles
 
+All three build from a **dakera source checkout** (run them from its root); the published image,
+`ghcr.io/dakera-ai/dakera:0.12.1`, is what the compose files and manifests here use.
+
 | Dockerfile | Base Image | Purpose |
 |------------|-----------|---------|
-| `Dockerfile` | `rust:1.92-bookworm` | Production build with dependency layer caching |
-| `Dockerfile.dev` | `rustlang/rust:nightly-bookworm` | Dev build with BuildKit cache for fast incremental rebuilds (~30-120s after first build) |
-| `Dockerfile.local` | `debian:bookworm-slim` | Lightweight runtime from pre-built binary |
+| `Dockerfile` | `rust:1.95-slim-trixie` → `debian:trixie-slim` | The engine's own Dockerfile at v0.12.1 (builds the released image, models baked in); re-synced each server release |
+| `Dockerfile.dev` | `rust:1.95-trixie` → `debian:trixie-slim` | Dev build with BuildKit cache for fast incremental rebuilds (~30-120s after first build) |
+| `Dockerfile.local` | `debian:trixie-slim` | Lightweight runtime from a pre-built binary |
 
 ## Common Operations
 

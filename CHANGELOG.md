@@ -22,6 +22,14 @@ All notable changes to the Dakera deployment configurations will be documented i
 - Embedding model: a changed `DAKERA_MODEL` is re-embedded in the background on v0.12.1 (multilingual overlays,
   `.env` examples, environment reference, features guide); late interaction and vision still need a fresh store or
   the manual migration.
+- **Source-build Dockerfiles follow engine v0.12.1.** `docker/Dockerfile` is now the engine's own Dockerfile at tag
+  v0.12.1 (the one that builds the released image: `rust:1.95-slim-trixie`, cargo-chef, models baked in), with
+  hadolint-only differences. The previous copy could not build v0.12.x: it copied `vendor/` and the manifests of
+  `client`, `cli`, `mcp` and `dashboard`, which the engine no longer has, and missed `core-types`, `scorer`,
+  `codec`, `index` and `config`. `Dockerfile.dev` builds on `rust:1.95-trixie` without `vendor/`, cleans
+  `dakera-api` / `dakera-common`, and runs on `debian:trixie-slim` like the engine; `Dockerfile.local` runs on
+  `debian:trixie-slim` (a binary from the engine's toolchain needs trixie's glibc). README table updated.
+- `docker-compose.tif-phase1.yml`: default image `0.11.90` -> `0.12.1`.
 
 ### Added: v0.12.1
 
