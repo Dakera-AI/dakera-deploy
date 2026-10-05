@@ -1,4 +1,4 @@
-# Dakera v0.12.0 on Kubernetes: multilingual search (fresh store).
+# Dakera v0.12.0 on Kubernetes: multilingual search (fresh store, or an existing one re-embedded in the background from 0.12.1).
 #   kubectl apply -k k8s-features/overlays/multilingual
 # See components/multilingual and docs/features-v0.12.md.
 apiVersion: kustomize.config.k8s.io/v1beta1

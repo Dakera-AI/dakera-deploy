@@ -16,11 +16,11 @@ Use this checklist before exposing Dakera to the internet or handling real workl
 ## Storage
 
 - [ ] **Use persistent storage**: Use the default profile (MinIO-backed) or native S3, not in-memory mode
-- [ ] **Pin image versions**: Set `DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.0` explicitly — never use `latest` in production
+- [ ] **Pin image versions**: Set `DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.1` explicitly — never use `latest` in production
 - [ ] **Mount volumes**: Ensure the `dakera-data` (data root: WAL, knowledge graph), `dakera-cache`, `dakera-rocksdb`, `dakera-models` and `minio-data` volumes are on reliable storage
 - [ ] **Configure backups**: See [backup-restore.md](backup-restore.md) for backup procedures
-- [ ] **Know your way back**: `docker compose run --rm dakera downgrade` (server stopped first) returns v0.12.0 data to v0.11.108; see README "Rolling back to v0.11"
-- [ ] **After upgrading from v0.11.108, rebuild the full-text indexes once**: `scripts/post-upgrade-reindex.sh` (or `POST /admin/fulltext/reindex` with `{"rebuild": true}` and a global admin key), then check that a keyword search returns hits. Required until v0.12.1 applies it automatically; fresh installs do not need it. See README "Upgrading from v0.11 to v0.12.0"
+- [ ] **Know your way back**: `docker compose run --rm dakera downgrade` (server stopped first) returns v0.12 data to v0.11.108; see README "Rolling back to v0.11"
+- [ ] **After upgrading, check that a keyword search returns hits**: from v0.12.1 full-text indexes built by v0.11 are re-analysed in the background at startup (log line `Full-text index re-analysed under the configured analyzer`), so the v0.12.0 manual rebuild (`scripts/post-upgrade-reindex.sh`) is no longer needed. Still on v0.12.0 with v0.11.108 data: run it once. See README "After the upgrade: full-text indexes"
 - [ ] **Run `--check-config` before every upgrade**: `docker compose run --rm --no-deps dakera --check-config` (exit 0 = would start, 78 = would refuse)
 
 ## Performance
@@ -35,7 +35,7 @@ Use this checklist before exposing Dakera to the internet or handling real workl
 
 Everything below is off by default; see [docs/features-v0.12.md](../docs/features-v0.12.md).
 
-- [ ] **Decide per feature, before the first start**: multilingual (`bge-m3`), late interaction (`colbert-small`) and the visual lane change the embedding model or the lane. The store records its model and refuses to start with another: use a **fresh store**, or `DAKERA_ALLOW_MODEL_CHANGE=1` for one start plus `POST /admin/namespaces/migrate-dimensions`. They are one-way for v0.11 (`dakera downgrade` refuses them)
+- [ ] **Decide per feature, before the first start**: multilingual (`bge-m3`), late interaction (`colbert-small`) and the visual lane change the embedding model or the lane. The store records its model: from v0.12.1 an existing store switched to multilingual is re-embedded in the background; late interaction and vision still need a **fresh store**, or `DAKERA_ALLOW_MODEL_CHANGE=1` for one start plus `POST /admin/namespaces/migrate-dimensions`. They are one-way for v0.11 (`dakera downgrade` refuses them)
 - [ ] **Do not stack the exclusive overlays**: multilingual, late-interaction and vision set different models/lanes; the last file would win silently
 - [ ] **`DAKERA_TIERED=0`** with multilingual, late interaction or vision (the tiered embedding engine pins `bge-large` and refuses late interaction); identical on every node
 - [ ] **Vision is a dedicated store** (data root and bucket of its own); never turn it on over a text store
@@ -49,7 +49,7 @@ Everything below is off by default; see [docs/features-v0.12.md](../docs/feature
 
 - [ ] **Use the HA profile** for production: `docker compose -f docker-compose.ha.yml up -d`
 - [ ] **Deploy 3+ nodes**: The HA compose includes 3 Dakera nodes by default
-- [ ] **Set `DAKERA_CLUSTER_SECRET`**: required in cluster mode, >= 16 characters, identical on every node (keep it in `.env.ha` / a Secret)
+- [ ] **Set `DAKERA_CLUSTER_SECRET`**: required on every cluster node (from v0.12.1 a node without it exits with code 78, upgraded or not), >= 16 characters (`openssl rand -hex 32`), identical on every node (keep it in `.env.ha` / a Secret). A cluster that ran without it: set it and upgrade every node in one window
 - [ ] **One bucket per node**: nodes must not share one S3 bucket as their store (the HA compose gives each its own)
 - [ ] **No shared Redis for an HA cluster**: with one Redis shared by the nodes, v0.12.0 did not apply replicated writes on some nodes (measured); `docker-compose.ha.yml` sets no `DAKERA_REDIS_URL`. Rate limits are then per node
 - [ ] **Configure seed nodes**: Each node needs `DAKERA_CLUSTER_SEEDS` pointing to other nodes

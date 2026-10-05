@@ -2,7 +2,7 @@
 
 A practical, self-contained guide to building a client directly against the Dakera REST API — no SDK required, every endpoint is plain JSON over HTTP. It covers authentication, the request/response conventions, the memory lifecycle (store → recall → update → forget), sessions, agents, the knowledge/consolidation family, error handling, and a worked minimal-client example. It closes with a **gotchas** section — the behaviors that most often surprise first-time integrators.
 
-Written against engine **v0.11.108** and updated for **v0.12.0** (the places that changed are marked *(v0.12)*; the server's `docs/v0.12/UPGRADE.md` lists every behaviour change). Where behavior is gated by a version or an env flag, that is called out inline. The v0.12 additions (attachments, transcription, image indexing, records, capabilities) are plain REST routes: see [docs/features-v0.12.md](../docs/features-v0.12.md).
+Written against engine **v0.11.108** and updated for **v0.12.0** and **v0.12.1** (the places that changed are marked *(v0.12)* / *(v0.12.1)*; the server's `docs/v0.12/UPGRADE.md` lists every behaviour change). Where behavior is gated by a version or an env flag, that is called out inline. The v0.12 additions (attachments, transcription, image indexing, records, capabilities) are plain REST routes: see [docs/features-v0.12.md](../docs/features-v0.12.md).
 
 ---
 
@@ -280,6 +280,7 @@ Sessions group memories for a conversation or task. Memories keep their `session
 - **`GET /v1/agents`** (read) — bare array of agent summaries.
 - **`GET /v1/agents/{agent_id}/stats`** (read) — `{ total_memories, memories_by_type, total_sessions, active_sessions, avg_importance, oldest_memory_at, newest_memory_at }`.
 - **`GET /v1/agents/{agent_id}/sessions`** (read) — bare array of `Session` (newest-first, paginated).
+- *(v0.12.1)* **Totals count memories, not stored records.** `GET /v1/agents` lists every agent (also those without a session); its `memory_count` is the agent's memories (the namespace's record count moved to the new `vector_count`). `total_memories` in `/stats` excludes the sentence sub-memories derived for keyword search (new `sub_memories`). `total_sessions` / `session_count` and `GET /v1/sessions?agent_id=...` include ended sessions (`active_sessions` stays open-only). Expect memory counts to drop and session counts to rise on upgrade; field names and types are unchanged.
 
 > Several agent list endpoints return **bare arrays** (no `{ "...": [...] }` envelope, no total): `GET /v1/agents`, `/v1/agents/{id}/memories`, `/v1/agents/{id}/sessions`. Session *list* (`GET /v1/sessions`) is the exception — it is enveloped with `total`.
 

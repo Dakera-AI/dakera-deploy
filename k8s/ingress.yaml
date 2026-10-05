@@ -9,7 +9,7 @@
 #
 # Replace <your-domain> with your actual domain name.
 # For TLS, add cert-manager annotations or provide a TLS secret.
-# Dashboard 0.4.0 signs operators in with their own API key and marks its session
+# The dashboard (0.4.0+) signs operators in with their own API key and marks its session
 # cookie Secure only when the request carries X-Forwarded-Proto: https, so serve the
 # dashboard host over TLS and forward that header and the original Host (ingress-nginx
 # does; behind a TLS-terminating cloud LB set use-forwarded-headers: "true").

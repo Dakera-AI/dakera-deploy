@@ -33,7 +33,7 @@
 
 | | Dakera server | Where |
 |---|---|---|
-| **Latest (this branch, `main`)** | **v0.12.0** | `main`: compose files, Kubernetes manifests and guides in this repo target v0.12.0 |
+| **Latest (this branch, `main`)** | **v0.12.1** | `main`: compose files, Kubernetes manifests and guides in this repo target v0.12.1 (Dashboard 0.5.0) |
 | Previous | v0.11.x (last: v0.11.108) | the [`release/0.11`](https://github.com/Dakera-AI/dakera-deploy/tree/release/0.11) branch, kept unchanged |
 
 **On v0.11?** Use the [`release/0.11`](https://github.com/Dakera-AI/dakera-deploy/tree/release/0.11)
@@ -41,7 +41,11 @@ branch (`git clone -b release/0.11 https://github.com/Dakera-AI/dakera-deploy`):
 keeps working as before. Its Helm counterpart is the `0.11.x` chart on the
 [`release/0.11`](https://github.com/Dakera-AI/dakera-helm/tree/release/0.11) branch of dakera-helm.
 
-**Moving to v0.12.0?** Follow [Upgrading from v0.11](#upgrading-from-v011-to-v0120). Going back is
+**On v0.12.0?** Follow [Upgrading from v0.12.0 to v0.12.1](#upgrading-from-v0120-to-v0121): a single node
+just pulls the new image; **a cluster needs `DAKERA_CLUSTER_SECRET` on every node** and, if it ran without one,
+an upgrade in one window.
+
+**Moving from v0.11?** Follow [Upgrading from v0.11](#upgrading-from-v011-to-v012). Going back is
 supported ([Rolling back to v0.11](#rolling-back-to-v011)).
 
 ---
@@ -163,11 +167,11 @@ docker compose -f docker-compose.dev.yml up -d
 
 Production-grade single-node deployment with MinIO, caching, and health checks.
 
-> **Version pinning**: The default Dakera image tag is pinned to v0.12.0 (v0.11: `release/0.11`).
+> **Version pinning**: The default Dakera image tag is pinned to v0.12.1 (v0.11: `release/0.11`).
 > To run a specific version, set `DAKERA_IMAGE` and `DASHBOARD_IMAGE` in your `.env`:
 > ```bash
-> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.0
-> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.4.0
+> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.1
+> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.5.0
 > ```
 > Pinning to explicit versions prevents unexpected upgrades in production.
 
@@ -203,21 +207,32 @@ docker compose -f docker-compose.ha.yml up -d
 - MinIO Console: http://localhost:9101
 - Cluster status: http://localhost:3100/admin/cluster/status
 
-Set `DAKERA_CLUSTER_SECRET` (>= 16 characters, `openssl rand -hex 32`) in `.env.ha` first; the file
-refuses to start without it. Each node uses its own MinIO bucket. Authentication is on (`DAKERA_AUTH_ENABLED`
+Set `DAKERA_CLUSTER_SECRET` first: at least 16 characters, the same on every node, generated with
+`openssl rand -hex 32`, in the env file you start the stack with (`.env`, or `.env.ha` with
+`--env-file .env.ha`). From v0.12.1 a cluster node without it exits with code 78, fresh install or upgraded,
+so the file has no development default and refuses to start without it. Each node uses its own MinIO bucket.
+Authentication is on (`DAKERA_AUTH_ENABLED`
 defaults to `true` here too: the load balancer port is published on every interface). The nodes share no
 Redis: with one Redis shared by the three nodes, v0.12.0's replication applied nothing on some peers
 (measured: 3 of 6 node pairs never converged); without it every write reached the two other nodes within
 0.1 s.
 
-### Dashboard 0.4.0 (server-side sessions)
+### Dashboard 0.5.0 (server-side sessions)
+
+**Dashboard 0.5.0** deploys exactly like 0.4.0: same image name, same variables (`DAKERA_API_UPSTREAM`,
+optional `DAKERA_SESSION_TTL_HOURS`), port `3000`, healthcheck `/_session/healthz`. **Coming from 0.4.0, change
+the image tag and nothing else** (`DASHBOARD_IMAGE`, or `docker compose pull dashboard`). The navigation is
+regrouped into six areas and every 0.4 URL redirects to its new home, so bookmarks keep working. 0.5.0 also
+adds the Operations hub (background jobs, re-embedding, indexes, consolidation), analytics and metrics pages,
+and the server audit log, and serves a strict Content-Security-Policy. Release notes: the dashboard's
+[CHANGELOG](https://github.com/Dakera-AI/dakera-dashboard/blob/main/CHANGELOG.md).
 
 The dashboard (`docker compose --profile dashboard up -d`, or always on in the HA file) no longer carries an API key.
 Operators open `/login` and sign in with **their own** Dakera API key; the dashboard's session service keeps it in
 server memory behind an `HttpOnly`, `SameSite=Strict` cookie, and nginx adds `Authorization: Bearer <key>` to API
 calls itself. Until 0.3.x the container wrote `DAKERA_API_KEY` into every served page (Dakera-AI/dakera-deploy#296).
 
-**Upgrading from 0.3.x (breaking for deployments):**
+**Upgrading from 0.3.x (breaking for deployments; introduced in 0.4.0):**
 
 - Remove `DAKERA_API_KEY` and `DAKERA_CLIENT_URL` from the dashboard service. Both are ignored with a startup
   warning. **Rotate any key the old dashboard carried** (the compose files used `DAKERA_ROOT_API_KEY`) if the
@@ -318,9 +333,61 @@ npx @dakera-ai/dakera-mcp               # zero-install, latest version
 
 See [dakera-cli](https://github.com/dakera-ai/dakera-cli) and [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) for full documentation.
 
-## Upgrading from v0.11 to v0.12.0
+## Upgrading from v0.12.0 to v0.12.1
 
-An unchanged v0.11.108 deployment upgrades in place: stop v0.11, start v0.12.0 on the same data and
+Stop v0.12.0 and start v0.12.1 on the same data and environment; nothing is migrated by hand (the stored
+formats are v0.12.0's). The server's guide:
+[UPGRADE.md, "Upgrading from v0.12.0 to v0.12.1"](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/UPGRADE.md#upgrading-from-v0120-to-v0121).
+
+1. **Back up** (`POST /admin/backups`).
+2. **Take the new files** (`git pull` on `main`): image `ghcr.io/dakera-ai/dakera:0.12.1` (dashboard `0.5.0`).
+   If you pin `DAKERA_IMAGE` / `DASHBOARD_IMAGE` in `.env`, change them there.
+3. **Clusters only (`docker-compose.ha.yml`): `DAKERA_CLUSTER_SECRET` is required on every node.** A 0.12.1
+   cluster node without it exits with code 78 before serving, fresh install or upgraded (v0.12.0 let an
+   upgraded node run without it, which left `POST /internal/sync/key/add` open to anyone reaching the API port).
+   Nodes with and without the secret do not see each other, so:
+   - the cluster **already has** a secret: upgrade as usual, keeping the same value;
+   - the cluster ran **without** one (an upgraded v0.12.0 or v0.11.108 cluster): upgrade **in one window**.
+     Generate one secret, put it in the env file you start the stack with, pull and check with the new
+     image, then restart every node together:
+     ```bash
+     cd docker
+     openssl rand -hex 32          # -> DAKERA_CLUSTER_SECRET=<value> in .env (or .env.ha, with --env-file .env.ha)
+     docker compose -f docker-compose.ha.yml pull
+     docker compose -f docker-compose.ha.yml run --rm --no-deps dakera-1 --check-config   # exit 0
+     docker compose -f docker-compose.ha.yml down                                         # volumes kept
+     docker compose -f docker-compose.ha.yml up -d
+     ```
+     The cluster is down for the restart only; each node keeps its data. Then, on every node,
+     `GET /admin/cluster/status` lists the two others as healthy members and the same leader. Rotating the
+     secret later needs the same one-window restart.
+
+   Single nodes are not affected, nor are the `k8s/` manifests (one server, no cluster mode); a cluster
+   built from them (one release per node) needs the same secret on every node, from the `dakera-secrets` Secret.
+4. **Start v0.12.1**: `docker compose pull && docker compose up -d` (Kubernetes: `kubectl apply -k k8s/`).
+   On the first start, with nothing to do:
+   - **Full-text indexes** still on the v0.11 analyzer are re-analysed in the background while they keep
+     serving (log: `Full-text index re-analysed under the configured analyzer`). The v0.12.0 manual
+     `POST /admin/fulltext/reindex {"rebuild": true}` step is no longer needed; if you already ran it, nothing
+     is left to do.
+   - **A changed `DAKERA_MODEL`** is no longer refused: the store is re-embedded in the background, each
+     namespace answered with its own model until its turn (progress: `/health` `embedding_model_change`).
+     Still refused, as on v0.12.0, with `DAKERA_TIERED=1` (the quick-start files' default), late-interaction
+     scoring, the visual lane, or a recorded model the build does not know.
+5. **Memory and session counts change meaning.** Memory totals stop counting sentence sub-memories and
+   **drop**; session totals count ended sessions too and **rise** (`GET /v1/agents` `memory_count` /
+   `session_count`, `GET /v1/agents/{id}/stats` `total_memories` / `total_sessions`,
+   `GET /admin/memory-type-stats` `total`, `GET /v1/kpis` `session_count_weekly`). The old `GET /v1/agents`
+   figure is the new `vector_count`. Data, recall and quotas are unchanged. The Prometheus rules and Grafana
+   dashboards in `monitoring/` read none of these fields (`dakera_memories_total` and `dakera_sessions_active`
+   keep their meaning); annotate the step in any report or alert of your own built on them.
+
+**Check**: `/health` is `ready`, `GET /v1/agents` lists every agent, and a keyword search returns hits.
+Going back to v0.12.0 is not part of the server's release checks: restore the backup from step 1.
+
+## Upgrading from v0.11 to v0.12
+
+An unchanged v0.11.108 deployment upgrades in place: stop v0.11, start v0.12.1 on the same data and
 the same environment. It starts, keeps its data and answers as before, except for the defects v0.12
 fixes on purpose. The full guide is the server's
 [docs/v0.12/UPGRADE.md](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/UPGRADE.md)
@@ -337,7 +404,7 @@ Summary for the files in this repo:
    docker compose -f docker-compose.ha.yml run --rm --no-deps dakera-1 --check-config   # HA
    ```
 3. **Take the new files** (`git pull` on `main`) and review what changed for your setup:
-   - image `ghcr.io/dakera-ai/dakera:0.12.0`;
+   - image `ghcr.io/dakera-ai/dakera:0.12.1`;
    - `DAKERA_L2_CACHE_PATH` is gone (v0.12 reads no such name; an upgraded deployment warns, a fresh
      install refuses): the data root is `DAKERA_STORAGE_PATH` (`/data`), and every local path derives
      from it. The compose files mount the data volume there and keep your old volumes where the
@@ -354,60 +421,44 @@ Summary for the files in this repo:
    - **clusters** (`docker-compose.ha.yml`): set `DAKERA_CLUSTER_SECRET` (>= 16 characters, the same
      on every node; the file refuses to start without it). Each node now has its **own bucket**
      (`dakera`, `dakera-2`, `dakera-3`); nodes sharing one bucket are refused on a fresh install.
-     `dakera-1` keeps `dakera`; `dakera-2`/`dakera-3` fill from their peers at start. During a mixed
-     v0.11/v0.12 period (rolling upgrade) leave the secret unset until every node runs v0.12.0.
+     `dakera-1` keeps `dakera`; `dakera-2`/`dakera-3` fill from their peers at start. v0.11 nodes send no
+     secret and 0.12.1 nodes require one, so they do not see each other: upgrade every node **in one window**
+     (see [Upgrading from v0.12.0 to v0.12.1](#upgrading-from-v0120-to-v0121), step 3).
 4. **Things to know before the first start**: gRPC clients need an API key when authentication is on;
    keys pinned to namespaces lose node-wide routes; namespace quotas are now enforced; a stored,
    enabled backup schedule starts running; clients that cut on `smart_score` should re-check their
    threshold. Details: the server UPGRADE.md, "Before you upgrade".
-5. **Start v0.12.0**: `docker compose pull && docker compose up -d` (Kubernetes: `kubectl apply -k k8s/`).
+5. **Start v0.12.1**: `docker compose pull && docker compose up -d` (Kubernetes: `kubectl apply -k k8s/`).
    Watch `GET /health` (`config_warnings`, `embed_migration`).
-6. **Rebuild the full-text indexes once (required)**: see the next section.
+6. **Full-text indexes**: nothing to do on v0.12.1, see the next section.
 
-### After the upgrade: rebuild the full-text indexes
+### After the upgrade: full-text indexes
 
-**Required post-upgrade step.** After you upgrade a deployment that holds data from v0.11.108,
-rebuild its full-text indexes once. Until you do, keyword search and keyword-style recall can return
-nothing. Fresh v0.12.0 installs do not need it. From v0.12.1 (not released yet) Dakera applies it
-automatically; until then, run it yourself.
+**v0.12.1: nothing to do.** Full-text indexes built by v0.11 (without stemming, so `release` missed
+`released` and keyword-style recall could return nothing) are re-analysed under the configured analyzer in
+the background at startup, one namespace at a time, while they keep serving; a restart resumes, and each
+cluster node does its own. Watch the log for `Full-text index re-analysed under the configured analyzer`.
+An index holding documents that exist only in the index (`POST /v1/namespaces/<ns>/fulltext/index`) keeps
+its analyzer instead of dropping them (logged).
 
-Full-text indexes built by v0.11 are re-analysed under v0.12's text analysis. The rebuild does that
-once, so keyword search and keyword-style recall return results again. It only rebuilds derived search
-indexes; memories are not touched. On a production deployment with about 18,000 memories it took about
-18 seconds. Run it once the server is ready (`GET /health/ready` answers `200`):
-
-```bash
-docker compose exec dakera curl -s -X POST http://localhost:3000/admin/fulltext/reindex \
-  -H "x-api-key: $DAKERA_ROOT_API_KEY" -H 'content-type: application/json' -d '{"rebuild":true}'
-```
-
-This needs `curl` inside the container; the v0.12 image's healthcheck uses it. If your image does not
-have it, run the same request from the host against the published port:
-
-```bash
-curl -X POST http://localhost:3000/admin/fulltext/reindex \
-  -H "x-api-key: <global admin key>" -H "content-type: application/json" \
-  -d '{"rebuild": true}'
-```
-
-Omit `namespace` to cover every agent memory namespace; add `"namespace": "<ns>"` to the body for
-one. The helper [`scripts/post-upgrade-reindex.sh`](scripts/post-upgrade-reindex.sh) does the same
-from the environment (`DAKERA_URL`, `DAKERA_ADMIN_KEY` or `DAKERA_ROOT_API_KEY`, optional
-`DAKERA_NAMESPACE`), prints the result and exits non-zero on an error:
+**Still on v0.12.0** with data from v0.11.108: rebuild them by hand, once, with a global admin key, after
+`GET /health/ready` answers `200` (about 18 s for 18,000 memories; memories are not touched):
 
 ```bash
 DAKERA_URL=http://localhost:3000 DAKERA_ROOT_API_KEY=... scripts/post-upgrade-reindex.sh
+# or: curl -X POST $DAKERA_URL/admin/fulltext/reindex -H "x-api-key: <global admin key>" \
+#       -H "content-type: application/json" -d '{"rebuild": true}'
 ```
 
-On Kubernetes, forward the service (`kubectl port-forward svc/dakera 3000:3000`) and run the same
-script or `curl` against `http://localhost:3000`, or run it as a one-off Job from an image with `curl`.
+Without `namespace` it covers every agent memory namespace; add `"namespace": "<ns>"` (or
+`DAKERA_NAMESPACE`) for one. On Kubernetes, `kubectl port-forward svc/dakera 3000:3000` first.
 
 **Check it:** a keyword search (`POST /v1/namespaces/<ns>/fulltext/search` with a common word) returns
 hits, and a short keyword recall returns memories.
 
 ## Rolling back to v0.11
 
-Going back from v0.12.0 to v0.11.108 is supported (every v0.11 embedding model, encrypted or not),
+Going back from v0.12 (v0.12.0 or v0.12.1) to v0.11.108 is supported (every v0.11 embedding model, encrypted or not),
 **except for a store that uses a v0.12-only feature**: `dakera downgrade` refuses (exit 78, nothing changed)
 a store on `bge-m3` (multilingual), `colbert-small` / late interaction or the visual lane. Move such a
 store to a v0.11 model under v0.12 first, or restore a backup taken before you turned the feature on.
@@ -427,7 +478,7 @@ DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.108 docker compose up -d
   stays live up to 120 s), the store uses a v0.12-only feature, or no data was found where the
   configuration looks (an empty or wrong volume / bucket).
 - Kubernetes: `kubectl apply -f k8s/dakera/downgrade-job.yaml` after scaling the Deployment to 0.
-- Docker run: `docker run --rm <same env and volumes> ghcr.io/dakera-ai/dakera:0.12.0 downgrade`.
+- Docker run: `docker run --rm <same env and volumes> ghcr.io/dakera-ai/dakera:0.12.1 downgrade`.
 - Clusters: roll back the whole cluster, not one node (HA recipe in the header of
   `docker/docker-compose.ha.yml`).
 - Air-gapped, after `dakera models prune`: re-seed the model volume first (server UPGRADE.md, "Going back to v0.11").
@@ -460,7 +511,9 @@ kubectl apply -k k8s-features/overlays/multilingual-multimodal
 Things to know before you switch one on:
 
 - **Multilingual, late interaction and vision change the embedding model or the lane.** The store records
-  its model and refuses to start with another one, so use a **fresh store**, or migrate
+  its model. From v0.12.1 an existing store started with the multilingual overlay is re-embedded in the
+  background (recall stays correct; progress in `/health` `embedding_model_change`). Late interaction and
+  vision are still refused on a store embedded otherwise: use a **fresh store**, or migrate
   (`DAKERA_ALLOW_MODEL_CHANGE=1` for one start, then `POST /admin/namespaces/migrate-dimensions`). They set
   `DAKERA_TIERED=0`: the tiered embedding engine, which the quick-start files enable, pins `bge-large` and
   refuses late interaction.
@@ -851,7 +904,7 @@ See [dakera-ai/dakera-helm](https://github.com/dakera-ai/dakera-helm) for chart 
 
 - **Use native S3** (AWS S3, GCS) instead of MinIO in cloud environments: set `DAKERA_S3_ENDPOINT` to your provider's endpoint and disable MinIO (`minio.enabled=false` in Helm)
 - **Scaling**: a server locks its data root and the volume is ReadWriteOnce, so one Deployment is one server and `k8s/dakera/hpa.yaml` is not applied by default. Scale out with cluster mode (one release per node: own bucket, own volume, shared `DAKERA_CLUSTER_SECRET`)
-- **Dashboard 0.4.0**: the Deployment has no API key (operators sign in with their own key; `DAKERA_API_KEY` is gone, rotate any key the old dashboard carried). Keep `replicas: 1` (sessions are in memory, or add sticky sessions), enable TLS on the dashboard host in `k8s/ingress.yaml` (ingress-nginx forwards `X-Forwarded-Proto` and `Host`), probes use `/_session/healthz`. See [Dashboard 0.4.0](#dashboard-040-server-side-sessions)
+- **Dashboard 0.5.0**: the Deployment has no API key (operators sign in with their own key; `DAKERA_API_KEY` is gone, rotate any key the old dashboard carried). Keep `replicas: 1` (sessions are in memory, or add sticky sessions), enable TLS on the dashboard host in `k8s/ingress.yaml` (ingress-nginx forwards `X-Forwarded-Proto` and `Host`), probes use `/_session/healthz`. See [Dashboard 0.5.0](#dashboard-050-server-side-sessions)
 - **TLS**: add cert-manager annotations to `k8s/ingress.yaml` or `ingress.annotations` in Helm values
 - **Secrets management**: use an external secrets operator (External Secrets, Vault) instead of `kubectl create secret` for production
 - **Metrics**: Dakera exposes Prometheus metrics at `GET /metrics` — pods have `prometheus.io/scrape: "true"` annotations for auto-discovery
