@@ -869,7 +869,7 @@ The Helm chart has moved to the dedicated **[dakera-helm](https://github.com/dak
 
 ```bash
 # Install from GHCR OCI
-helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.12.0 \
+helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.12.1 \
   --namespace dakera --create-namespace \
   --set dakera.rootApiKey=$(openssl rand -hex 32) \
   --set minio.rootPassword=$(openssl rand -hex 16)
