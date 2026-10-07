@@ -38,7 +38,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: check-config
-          image: ghcr.io/dakera-ai/dakera:0.12.1
+          image: ghcr.io/dakera-ai/dakera:0.12.2
           imagePullPolicy: IfNotPresent
           command: ["dakera"]
           args: ["--check-config"]
