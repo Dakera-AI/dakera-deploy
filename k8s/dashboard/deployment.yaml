@@ -9,7 +9,7 @@ metadata:
   labels:
     app.kubernetes.io/name: dakera-dashboard
     app.kubernetes.io/component: dashboard
-    app.kubernetes.io/version: "0.5.0"
+    app.kubernetes.io/version: "0.5.1"
 spec:
   # One replica: sessions live in the pod's memory. More replicas need sticky
   # sessions at the ingress, otherwise users are signed out when a request lands
@@ -24,7 +24,7 @@ spec:
       labels:
         app.kubernetes.io/name: dakera-dashboard
         app.kubernetes.io/component: dashboard
-        app.kubernetes.io/version: "0.5.0"
+        app.kubernetes.io/version: "0.5.1"
     spec:
       terminationGracePeriodSeconds: 10
       containers:
