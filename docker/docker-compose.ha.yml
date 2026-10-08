@@ -30,7 +30,7 @@
 #
 # Override any port by setting the corresponding HA_* env var. See .env.ha.example.
 #
-# Dakera v0.12.1. (v0.11 users: the previous version of this file is on the
+# Dakera v0.12.2. (v0.11 users: the previous version of this file is on the
 # `release/0.11` branch.)
 #
 # v0.12 cluster requirements:
@@ -65,7 +65,7 @@
 name: dakera-ha
 
 x-dakera-common: &dakera-common
-  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.1}
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.2}
   restart: unless-stopped
   # SIGTERM starts the graceful shutdown (running media-job stores are waited for up to
   # 15 s, then the final flushes); compose's default of 10 s would kill it first.
@@ -160,6 +160,10 @@ x-dakera-env: &dakera-env
   DAKERA_RERANK_MAX_CANDIDATES: "${DAKERA_RERANK_MAX_CANDIDATES:-}"
   DAKERA_HOT_TIER: "${DAKERA_HOT_TIER:-}"
   DAKERA_ROCKSDB_SYNC: "${DAKERA_ROCKSDB_SYNC:-}"
+  DAKERA_ROCKSDB_RECORD_FORMAT: "${DAKERA_ROCKSDB_RECORD_FORMAT:-}"
+  DAKERA_VECTOR_CACHE_BYTES: "${DAKERA_VECTOR_CACHE_BYTES:-}"
+  DAKERA_MAX_MEMORY_CONTENT_BYTES: "${DAKERA_MAX_MEMORY_CONTENT_BYTES:-}"
+  DAKERA_SESSION_IDLE_TIMEOUT_SECS: "${DAKERA_SESSION_IDLE_TIMEOUT_SECS:-}"
   DAKERA_HNSW_CACHE_TTI_SECS: "${DAKERA_HNSW_CACHE_TTI_SECS:-}"
   DAKERA_RATE_LIMIT_RPS: "${DAKERA_RATE_LIMIT_RPS:-}"
   DAKERA_RATE_LIMIT_BURST: "${DAKERA_RATE_LIMIT_BURST:-}"
@@ -363,7 +367,7 @@ services:
     # API key (kept in server memory by the dashboard's session service);
     # DAKERA_API_KEY and DAKERA_CLIENT_URL are gone since 0.4.0. Serve it behind TLS
     # that forwards X-Forwarded-Proto and Host (README, "Dashboard 0.5.0", TLS in front).
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.0}
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.1}
     container_name: dakera-dashboard
     ports:
       - "${HA_DASHBOARD_PORT:-3202}:3000"

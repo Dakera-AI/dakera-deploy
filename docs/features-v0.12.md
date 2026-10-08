@@ -539,6 +539,13 @@ interaction; the quick-start's `DAKERA_TIERED=1` stays only for stacks without t
   per-namespace routes, `/ops/*`, `/v1/analytics/*`, `/v1/audit*`, `/v1/kpis`, ...): it gets `403`. Backup
   download, upload and restore need a global `super_admin` key (was `admin`). Check backup tooling and
   namespace-scoped admin keys before upgrading.
+- **Key patterns and in-place edits (v0.12.2).** A key's `namespaces` may hold a prefix pattern `p*` (strict:
+  `team-*` reaches `team-a`, not `team`; never a server-internal namespace). A developer key with
+  `["_dakera_agent_<dev>-*"]` creates its own agents (`POST /v1/agents`) without an admin. Keys are edited
+  in place (`PATCH /admin/keys/{id}`), rotated with a grace period (`POST /admin/keys/{id}/rotate
+  {"grace_secs": N}`), and inspected with `GET /v1/auth/whoami`. Sessions are authorized by their agent: no
+  `_dakera_sessions` entry is needed. Entries ending in `*` on keys from older versions stay inert until the
+  key's namespaces are saved again (`inert_namespaces` lists them).
 - **Encryption at rest** (`DAKERA_ENCRYPTION_KEY`: 64 hex characters or a passphrase of 8 or more; the same value on
   every node). Values are sealed with AES-256-GCM bound to their record (`$enc$v2$`). Keys live in a
   replicated **keyring** (reserved namespace `_dakera_keyring`, wrapped under a master derived from
@@ -760,3 +767,14 @@ curl -s localhost:3000/metrics | grep -E 'dakera_(config_warnings|component_degr
 Run `dakera --check-config` with the new image, your environment and your data volume before a rollout:
 `docker compose run --rm --no-deps dakera --check-config`. Every `DAKERA_*` name in this repository's files
 is in the server's registry (`known_env.rs`); an unknown name is reported at startup with the closest real name.
+
+## Sessions (v0.12.2)
+
+Sessions with no activity for `DAKERA_SESSION_IDLE_TIMEOUT_SECS` (default 14400 = 4 h; `0` turns the server
+default off) are ended by the server with what a client end does: memory count, summary memory, session-end
+consolidation; `ended_reason` is `idle`. Activity is a memory written with the session, a session-scoped recall
+or search, or `POST /v1/sessions/{id}/touch` (a heartbeat for agents that keep a session open while idle).
+A session can set its own `idle_timeout_secs` at start (`0` = never). Storing into an ended session still
+succeeds; the response says `session_state: "ended"`. Check it: `GET /v1/sessions/{id}` shows
+`last_activity_at`, `ended_reason` and `idle_since`; `GET /v1/capabilities` shows the live timeout under
+`sessions`; `dakera_sessions_auto_ended_total` counts idle ends.

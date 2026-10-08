@@ -1,6 +1,8 @@
 # =============================================================================
-# Dakera v0.12.x -> v0.11.108 rollback (one-off Job, run with the 0.12.1 image)
+# Dakera v0.12.x -> v0.11.108 rollback (one-off Job, run with the 0.12.2 image)
 # =============================================================================
+# Use the image of the version being rolled back: 0.12.2 rewrites its binary
+# RocksDB hot-tier records as JSON before v0.11.108 can read them.
 # `dakera downgrade` makes the data v0.11.108's again. Run it AFTER the server has
 # stopped; it refuses (exit 78, nothing changed) while a server runs on the data.
 # Same environment and volume as the server. Never put it in the server's own
@@ -40,7 +42,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: downgrade
-          image: ghcr.io/dakera-ai/dakera:0.12.1
+          image: ghcr.io/dakera-ai/dakera:0.12.2
           imagePullPolicy: IfNotPresent
           command: ["dakera"]
           args: ["downgrade"]

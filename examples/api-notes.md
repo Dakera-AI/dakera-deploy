@@ -38,11 +38,28 @@ Authorization: Bearer dk_your_key_here
 | Scope | Grants |
 |-------|--------|
 | `read` | recall, search, get, list, stats, graph reads, session get/list |
-| `write` | everything in `read` + store, update, forget, consolidate, feedback, session start/end |
-| `admin` | key management, ops metrics, diagnostics |
-| `super_admin` | all namespaces, no expiry |
+| `write` | everything in `read` + store, update, forget, consolidate, feedback, session start/end, `POST /v1/agents` |
+| `admin` | everything in `write` + namespace management; node-wide ops routes (metrics, diagnostics) only when the key has no namespace restriction |
+| `super_admin` | everything in `admin` + key management (`/admin/keys`) — only when the key has no namespace restriction |
 
-The root key from `DAKERA_ROOT_API_KEY` is a `super_admin` key. Additional scoped keys are minted through the `/v1/admin/keys` endpoints or per-namespace via `/v1/namespaces/{ns}/keys`. Keys are stored only as SHA-256 hashes; the plaintext (`dk_<hex>`) is shown once at creation. A key may be restricted to specific namespaces; a request outside its allowed set returns `403`.
+The root key from `DAKERA_ROOT_API_KEY` is an unrestricted `super_admin` key. Additional keys are minted through `POST /admin/keys` (unrestricted `super_admin`) or, by a namespace admin, through `POST /v1/namespaces/{ns}/keys`. Keys are stored only as SHA-256 hashes; the plaintext (`dk_<hex>`) is shown once at creation. `GET /v1/auth/whoami` tells a client which key it holds: scope, namespaces, whether it is unrestricted, expiry.
+
+**Namespace restrictions** (`namespaces` on a key, v0.12.2):
+
+| Value | Meaning |
+|-------|---------|
+| `null` or `["*"]` | every namespace |
+| `[]` | no namespace |
+| `"docs"` | exactly that namespace |
+| `"_dakera_agent_mlx-*"` | every namespace that starts with `_dakera_agent_mlx-` and is longer than it — e.g. all agents `mlx-repo1`, `mlx-pet` of one developer. Never a server-internal namespace. |
+
+A request outside the key's namespaces returns `403`. Sessions are authorized by their agent alone: a key that reaches `_dakera_agent_<id>` can start, end, list and read that agent's sessions — `_dakera_sessions` no longer needs to be (and should not be) listed. Patterns are validated on creation (`400` names a malformed entry such as `a**b` or `_dakera_*`). Entries ending in `*` on keys created before v0.12.2 grant nothing until the key's namespaces are saved again (`inert_namespaces` lists them).
+
+**Self-service agents for a developer:** create a `write` key with `namespaces: ["_dakera_agent_<dev>-*"]`. The developer then creates agents with `POST /v1/agents {"agent_id": "<dev>-<name>"}` (or simply stores the first memory under that agent id) — no admin involvement and no key rotation.
+
+**Changing a key in place:** `PATCH /admin/keys/{key_id}` with `{"name": "...", "namespaces": [...]}` (or `PATCH /v1/namespaces/{ns}/keys/{key_id}` for a namespace admin, within its own grants). The token stays the same, so running clients keep working.
+
+**Rotation without downtime:** `POST /admin/keys/{key_id}/rotate {"grace_secs": 3600}` returns the new key and keeps the old one valid until `old_key_expires_at`; without `grace_secs` the old key stops at once.
 
 ---
 
@@ -52,7 +69,7 @@ The root key from `DAKERA_ROOT_API_KEY` is a `super_admin` key. Additional scope
 
 **Timestamps are Unix seconds** (integers) on the wire — `created_at`, `last_accessed_at`, `updated_at`, `ended_at`, `valid_from`/`valid_to`, etc. They are *not* ISO-8601 strings, despite what some SDK models imply. Normalize once at your client boundary.
 
-**The agent is the unit of isolation.** Every memory belongs to an `agent_id`, which maps to an internal namespace (`_dakera_agent_{agent_id}`). Memories under different `agent_id`s cannot see each other. Sessions live in a shared reserved namespace (`_dakera_sessions`).
+**The agent is the unit of isolation.** Every memory belongs to an `agent_id`, which maps to an internal namespace (`_dakera_agent_{agent_id}`). Memories under different `agent_id`s cannot see each other. Sessions belong to their agent; they are stored in a server-internal namespace that clients never address directly.
 
 **IDs.** Memory IDs look like `mem_<hex>` and session IDs like `sess_<hex>`; both are auto-generated when you omit them, or you may supply your own.
 
