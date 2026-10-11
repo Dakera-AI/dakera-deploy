@@ -128,6 +128,12 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    # The entrypoint's $${...} are expanded inside the container, so the credentials must
+    # be passed in; without them `mc` is anonymous and `mc mb` fails with Access Denied.
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      - MINIO_BUCKET=${MINIO_BUCKET:-dakera-playground}
     entrypoint: >
       /bin/sh -c "
       set -e;
