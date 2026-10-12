@@ -29,7 +29,7 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Chef - Prepare dependency recipe
 # -----------------------------------------------------------------------------
-FROM rust:1.95-slim-trixie AS chef
+FROM rust:1.98-slim-trixie AS chef
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
