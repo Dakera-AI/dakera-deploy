@@ -17,7 +17,7 @@
 # ============================================================================
 # The engine pins its toolchain in rust-toolchain.toml (1.95.0 at v0.12.1) and its `docker`
 # Cargo profile (thin LTO, incremental) builds on stable; same base as the engine's Dockerfile.
-FROM rust:1.95-trixie AS builder
+FROM rust:1.99-trixie AS builder
 
 # Install build dependencies (cached layer - rarely changes)
 RUN apt-get update && apt-get install -y \
