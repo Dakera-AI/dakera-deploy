@@ -4,6 +4,54 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+### Changed: health checks without curl, new server settings, hardening
+
+- **Dakera health checks no longer depend on `curl` in the server image** (engine #920 F6: the runtime image drops
+  `curl`; `dakera healthcheck [PATH]` replaces it). Every compose file whose check exec'd `curl` inside the Dakera
+  container (`docker-compose.yml`, `docker-compose.ha.yml`, `docker-compose.playground.yml`,
+  `docker-compose.local.yml`, `docker-compose.tif-phase1.yml`, `.devcontainer/docker-compose.yml`) now runs
+  `curl` when the image has it and `dakera healthcheck /health/ready` otherwise. Both kinds of image stay healthy:
+  images up to v0.12.2 have no `healthcheck` subcommand (an unknown argument would start a second server), the next
+  ones have no `curl`. The dashboard, ODE and sandbox-proxy checks are unchanged (their images ship the tool they
+  call). Kubernetes probes were already `httpGet`; they now set `timeoutSeconds: 5`.
+- **New server settings (releases after v0.12.2) are passed when set**: `DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS`,
+  `DAKERA_NEIGHBORHOOD_MODE`, `DAKERA_NEIGHBORHOOD_EVENT_TIME`, `DAKERA_RECALL_RANK_DEPTH`,
+  `DAKERA_RECALL_COLLAPSE_DERIVED`, `DAKERA_RECALL_EXCLUDE_SUMMARIES`, `DAKERA_RECALL_SESSION_CAP`,
+  `DAKERA_SENTENCE_DECOMP`, `DAKERA_SUPERSEDES_EVENT_TIME` (`docker-compose.yml`, `docker-compose.ha.yml`). Listed
+  without a value, so an unset one never reaches the container and a v0.12.2 image reports no unknown variable.
+  Documented in `.env.example`, `.env.ha.example`, `examples/environment-variables.md`, `k8s/configmap.yaml`.
+- **Idle keep-alive connections vs the header timeout**: the server now closes a keep-alive connection that sends
+  no request head for `DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS` (30 s). The HA Traefik closes idle connections to the
+  nodes after 25 s (`traefik-dynamic.yml`, `serversTransports`; its default of 90 s would reuse connections the
+  server closed: 502s). `Caddyfile.template` does the same for the API (`keepalive 25s`). `k8s/ingress.yaml`
+  explains the ingress-nginx setting (`upstream-keepalive-timeout`, 60 s by default).
+- **Hardening (compose)**: the Dakera containers run with a read-only root filesystem (`/tmp` a tmpfs; the data
+  root and model cache are volumes), `cap_drop: [ALL]` and `no-new-privileges` (`docker-compose.yml`, HA,
+  playground). Measured with 0.12.2 and the current `:edge`: healthy, store / recall / backup work, no
+  configuration warning. Dashboard: `cap_drop: [ALL]` plus the four capabilities its 0.5.1 image needs (it starts as
+  root: `CHOWN`, `DAC_OVERRIDE`, `SETGID`, `SETUID`), `no-new-privileges`, 256 MB / 0.5 CPU. Watchdog: read-only,
+  no capability, 64 MB. Prometheus, Grafana, Traefik, Jaeger: no capability; MinIO and its setup job:
+  `no-new-privileges`.
+- **Grafana has no default password any more** (`docker-compose.yml` used `admin`). A NEW Grafana refuses to start
+  without `GRAFANA_PASSWORD` (or with `admin`); one that already has its database starts as before. Not a required
+  Compose variable, which would stop every profile, the production `--profile dashboard` included. The k8s Grafana
+  now needs `GRAFANA_PASSWORD` in `dakera-secrets` (`secret.example.yaml`); it was optional (admin / admin).
+- **`docker-compose.ha.yml`: only the load balancer is published on every interface.** MinIO (API and console), the
+  dashboard, the Traefik dashboard (`--api.insecure`, no authentication), Prometheus (`--web.enable-lifecycle`),
+  Grafana and Jaeger (UI and OTLP) are bound to 127.0.0.1, as in `docker-compose.yml`. Images pinned to the
+  versions `:latest` had (traefik `v3.7.15`, prometheus `v3.15.0`, grafana `13.2.4`, jaeger all-in-one `1.76.0`;
+  Grafana cannot be pinned older over a newer database). The Traefik health check named the wrong ping port (the LB
+  never turned healthy): fixed.
+- **Development stacks bound to loopback**: `docker-compose.local.yml`, `docker-compose.dev.yml` and
+  `.devcontainer/docker-compose.yml` (authentication off there) published Dakera and MinIO (default credentials) on
+  every interface. `monitoring/docker-compose.yml` likewise. The devcontainer's default image is 0.12.2.
+- **Kubernetes**: server pod and Jobs with `readOnlyRootFilesystem` (a `/tmp` emptyDir), no privilege escalation,
+  no capability, `RuntimeDefault` seccomp, no service-account token; dashboard with the same four capabilities as
+  in compose; MinIO, Grafana, Prometheus without privilege escalation. New `k8s/minio/networkpolicy.yaml`: only the
+  Dakera pods (server and Jobs) and Prometheus reach MinIO.
+- `CLAUDE.md`: the Helm chart lives in dakera-helm (this repository never had `charts/`). The watchdog's alert no
+  longer suggests `docker exec dakera curl`.
+
 ### Changed: Dakera server v0.12.1, Dashboard 0.5.0, dakera-mcp 0.12.0
 
 - Default Dakera image `0.12.0` -> `0.12.1` (compose files, `.env` examples, devcontainer, playground, `k8s/`

@@ -30,10 +30,11 @@ services:
   # Dakera — AI Agent Memory Platform
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.1}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.2}
+    # Loopback only: auth is off here, so anyone who reaches the port is a SuperAdmin.
     ports:
-      - "3000:3000"
-      - "50051:50051"
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:50051:50051"
     environment:
       - RUST_LOG=info
       - DAKERA_HOST=0.0.0.0
@@ -56,7 +57,9 @@ services:
       minio-setup:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health/ready"]
+      # Works with every image: up to v0.12.2 curl (no `dakera healthcheck`: an
+      # unknown argument would start a second server), later `dakera healthcheck`.
+      test: ["CMD-SHELL", "if command -v curl >/dev/null 2>&1; then curl -fsS http://127.0.0.1:3000/health/ready >/dev/null; else dakera healthcheck /health/ready; fi"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -76,8 +79,8 @@ services:
     image: cgr.dev/chainguard/minio:latest
     user: "0:0"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     environment:
       - MINIO_ROOT_USER=minioadmin
       - MINIO_ROOT_PASSWORD=minioadmin

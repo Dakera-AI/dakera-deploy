@@ -97,7 +97,7 @@ Host: $(hostname)
 Reason: healthcheck failingStreak=${STREAK} ≥ threshold ${RESTART_AFTER}
 Health: ${STATUS}
 Root cause: access_info zombie leak — see https://github.com/Dakera-AI/dakera/pull/872
-Action: Check <code>docker exec dakera curl -s localhost:3000/admin/storage/stats | jq .hot_count</code>
+Action: on the host, <code>curl -s -H 'X-API-Key: &lt;admin key&gt;' http://127.0.0.1:3000/admin/storage/stats | jq .hot_count</code> (newer server images have no curl inside)
 If memory pressure: <code>docker restart ${CONTAINER}</code> (manual, deliberate)"
   fi
 

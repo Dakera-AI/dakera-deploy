@@ -132,6 +132,22 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 | `DAKERA_MAX_BODY_SIZE` | `10485760` (10 MiB) | Max request body size in bytes. The compose files and the ConfigMap set `524288000` (500 MB) |
 | `DAKERA_REQUEST_TIMEOUT` | `300` | Request timeout in seconds, the outer ceiling. `docker-compose.yml` sets 600, `docker-compose.ha.yml` and the ConfigMap 120 |
 | `DAKERA_RATE_LIMIT_RPS` / `DAKERA_RATE_LIMIT_BURST` / `DAKERA_RATE_LIMIT_ENABLED` | `100` / `50` / `true` | Server-wide rate limit (REST and gRPC). v0.11's `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` still work, deprecated |
+| `DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS` | `30` | Server releases after v0.12.2. Seconds a client has to send a complete HTTP/1 request head on the REST port, counted from when the server waits for one (a new or an idle keep-alive connection, which is then closed); `[1, 86400]`. A proxy that keeps idle upstream connections longer (ingress-nginx 60 s, Traefik 90 s by default; `docker-compose.ha.yml`'s Traefik is set to 25 s) must be set below it, or this raised above the proxy's |
+
+## Recall (server releases after v0.12.2)
+
+The compose files pass these only when they are set (an older image reports a name it does not know).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_NEIGHBORHOOD_MODE` | `inline` | Neighbourhood context of a recall that names no `neighborhood_mode`: `inline` (after the `top_k` results, marked `retrieval: "neighborhood"`), `separate` (in `context_memories`; `memories` holds at most `top_k`) or `off` |
+| `DAKERA_NEIGHBORHOOD_EVENT_TIME` | off | Neighbourhood window on event time instead of ingest time |
+| `DAKERA_RECALL_RANK_DEPTH` | `10` | Ranking depth floor `[1, 1000]`: the first `k` of a `top_k=k` recall equal the first `k` of a `top_k=10` recall |
+| `DAKERA_RECALL_COLLAPSE_DERIVED` | off | One result per source memory (sentence sub-memories collapsed; `matched_text`, `matched_ids`) |
+| `DAKERA_RECALL_EXCLUDE_SUMMARIES` | off | Session summaries left out unless a request sets `include_summaries: true` |
+| `DAKERA_RECALL_SESSION_CAP` | `0` | At most N results of one session in the head of list / aggregation recalls (`0` = no cap) |
+| `DAKERA_SENTENCE_DECOMP` | on | `0`: no sentence sub-memories derived on any write path |
+| `DAKERA_SUPERSEDES_EVENT_TIME` | on | Supersedes edges ordered by the memories' event dates when both have one |
 
 ## Docker Compose Port Overrides
 
@@ -148,7 +164,7 @@ The default and HA compose files expose different ports to allow co-deployment o
 | `PROMETHEUS_PORT` | `9090` | Prometheus (monitoring profile) |
 | `GRAFANA_PORT` | `3003` | Grafana (monitoring profile) |
 | `DASHBOARD_PORT` | `3002` | Dashboard UI (dashboard profile) |
-| `DASHBOARD_IMAGE` | `ghcr.io/dakera-ai/dakera-dashboard:0.5.0` | Dashboard image |
+| `DASHBOARD_IMAGE` | `ghcr.io/dakera-ai/dakera-dashboard:0.5.1` | Dashboard image |
 | `DAKERA_SESSION_TTL_HOURS` | `12` | Dashboard 0.4.0+: longest an operator sign-in lasts (idle sessions end after 2 h) |
 
 ### HA Profile (`docker-compose.ha.yml`)

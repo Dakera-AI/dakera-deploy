@@ -19,6 +19,7 @@ resources:
   # Storage
   - minio/statefulset.yaml
   - minio/service.yaml
+  - minio/networkpolicy.yaml
   # Core server
   - dakera/deployment.yaml
   - dakera/service.yaml

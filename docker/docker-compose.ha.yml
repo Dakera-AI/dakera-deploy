@@ -22,6 +22,8 @@
 #   Dakera gRPC (LB):  localhost:50151          (HA_LB_GRPC_PORT)
 #   Dashboard:          http://localhost:3202   (HA_DASHBOARD_PORT)
 #   Traefik Dashboard:  http://localhost:8080   (HA_TRAEFIK_PORT)
+# Only the load balancer's ports are published on every interface; the others are
+# bound to 127.0.0.1 (reach them through a TLS proxy or an SSH tunnel).
 #   MinIO API:          http://localhost:9100   (HA_MINIO_API_PORT)
 #   MinIO Console:      http://localhost:9101   (HA_MINIO_CONSOLE_PORT)
 #   Prometheus:         http://localhost:9190   (--profile monitoring, HA_PROMETHEUS_PORT)
@@ -83,11 +85,22 @@ x-dakera-common: &dakera-common
   healthcheck:
     # /health/ready is 503 while the models load (the port answers meanwhile);
     # failures inside the start period do not count, the first success ends it.
-    test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health/ready"]
+    # Works with every image: the images up to v0.12.2 have curl but no
+    # `dakera healthcheck` (there an unknown argument would start a SECOND server);
+    # the newer ones have `dakera healthcheck` and their runtime image drops curl.
+    test: ["CMD-SHELL", "if command -v curl >/dev/null 2>&1; then curl -fsS http://127.0.0.1:3000/health/ready >/dev/null; else dakera healthcheck /health/ready; fi"]
     interval: 10s
     timeout: 5s
     retries: 5
     start_period: 600s
+  # The server writes only to its volumes and /tmp, runs as uid 1000 and needs no
+  # Linux capability.
+  read_only: true
+  tmpfs:
+    - /tmp:size=1g,mode=1777
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
 
 x-dakera-env: &dakera-env
   DAKERA_HOST: "0.0.0.0"
@@ -167,6 +180,18 @@ x-dakera-env: &dakera-env
   DAKERA_HNSW_CACHE_TTI_SECS: "${DAKERA_HNSW_CACHE_TTI_SECS:-}"
   DAKERA_RATE_LIMIT_RPS: "${DAKERA_RATE_LIMIT_RPS:-}"
   DAKERA_RATE_LIMIT_BURST: "${DAKERA_RATE_LIMIT_BURST:-}"
+  # Settings of server releases after v0.12.2 (.env.example): no value here, so each is
+  # passed only when set in the env file or the shell (an older image would report a
+  # name it does not know). Must be the same on every node.
+  DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS:
+  DAKERA_NEIGHBORHOOD_MODE:
+  DAKERA_NEIGHBORHOOD_EVENT_TIME:
+  DAKERA_RECALL_RANK_DEPTH:
+  DAKERA_RECALL_COLLAPSE_DERIVED:
+  DAKERA_RECALL_EXCLUDE_SUMMARIES:
+  DAKERA_RECALL_SESSION_CAP:
+  DAKERA_SENTENCE_DECOMP:
+  DAKERA_SUPERSEDES_EVENT_TIME:
   # gRPC listener: an EMPTY value would read as OFF on an upgraded deployment (v0.11's reading).
   DAKERA_GRPC_ENABLED: "${DAKERA_GRPC_ENABLED:-true}"
   HF_TOKEN: "${HF_TOKEN:-}"
@@ -184,7 +209,8 @@ services:
   # Traefik — Load Balancer
   # ==========================================================================
   traefik:
-    image: traefik:latest
+    # Pinned (it was :latest); v3.7.15 is what :latest was when pinned.
+    image: traefik:v3.7.15
     container_name: dakera-lb
     command:
       - "--api.dashboard=true"
@@ -197,17 +223,25 @@ services:
       - "--ping.entrypoint=http"
       - "--log.level=INFO"
       - "--accesslog=true"
+    # The API port (3100) is published on every interface (auth is on); the Traefik
+    # dashboard (--api.insecure: no authentication) only on loopback.
     ports:
       - "${HA_LB_HTTP_PORT:-3100}:3000"
       - "${HA_LB_GRPC_PORT:-50151}:50051"
-      - "${HA_TRAEFIK_PORT:-8080}:8080"
+      - "127.0.0.1:${HA_TRAEFIK_PORT:-8080}:8080"
     volumes:
       - ./traefik-dynamic.yml:/etc/traefik/dynamic.yml:ro
     healthcheck:
-      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      # The ping is on the `http` entrypoint: `traefik healthcheck` needs to be told so
+      # (without these flags it asks :8080/ping, a 404, and the LB never turns healthy).
+      test: ["CMD", "traefik", "healthcheck", "--ping", "--ping.entrypoint=http", "--entrypoints.http.address=:3000"]
       interval: 10s
       timeout: 5s
       retries: 3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
     networks:
       dakera-ha-net:
@@ -315,8 +349,9 @@ services:
     container_name: dakera-ha-minio
     command: server /data --console-address ":9001"
     ports:
-      - "${HA_MINIO_API_PORT:-9100}:9000"
-      - "${HA_MINIO_CONSOLE_PORT:-9101}:9001"
+      # Loopback only, as in docker-compose.yml: the nodes reach MinIO on the network.
+      - "127.0.0.1:${HA_MINIO_API_PORT:-9100}:9000"
+      - "127.0.0.1:${HA_MINIO_CONSOLE_PORT:-9101}:9001"
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -324,6 +359,8 @@ services:
       - MINIO_PROMETHEUS_AUTH_TYPE=public
     volumes:
       - minio-data:/data
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
@@ -356,6 +393,8 @@ services:
       echo 'Dakera buckets ready';
       exit 0;
       "
+    security_opt:
+      - no-new-privileges:true
     networks:
       - dakera-ha-net
 
@@ -369,18 +408,32 @@ services:
     # that forwards X-Forwarded-Proto and Host (README, "Dashboard 0.5.0", TLS in front).
     image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.1}
     container_name: dakera-dashboard
+    # Loopback only, as in docker-compose.yml: operators sign in with their API key,
+    # so serve it through a TLS proxy on the host.
     ports:
-      - "${HA_DASHBOARD_PORT:-3202}:3000"
+      - "127.0.0.1:${HA_DASHBOARD_PORT:-3202}:3000"
     environment:
       - DAKERA_API_UPSTREAM=http://dakera-traefik:3000
       # Longest a sign-in lasts (default 12; idle sessions end after 2 h):
       - DAKERA_SESSION_TTL_HOURS=${DAKERA_SESSION_TTL_HOURS:-12}
+    # The dashboard image ships its own curl (its entrypoint uses it too).
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:3000/_session/healthz"]
       interval: 30s
       timeout: 10s
       start_period: 10s
       retries: 3
+    # Images up to 0.5.1 start as root; nginx and the session service then drop to
+    # their own users. Only the capabilities that needs (measured with 0.5.1).
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
     depends_on:
       dakera-1:
         condition: service_healthy
@@ -392,11 +445,13 @@ services:
   # Prometheus — Metrics Collection (optional)
   # ==========================================================================
   prometheus:
-    image: prom/prometheus:latest
+    # Pinned (it was :latest); v3.15.0 is what :latest was when pinned.
+    image: prom/prometheus:v3.15.0
     container_name: dakera-prometheus
     profiles: ["monitoring", "full"]
     ports:
-      - "${HA_PROMETHEUS_PORT:-9190}:9090"
+      # Loopback only: no authentication, and --web.enable-lifecycle lets a caller stop it.
+      - "127.0.0.1:${HA_PROMETHEUS_PORT:-9190}:9090"
     volumes:
       # The HA config scrapes dakera-1..3 (job "dakera", which the rules match).
       - ../monitoring/prometheus.ha.yml:/etc/prometheus/prometheus.yml:ro
@@ -411,6 +466,9 @@ services:
       - "--web.console.libraries=/etc/prometheus/console_libraries"
       - "--web.console.templates=/etc/prometheus/consoles"
       - "--web.enable-lifecycle"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
     networks:
       - dakera-ha-net
@@ -419,11 +477,13 @@ services:
   # Grafana — Dashboards & Visualization (optional)
   # ==========================================================================
   grafana:
-    image: grafana/grafana:latest
+    # Pinned (it was :latest); 13.2.4 is what :latest was when pinned. Grafana does not
+    # downgrade its database: never pin an older version over a volume a newer one used.
+    image: grafana/grafana:13.2.4
     container_name: dakera-grafana
     profiles: ["monitoring", "full"]
     ports:
-      - "${HA_GRAFANA_PORT:-3203}:3000"
+      - "127.0.0.1:${HA_GRAFANA_PORT:-3203}:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set}
@@ -431,6 +491,9 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - prometheus
     restart: unless-stopped
@@ -441,15 +504,20 @@ services:
   # Jaeger — Distributed Tracing (optional)
   # ==========================================================================
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    # Pinned (it was :latest); 1.76.0 is what :latest was when pinned.
+    image: jaegertracing/all-in-one:1.76.0
     container_name: dakera-jaeger
     profiles: ["monitoring", "full"]
     ports:
-      - "${HA_JAEGER_UI_PORT:-16787}:16686"
-      - "4317:4317"
-      - "4318:4318"
+      # Loopback only (no authentication); the nodes send OTLP over the network.
+      - "127.0.0.1:${HA_JAEGER_UI_PORT:-16787}:16686"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
     environment:
       - COLLECTOR_OTLP_ENABLED=true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
     networks:
       - dakera-ha-net

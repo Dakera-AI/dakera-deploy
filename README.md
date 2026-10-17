@@ -203,7 +203,7 @@ docker compose -f docker-compose.ha.yml up -d
 
 - REST API (load balanced): http://localhost:3100
 - gRPC API (load balanced): localhost:50151
-- Traefik Dashboard: http://localhost:8080
+- Traefik Dashboard: http://localhost:8080 (bound to 127.0.0.1, like every port but the load balancer's)
 - MinIO Console: http://localhost:9101
 - Cluster status: http://localhost:3100/admin/cluster/status
 
@@ -300,7 +300,7 @@ docker compose -f docker-compose.ha.yml --profile monitoring up -d
 ```
 
 - Prometheus: http://localhost:9090
-- Grafana: http://localhost:3003 (admin/dakera)
+- Grafana: http://localhost:3003 (user `admin`, password `GRAFANA_PASSWORD` from your env file: required, no default)
 
 The "Dakera Overview" dashboard is the server's v0.12 dashboard: request rates and latency percentiles,
 HTTP statuses and errors, health and configuration (config warnings, degraded components, WAL and
@@ -872,7 +872,7 @@ The Helm chart has moved to the dedicated **[dakera-helm](https://github.com/dak
 
 ```bash
 # Install from GHCR OCI
-helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.12.1 \
+helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.12.2 \
   --namespace dakera --create-namespace \
   --set dakera.rootApiKey=$(openssl rand -hex 32) \
   --set minio.rootPassword=$(openssl rand -hex 16)

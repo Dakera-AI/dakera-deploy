@@ -27,6 +27,10 @@ spec:
         app.kubernetes.io/version: "0.5.1"
     spec:
       terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: dashboard
           image: ghcr.io/dakera-ai/dakera-dashboard:0.5.1
@@ -43,6 +47,14 @@ spec:
             # Optional: longest a sign-in lasts, in hours (default 12; idle ends after 2 h).
             # - name: DAKERA_SESSION_TTL_HOURS
             #   value: "12"
+          # 0.5.1 starts as root; nginx and the session service drop to their own users.
+          # Only the capabilities that needs (measured with 0.5.1); a non-root image
+          # needs none of them.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
           livenessProbe:
             httpGet:
               path: /_session/healthz

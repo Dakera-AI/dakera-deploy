@@ -13,6 +13,15 @@
 # cookie Secure only when the request carries X-Forwarded-Proto: https, so serve the
 # dashboard host over TLS and forward that header and the original Host (ingress-nginx
 # does; behind a TLS-terminating cloud LB set use-forwarded-headers: "true").
+#
+# Idle connections (server releases after v0.12.2): the server closes a keep-alive
+# connection that sends no request head for DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS
+# (default 30 s). ingress-nginx keeps idle upstream connections for 60 s by default
+# (controller ConfigMap upstream-keepalive-timeout; not settable per Ingress), so it
+# could send a request on a connection the server has just closed (502). Set the
+# controller's upstream-keepalive-timeout below the server's value (e.g. "25"), or raise
+# DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS above the controller's (configmap.yaml). The same
+# applies to a cloud load balancer that reuses idle connections to the pods.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

@@ -35,3 +35,10 @@ data:
   DAKERA_REQUEST_TIMEOUT: "120"
   DAKERA_AUTH_ENABLED: "true"
   RUST_LOG: "info"
+  # Server releases after v0.12.2 (an older image reports these names as unknown):
+  # request-head deadline on the REST port, which also closes idle keep-alive
+  # connections (default 30; see ingress.yaml for proxies that keep idle connections).
+  # DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS: "30"
+  # Recall defaults (docker/.env.example, "Recall and connections"):
+  # DAKERA_NEIGHBORHOOD_MODE: "inline"
+  # DAKERA_RECALL_RANK_DEPTH: "10"

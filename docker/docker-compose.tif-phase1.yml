@@ -12,7 +12,9 @@ services:
       - DAKERA_STORAGE=memory
       - DAKERA_AUTH_ENABLED=false
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health/ready"]
+      # Works with every image: up to v0.12.2 curl (no `dakera healthcheck`: an
+      # unknown argument would start a second server), later `dakera healthcheck`.
+      test: ["CMD-SHELL", "if command -v curl >/dev/null 2>&1; then curl -fsS http://127.0.0.1:3000/health/ready >/dev/null; else dakera healthcheck /health/ready; fi"]
       interval: 10s
       timeout: 5s
       retries: 3

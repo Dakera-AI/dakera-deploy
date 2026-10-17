@@ -64,6 +64,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/component: monitoring
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: grafana
           image: grafana/grafana:11.4.0
@@ -77,12 +78,17 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: dakera-secrets
+                  # Required: without it a new Grafana would create admin / admin.
+                  # Add GRAFANA_PASSWORD to dakera-secrets (secret.example.yaml).
                   key: GRAFANA_PASSWORD
-                  optional: true
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
             - name: GF_AUTH_ANONYMOUS_ENABLED
               value: "false"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources

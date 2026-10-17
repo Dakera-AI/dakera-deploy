@@ -39,6 +39,8 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       terminationGracePeriodSeconds: 30
+      # The server does not call the Kubernetes API.
+      automountServiceAccountToken: false
       # The image runs as uid/gid 1000 (dakera); fsGroup makes the mounted
       # volumes group-writable for it (EACCES on a root-owned volume otherwise).
       securityContext:
@@ -47,6 +49,8 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: dakera
           image: ghcr.io/dakera-ai/dakera:0.12.2
@@ -63,6 +67,12 @@ spec:
                 name: dakera-config
             - secretRef:
                 name: dakera-secrets
+          # Writes only to its volumes (the data root, the model cache, /tmp).
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             # The data root (DAKERA_STORAGE_PATH=/data): WAL, graph, hot and warm tiers
             - name: data
@@ -73,27 +83,34 @@ spec:
             # `dakera models pull` (see docs/models-and-docker.md in the server repo).
             - name: models
               mountPath: /app/models
+            - name: tmp
+              mountPath: /tmp
           # The port binds before the models load: /health/live is 200 from then
           # on (liveness never restarts a pod that is downloading a model);
           # /health/ready is 503 until storage answers and the embedding engine
           # is up. The startup probe covers the time before the port binds
           # (write-ahead-log replay): 10 s x 60 = 10 minutes.
+          # httpGet probes need nothing in the image (no curl, no shell). timeoutSeconds:
+          # 5 as the compose health check (the 1 s default fails a busy server).
           startupProbe:
             httpGet:
               path: /health/live
               port: http
             periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 60
           livenessProbe:
             httpGet:
               path: /health/live
               port: http
             periodSeconds: 30
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /health/ready
               port: http
             periodSeconds: 10
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: 500m
@@ -108,6 +125,8 @@ spec:
           persistentVolumeClaim:
             claimName: dakera-rocksdb
         - name: models
+          emptyDir: {}
+        - name: tmp
           emptyDir: {}
 ---
 apiVersion: v1

@@ -49,6 +49,14 @@ services:
       - dakera-data:/data
       - dakera-cache:/data/cache
       - dakera-models:/app/models
+    # The server writes only to the volumes above and /tmp, runs as uid 1000 and
+    # needs no Linux capability.
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     deploy:
       resources:
         limits:
@@ -61,7 +69,9 @@ services:
       minio-setup:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health/ready"]
+      # Works with every image: up to v0.12.2 curl (no `dakera healthcheck`: an
+      # unknown argument would start a second server), later `dakera healthcheck`.
+      test: ["CMD-SHELL", "if command -v curl >/dev/null 2>&1; then curl -fsS http://127.0.0.1:3000/health/ready >/dev/null; else dakera healthcheck /health/ready; fi"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -96,6 +106,8 @@ services:
       - MINIO_API_REQUESTS_MAX=200
     volumes:
       - minio-data:/data
+    security_opt:
+      - no-new-privileges:true
     deploy:
       resources:
         limits:
@@ -142,6 +154,8 @@ services:
       mc ls myminio/$${MINIO_BUCKET:-dakera-playground} > /dev/null;
       echo 'Playground bucket verified and ready';
       "
+    security_opt:
+      - no-new-privileges:true
     networks:
       - playground-net
 

@@ -1,0 +1,41 @@
+# =============================================================================
+# MinIO - NetworkPolicy
+# =============================================================================
+# Only the Dakera server (and its one-off check-config / downgrade Jobs, which carry
+# the same app.kubernetes.io/name: dakera label) and the Prometheus of
+# monitoring/prometheus.yaml (metrics) may reach MinIO. Its credentials sit in the
+# server's Secret; nothing else in the cluster needs the bucket. Enforced only by a
+# network plugin that implements NetworkPolicy (Calico, Cilium, ...); elsewhere it is
+# accepted and has no effect. `kubectl port-forward` to the MinIO pod still works.
+# The peers are selected with matchExpressions on purpose: kustomization.yaml's
+# commonLabels would add its labels to a matchLabels selector, and the Jobs applied
+# by hand (kubectl apply -f dakera/downgrade-job.yaml) do not carry them.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dakera-minio
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera-minio
+    app.kubernetes.io/component: storage
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dakera-minio
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [dakera]}
+      ports:
+        - port: 9000
+          protocol: TCP
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [prometheus]}
+      ports:
+        - port: 9000
+          protocol: TCP

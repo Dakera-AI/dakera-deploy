@@ -13,7 +13,9 @@
 #
 # Endpoints:
 #   Prometheus: http://localhost:9090
-#   Grafana:    http://localhost:3003  (admin / dakera)
+#   Grafana:    http://localhost:3003  (user admin, password GRAFANA_PASSWORD)
+# Both are bound to 127.0.0.1: neither asks Prometheus callers for credentials, and
+# --web.enable-lifecycle lets any caller stop or reload Prometheus.
 # =============================================================================
 
 services:
@@ -21,7 +23,7 @@ services:
     image: prom/prometheus:v3.2.0
     container_name: dakera-prometheus
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
@@ -40,7 +42,7 @@ services:
     image: grafana/grafana:11.4.0
     container_name: dakera-grafana
     ports:
-      - "${GRAFANA_PORT:-3003}:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3003}:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set}
