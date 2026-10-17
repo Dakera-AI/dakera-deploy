@@ -35,10 +35,33 @@ data:
   DAKERA_REQUEST_TIMEOUT: "120"
   DAKERA_AUTH_ENABLED: "true"
   RUST_LOG: "info"
-  # Server releases after v0.12.2 (an older image reports these names as unknown):
+  # Server v0.12.3 (an older image reports these names as unknown):
   # request-head deadline on the REST port, which also closes idle keep-alive
   # connections (default 30; see ingress.yaml for proxies that keep idle connections).
   # DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS: "30"
+  # Most open REST connections (default 10000):
+  # DAKERA_MAX_CONNECTIONS: "10000"
+  # Longest REST drain at shutdown (default 8). With up to 15 s for media jobs first, keep
+  # it below the Deployment's terminationGracePeriodSeconds (30) with a margin:
+  # DAKERA_SHUTDOWN_DRAIN_SECS: "8"
+  # ONLY if DAKERA_AUTH_ENABLED is "false": a request whose Host is a dotted name (the
+  # service FQDN dakera.dakera.svc.cluster.local, the ingress host) gets 421 unless it is
+  # listed here (comma list, "*" = any); localhost, IPs and `dakera` are always accepted.
+  # DAKERA_ALLOWED_HOSTS: "dakera.dakera.svc.cluster.local,api.dakera.yourdomain.com"
+  # Document import (0.12.3, on by default; docker/.env.example "Document import"). PDF / DOCX
+  # extraction runs in `dakera extract-text` children: up to CONCURRENCY x MEMORY_MB (2 x 1024 MB)
+  # on top of the server, inside the Deployment's 4Gi limit; for PDF-heavy imports lower the
+  # concurrency to 1 or raise the limit (6Gi). Uploads up to MAX_BYTES (25 MiB) pass the ingress
+  # (proxy-body-size 500m).
+  # DAKERA_DOCUMENTS: "true"
+  # DAKERA_DOCUMENT_MAX_BYTES: "26214400"
+  # DAKERA_DOCUMENT_MAX_TEXT_BYTES: "20971520"
+  # DAKERA_DOCUMENT_MAX_CHUNKS: "5000"
+  # DAKERA_DOCUMENT_CHUNK_TOKENS: "400"
+  # DAKERA_DOCUMENT_CHUNK_OVERLAP_TOKENS: "50"
+  # DAKERA_DOCUMENT_EXTRACT_TIMEOUT_SECS: "60"
+  # DAKERA_DOCUMENT_EXTRACT_MEMORY_MB: "1024"
+  # DAKERA_DOCUMENT_EXTRACT_CONCURRENCY: "2"
   # Recall defaults (docker/.env.example, "Recall and connections"):
   # DAKERA_NEIGHBORHOOD_MODE: "inline"
   # DAKERA_RECALL_RANK_DEPTH: "10"

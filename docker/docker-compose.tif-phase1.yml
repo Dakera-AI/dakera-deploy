@@ -1,6 +1,6 @@
 services:
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.2}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.3}
     ports:
       - "127.0.0.1:3200:3000"
       - "127.0.0.1:51051:50051"
@@ -11,6 +11,10 @@ services:
       - DAKERA_GRPC_PORT=50051
       - DAKERA_STORAGE=memory
       - DAKERA_AUTH_ENABLED=false
+      # Auth off: from server 0.12.3 a request whose Host is a dotted name (not localhost,
+      # an IP or a single-label name such as `dakera`) is refused with 421 unless the name
+      # is listed here (DNS-rebinding guard). Set it if you reach this stack by such a name.
+      - DAKERA_ALLOWED_HOSTS
     healthcheck:
       # Works with every image: up to v0.12.2 curl (no `dakera healthcheck`: an
       # unknown argument would start a second server), later `dakera healthcheck`.

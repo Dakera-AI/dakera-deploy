@@ -35,7 +35,7 @@ https://${DEPLOY_HOST}:443 {
     tls internal
     # The Dakera API. Caddy keeps idle upstream connections for 2 min by default; the
     # server closes an idle keep-alive connection after
-    # DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS (30 s, server releases after v0.12.2), so a
+    # DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS (30 s, server v0.12.3), so a
     # request could go out on a connection the server just closed (502). Stay below it.
     reverse_proxy localhost:3000 {
         transport http {

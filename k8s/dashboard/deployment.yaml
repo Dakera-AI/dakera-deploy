@@ -9,7 +9,7 @@ metadata:
   labels:
     app.kubernetes.io/name: dakera-dashboard
     app.kubernetes.io/component: dashboard
-    app.kubernetes.io/version: "0.5.1"
+    app.kubernetes.io/version: "0.5.2"
 spec:
   # One replica: sessions live in the pod's memory. More replicas need sticky
   # sessions at the ingress, otherwise users are signed out when a request lands
@@ -24,37 +24,51 @@ spec:
       labels:
         app.kubernetes.io/name: dakera-dashboard
         app.kubernetes.io/component: dashboard
-        app.kubernetes.io/version: "0.5.1"
+        app.kubernetes.io/version: "0.5.2"
     spec:
       terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
+      # 0.5.2 runs as uid/gid 10001 and writes only /tmp (runtime nginx config, pid,
+      # temp files).
       securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: dashboard
-          image: ghcr.io/dakera-ai/dakera-dashboard:0.5.1
+          image: ghcr.io/dakera-ai/dakera-dashboard:0.5.2
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 3000
               protocol: TCP
           env:
+            # A plain http(s)://host[:port][/path] URL (written into nginx configuration).
             - name: DAKERA_API_UPSTREAM
               value: "http://dakera:3000"
+            # Addresses / CIDRs (comma or space separated) of the proxies in front of the
+            # dashboard whose X-Forwarded-For names the client (nginx real_ip; the sign-in
+            # throttle counts that address), e.g. the ingress controller's pod CIDR.
+            # Unset: the connecting peer is the client.
+            # - name: DAKERA_TRUSTED_PROXIES
+            #   value: "10.244.0.0/16"
             # Since 0.4.0: no API key on the dashboard. Operators sign in at /login with their
             # own key, kept in server memory (DAKERA_API_KEY / DAKERA_CLIENT_URL are gone).
             # Optional: longest a sign-in lasts, in hours (default 12; idle ends after 2 h).
             # - name: DAKERA_SESSION_TTL_HOURS
             #   value: "12"
-          # 0.5.1 starts as root; nginx and the session service drop to their own users.
-          # Only the capabilities that needs (measured with 0.5.1); a non-root image
-          # needs none of them.
+          # An image up to 0.5.1 starts as root: it needs runAsNonRoot off, a writable
+          # root and CHOWN, DAC_OVERRIDE, SETGID, SETUID instead.
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
-              add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           livenessProbe:
             httpGet:
               path: /_session/healthz
@@ -75,3 +89,7 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+      volumes:
+        # nginx buffers large API responses here (proxy temp files): on disk, not memory.
+        - name: tmp
+          emptyDir: {}

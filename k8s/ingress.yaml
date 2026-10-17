@@ -14,7 +14,7 @@
 # dashboard host over TLS and forward that header and the original Host (ingress-nginx
 # does; behind a TLS-terminating cloud LB set use-forwarded-headers: "true").
 #
-# Idle connections (server releases after v0.12.2): the server closes a keep-alive
+# Idle connections (server v0.12.3): the server closes a keep-alive
 # connection that sends no request head for DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS
 # (default 30 s). ingress-nginx keeps idle upstream connections for 60 s by default
 # (controller ConfigMap upstream-keepalive-timeout; not settable per Ingress), so it
@@ -31,6 +31,8 @@ metadata:
     app.kubernetes.io/name: dakera
     app.kubernetes.io/component: ingress
   annotations:
+    # Backups, imports, attachments and documents (DAKERA_DOCUMENT_MAX_BYTES, 25 MiB) go
+    # through here; ingress-nginx's default is 1m. Matches DAKERA_MAX_BODY_SIZE.
     nginx.ingress.kubernetes.io/proxy-body-size: "500m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"

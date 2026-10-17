@@ -132,9 +132,12 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 | `DAKERA_MAX_BODY_SIZE` | `10485760` (10 MiB) | Max request body size in bytes. The compose files and the ConfigMap set `524288000` (500 MB) |
 | `DAKERA_REQUEST_TIMEOUT` | `300` | Request timeout in seconds, the outer ceiling. `docker-compose.yml` sets 600, `docker-compose.ha.yml` and the ConfigMap 120 |
 | `DAKERA_RATE_LIMIT_RPS` / `DAKERA_RATE_LIMIT_BURST` / `DAKERA_RATE_LIMIT_ENABLED` | `100` / `50` / `true` | Server-wide rate limit (REST and gRPC). v0.11's `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` still work, deprecated |
-| `DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS` | `30` | Server releases after v0.12.2. Seconds a client has to send a complete HTTP/1 request head on the REST port, counted from when the server waits for one (a new or an idle keep-alive connection, which is then closed); `[1, 86400]`. A proxy that keeps idle upstream connections longer (ingress-nginx 60 s, Traefik 90 s by default; `docker-compose.ha.yml`'s Traefik is set to 25 s) must be set below it, or this raised above the proxy's |
+| `DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS` | `30` | Server v0.12.3. Seconds a client has to send a complete HTTP/1 request head on the REST port, counted from when the server waits for one (a new or an idle keep-alive connection, which is then closed); `[1, 86400]`. A proxy that keeps idle upstream connections longer (ingress-nginx 60 s, Traefik 90 s by default; `docker-compose.ha.yml`'s Traefik is set to 25 s) must be set below it, or this raised above the proxy's. From 0.12.3 it also closes an idle HTTP/2 connection that sends no request |
+| `DAKERA_MAX_CONNECTIONS` | `10000` | Server 0.12.3. Most open REST connections, `[1, 1000000]`; one over the cap is closed at once. Keep it below the file-descriptor limit |
+| `DAKERA_SHUTDOWN_DRAIN_SECS` | `8` | Server 0.12.3. Longest REST drain at shutdown, `[0, 3600]` (SSE streams end at the signal). Plus up to 15 s for media jobs: keep the sum below `stop_grace_period` / `terminationGracePeriodSeconds` (30 s here) |
+| `DAKERA_ALLOWED_HOSTS` | — | Server 0.12.3, read only with `DAKERA_AUTH_ENABLED=false`: Host names accepted besides localhost, `*.localhost`, IPs and single-label names (comma list, `*` = any); others get `421 HOST_NOT_ALLOWED` (DNS-rebinding guard; `/health*`, `/internal/*` exempt). A stack without auth reached by a dotted name (Kubernetes service FQDN, public name) must set it |
 
-## Recall (server releases after v0.12.2)
+## Recall (server v0.12.3)
 
 The compose files pass these only when they are set (an older image reports a name it does not know).
 
@@ -148,6 +151,22 @@ The compose files pass these only when they are set (an older image reports a na
 | `DAKERA_RECALL_SESSION_CAP` | `0` | At most N results of one session in the head of list / aggregation recalls (`0` = no cap) |
 | `DAKERA_SENTENCE_DECOMP` | on | `0`: no sentence sub-memories derived on any write path |
 | `DAKERA_SUPERSEDES_EVENT_TIME` | on | Supersedes edges ordered by the memories' event dates when both have one |
+
+## Document import (server v0.12.3)
+
+On by default. The compose files pass these only when set. Server guide: `docs/documents.md` in the server repository.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_DOCUMENTS` | on | The document routes (`POST /v1/memory/documents`, `.../attachments/{ref}/document`, jobs, list, delete); off: `501 FEATURE_DISABLED` |
+| `DAKERA_DOCUMENT_MAX_BYTES` | `26214400` (25 MiB) | Largest source document (`413`). A proxy in front must accept bodies this large (ingress-nginx: `proxy-body-size`, 1 MB by default; `k8s/ingress.yaml` sets 500 MB) |
+| `DAKERA_DOCUMENT_MAX_TEXT_BYTES` | `20971520` (20 MiB) | Most extracted text (`413`) |
+| `DAKERA_DOCUMENT_MAX_CHUNKS` | `5000` | Most chunks per document (`413`, before any write) |
+| `DAKERA_DOCUMENT_CHUNK_TOKENS` | `400` | Default chunk budget, `[32, 8192]`, clamped to the model's cap |
+| `DAKERA_DOCUMENT_CHUNK_OVERLAP_TOKENS` | `50` | Default overlap, `[0, 1024]` |
+| `DAKERA_DOCUMENT_EXTRACT_TIMEOUT_SECS` | `60` | Wall clock of one PDF / DOCX extraction (`504 EXTRACTION_TIMEOUT` in the job) |
+| `DAKERA_DOCUMENT_EXTRACT_MEMORY_MB` | `1024` | Address-space limit of one `dakera extract-text` child |
+| `DAKERA_DOCUMENT_EXTRACT_CONCURRENCY` | `2` | Extractions at once. The container's memory limit must hold the server plus CONCURRENCY x MEMORY_MB (2 GB by default): 12G in `docker-compose.yml`, 4Gi in `k8s/` (lower the concurrency or raise the limit for PDF-heavy imports) |
 
 ## Docker Compose Port Overrides
 
@@ -164,8 +183,9 @@ The default and HA compose files expose different ports to allow co-deployment o
 | `PROMETHEUS_PORT` | `9090` | Prometheus (monitoring profile) |
 | `GRAFANA_PORT` | `3003` | Grafana (monitoring profile) |
 | `DASHBOARD_PORT` | `3002` | Dashboard UI (dashboard profile) |
-| `DASHBOARD_IMAGE` | `ghcr.io/dakera-ai/dakera-dashboard:0.5.1` | Dashboard image |
+| `DASHBOARD_IMAGE` | `ghcr.io/dakera-ai/dakera-dashboard:0.5.2` | Dashboard image |
 | `DAKERA_SESSION_TTL_HOURS` | `12` | Dashboard 0.4.0+: longest an operator sign-in lasts (idle sessions end after 2 h) |
+| `DAKERA_TRUSTED_PROXIES` | — | Dashboard 0.5.2: addresses / CIDRs (comma or space separated) of the reverse proxies whose `X-Forwarded-For` names the client (nginx `real_ip`; the sign-in throttle counts that address) |
 
 ### HA Profile (`docker-compose.ha.yml`)
 

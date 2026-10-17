@@ -4,7 +4,7 @@
 http:
   # Idle keep-alive connections to the nodes are closed by Traefik after 25 s. A
   # Dakera server closes a keep-alive connection that sends no request head for
-  # DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS (default 30, server releases after v0.12.2);
+  # DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS (default 30, server v0.12.3);
   # Traefik's default (90 s) would reuse connections the server already closed, and
   # a request sent on one fails (502). Keep this below the server's value.
   serversTransports:

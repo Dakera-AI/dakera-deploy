@@ -32,8 +32,8 @@
 #
 # Override any port by setting the corresponding HA_* env var. See .env.ha.example.
 #
-# Dakera v0.12.2. (v0.11 users: the previous version of this file is on the
-# `release/0.11` branch.)
+# Dakera v0.12.3, Dashboard 0.5.2 (upgrade notes: docker-compose.yml). (v0.11 users:
+# the previous version of this file is on the `release/0.11` branch.)
 #
 # v0.12 cluster requirements:
 #   * DAKERA_CLUSTER_SECRET (>= 16 characters, identical on every node; generate
@@ -67,10 +67,11 @@
 name: dakera-ha
 
 x-dakera-common: &dakera-common
-  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.2}
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.3}
   restart: unless-stopped
   # SIGTERM starts the graceful shutdown (running media-job stores are waited for up to
-  # 15 s, then the final flushes); compose's default of 10 s would kill it first.
+  # 15 s, then the REST drain, DAKERA_SHUTDOWN_DRAIN_SECS (8 s by default, 0.12.3), then
+  # the final flushes); compose's default of 10 s would kill it first.
   stop_grace_period: 30s
   ulimits:
     nofile:
@@ -180,7 +181,7 @@ x-dakera-env: &dakera-env
   DAKERA_HNSW_CACHE_TTI_SECS: "${DAKERA_HNSW_CACHE_TTI_SECS:-}"
   DAKERA_RATE_LIMIT_RPS: "${DAKERA_RATE_LIMIT_RPS:-}"
   DAKERA_RATE_LIMIT_BURST: "${DAKERA_RATE_LIMIT_BURST:-}"
-  # Settings of server releases after v0.12.2 (.env.example): no value here, so each is
+  # Settings of server v0.12.3 (.env.example): no value here, so each is
   # passed only when set in the env file or the shell (an older image would report a
   # name it does not know). Must be the same on every node.
   DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS:
@@ -192,6 +193,21 @@ x-dakera-env: &dakera-env
   DAKERA_RECALL_SESSION_CAP:
   DAKERA_SENTENCE_DECOMP:
   DAKERA_SUPERSEDES_EVENT_TIME:
+  DAKERA_MAX_CONNECTIONS:
+  # Below stop_grace_period (30 s) with a margin (media jobs get up to 15 s first).
+  DAKERA_SHUTDOWN_DRAIN_SECS:
+  # Only read with DAKERA_AUTH_ENABLED=false (see .env.example).
+  DAKERA_ALLOWED_HOSTS:
+  # Document import (0.12.3, on by default; .env.example "Document import").
+  DAKERA_DOCUMENTS:
+  DAKERA_DOCUMENT_MAX_BYTES:
+  DAKERA_DOCUMENT_MAX_TEXT_BYTES:
+  DAKERA_DOCUMENT_MAX_CHUNKS:
+  DAKERA_DOCUMENT_CHUNK_TOKENS:
+  DAKERA_DOCUMENT_CHUNK_OVERLAP_TOKENS:
+  DAKERA_DOCUMENT_EXTRACT_TIMEOUT_SECS:
+  DAKERA_DOCUMENT_EXTRACT_MEMORY_MB:
+  DAKERA_DOCUMENT_EXTRACT_CONCURRENCY:
   # gRPC listener: an EMPTY value would read as OFF on an upgraded deployment (v0.11's reading).
   DAKERA_GRPC_ENABLED: "${DAKERA_GRPC_ENABLED:-true}"
   HF_TOKEN: "${HF_TOKEN:-}"
@@ -402,29 +418,40 @@ services:
   # Dakera Dashboard — Web UI
   # ==========================================================================
   dashboard:
-    # 0.5.0 (deploys like 0.4.0): operators sign in at /login with their OWN Dakera
+    # 0.5.2 (deploys like 0.4.0 / 0.5.x; runs as uid 10001, no curl inside).
+    # Operators sign in at /login with their OWN Dakera
     # API key (kept in server memory by the dashboard's session service);
     # DAKERA_API_KEY and DAKERA_CLIENT_URL are gone since 0.4.0. Serve it behind TLS
     # that forwards X-Forwarded-Proto and Host (README, "Dashboard 0.5.0", TLS in front).
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.1}
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.2}
     container_name: dakera-dashboard
     # Loopback only, as in docker-compose.yml: operators sign in with their API key,
     # so serve it through a TLS proxy on the host.
     ports:
       - "127.0.0.1:${HA_DASHBOARD_PORT:-3202}:3000"
     environment:
+      # A plain http(s)://host[:port][/path] URL (0.5.2 refuses anything else: it is
+      # written into nginx configuration).
       - DAKERA_API_UPSTREAM=http://dakera-traefik:3000
       # Longest a sign-in lasts (default 12; idle sessions end after 2 h):
       - DAKERA_SESSION_TTL_HOURS=${DAKERA_SESSION_TTL_HOURS:-12}
-    # The dashboard image ships its own curl (its entrypoint uses it too).
+      # Dashboard 0.5.2: addresses / CIDRs (comma or space separated) of the reverse
+      # proxies in front of it whose X-Forwarded-For names the client (nginx real_ip;
+      # the sign-in throttle counts that address). Empty: the connecting peer is the
+      # client. E.g. the Docker bridge gateway when a host proxy forwards to it.
+      - DAKERA_TRUSTED_PROXIES=${DAKERA_TRUSTED_PROXIES:-}
+    # python3 (in every dashboard image; 0.5.2 has no curl), proxies ignored, exit != 0
+    # on anything but a 2xx: nginx up AND the session service answering through it.
     healthcheck:
-      test: ["CMD", "curl", "-fs", "http://localhost:3000/_session/healthz"]
+      test: ["CMD", "python3", "-c", "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:3000/_session/healthz', timeout=5)"]
       interval: 30s
       timeout: 10s
       start_period: 10s
       retries: 3
-    # Images up to 0.5.1 start as root; nginx and the session service then drop to
-    # their own users. Only the capabilities that needs (measured with 0.5.1).
+    # 0.5.2 runs as uid/gid 10001 and needs no capability. The four below are only for
+    # a DASHBOARD_IMAGE up to 0.5.1, which starts as root (nginx and the session service
+    # then drop to their own users; measured with 0.5.1). Not read_only for the same
+    # reason (0.5.1 edits its nginx configuration at start; 0.5.2 writes only /tmp).
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
     security_opt:

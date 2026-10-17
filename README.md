@@ -217,6 +217,18 @@ Redis: with one Redis shared by the three nodes, v0.12.0's replication applied n
 (measured: 3 of 6 node pairs never converged); without it every write reached the two other nodes within
 0.1 s.
 
+### Dashboard 0.5.2 (unprivileged, no curl inside)
+
+**Dashboard 0.5.2** (with Dakera 0.12.3; it works with 0.12.0 – 0.12.2 too) deploys like 0.5.1, with three things to check:
+
+- It runs as uid/gid **10001** and writes only `/tmp` (a read-only root filesystem works with a writable `/tmp`).
+- The image has **no `curl`**: a health check that ran `curl` in it must change. The compose files here use
+  `python3` (works with 0.5.1 too); Kubernetes uses `httpGet` probes.
+- `DAKERA_API_UPSTREAM` must be a plain `http(s)://host[:port][/path]` URL. New, optional:
+  `DAKERA_TRUSTED_PROXIES`, the addresses / CIDRs (comma or space separated) of the reverse proxies in front of the
+  dashboard whose `X-Forwarded-For` names the client, so the sign-in throttle counts the real client. Unset, the
+  connecting peer is the client (behind a proxy, every user shares the proxy's address).
+
 ### Dashboard 0.5.0 (server-side sessions)
 
 **Dashboard 0.5.0** deploys exactly like 0.4.0: same image name, same variables (`DAKERA_API_UPSTREAM`,
@@ -872,7 +884,7 @@ The Helm chart has moved to the dedicated **[dakera-helm](https://github.com/dak
 
 ```bash
 # Install from GHCR OCI
-helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.12.2 \
+helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.12.3 \
   --namespace dakera --create-namespace \
   --set dakera.rootApiKey=$(openssl rand -hex 32) \
   --set minio.rootPassword=$(openssl rand -hex 16)

@@ -382,7 +382,9 @@ needs **no network** (`--network none` works), downloads, converts and writes no
 read-only root filesystem, and is not affected by anything mounted at `/app/models`. Image: 783 MB
 (release notes, amd64; 1.24 GB unpacked in `docker images`), ready 4.4 s after start (release notes;
 4.2 s measured in the deployment validation). The `:gpu` image (NVIDIA GPU required, ~4-5 GB) ships
-FP32 models for CUDA.
+FP32 models for CUDA. From v0.12.3 it is built on CUDA 13: the host needs NVIDIA driver **R580 or newer**
+(an older driver cannot run it). From v0.12.3 the CPU image is distroless (uid/gid 1000, `/bin/sh` only: no
+`curl`, `wget` or coreutils inside); its health check is `dakera healthcheck`.
 
 Everything else downloads on first use into the **model cache** (`HF_HOME`, `/app/models`, a volume):
 

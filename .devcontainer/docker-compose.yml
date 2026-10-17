@@ -30,7 +30,7 @@ services:
   # Dakera — AI Agent Memory Platform
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.2}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.3}
     # Loopback only: auth is off here, so anyone who reaches the port is a SuperAdmin.
     ports:
       - "127.0.0.1:3000:3000"
@@ -50,6 +50,10 @@ services:
       - DAKERA_STORAGE_PATH=/data
       # Auth disabled for local dev — enable in production
       - DAKERA_AUTH_ENABLED=false
+      # Auth off: from server 0.12.3 a request whose Host is a dotted name (not localhost,
+      # an IP or a single-label name such as `dakera`) is refused with 421 unless the name
+      # is listed here (DNS-rebinding guard). Set it if you reach this stack by such a name.
+      - DAKERA_ALLOWED_HOSTS
     volumes:
       - dakera-data:/data
       - dakera-models:/app/models
