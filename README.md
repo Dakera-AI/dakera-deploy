@@ -203,7 +203,7 @@ docker compose -f docker-compose.ha.yml up -d
 
 - REST API (load balanced): http://localhost:3100
 - gRPC API (load balanced): localhost:50151
-- Traefik Dashboard: http://localhost:8080
+- Traefik Dashboard: http://localhost:8080 (bound to 127.0.0.1, like every port but the load balancer's)
 - MinIO Console: http://localhost:9101
 - Cluster status: http://localhost:3100/admin/cluster/status
 
@@ -216,6 +216,18 @@ defaults to `true` here too: the load balancer port is published on every interf
 Redis: with one Redis shared by the three nodes, v0.12.0's replication applied nothing on some peers
 (measured: 3 of 6 node pairs never converged); without it every write reached the two other nodes within
 0.1 s.
+
+### Dashboard 0.5.2 (unprivileged, no curl inside)
+
+**Dashboard 0.5.2** (with Dakera 0.12.3; it works with 0.12.0 – 0.12.2 too) deploys like 0.5.1, with three things to check:
+
+- It runs as uid/gid **10001** and writes only `/tmp` (a read-only root filesystem works with a writable `/tmp`).
+- The image has **no `curl`**: a health check that ran `curl` in it must change. The compose files here use
+  `python3` (works with 0.5.1 too); Kubernetes uses `httpGet` probes.
+- `DAKERA_API_UPSTREAM` must be a plain `http(s)://host[:port][/path]` URL. New, optional:
+  `DAKERA_TRUSTED_PROXIES`, the addresses / CIDRs (comma or space separated) of the reverse proxies in front of the
+  dashboard whose `X-Forwarded-For` names the client, so the sign-in throttle counts the real client. Unset, the
+  connecting peer is the client (behind a proxy, every user shares the proxy's address).
 
 ### Dashboard 0.5.0 (server-side sessions)
 
@@ -300,7 +312,7 @@ docker compose -f docker-compose.ha.yml --profile monitoring up -d
 ```
 
 - Prometheus: http://localhost:9090
-- Grafana: http://localhost:3003 (admin/dakera)
+- Grafana: http://localhost:3003 (user `admin`, password `GRAFANA_PASSWORD` from your env file: required, no default)
 
 The "Dakera Overview" dashboard is the server's v0.12 dashboard: request rates and latency percentiles,
 HTTP statuses and errors, health and configuration (config warnings, degraded components, WAL and
@@ -872,7 +884,7 @@ The Helm chart has moved to the dedicated **[dakera-helm](https://github.com/dak
 
 ```bash
 # Install from GHCR OCI
-helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.12.1 \
+helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.12.3 \
   --namespace dakera --create-namespace \
   --set dakera.rootApiKey=$(openssl rand -hex 32) \
   --set minio.rootPassword=$(openssl rand -hex 16)

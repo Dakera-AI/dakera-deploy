@@ -9,14 +9,17 @@
 #   docker compose --profile dashboard up -d   # with Dashboard UI
 #   docker compose down
 #
-# Dakera v0.12.2. (v0.11 users: the previous version of this file is on the
-# `release/0.11` branch.)
+# Dakera v0.12.3, Dashboard 0.5.2. (v0.11 users: the previous version of this file
+# is on the `release/0.11` branch.)
 #
-# Upgrading from v0.12.1 (or v0.12.0): back up, then `docker compose pull && docker compose up -d`.
-# Nothing to migrate by hand. Review the v0.12.2 behaviour changes first (server
-# UPGRADE.md "Upgrading from v0.12.1 to v0.12.2"): sessions now end after 4 h
-# without activity (DAKERA_SESSION_IDLE_TIMEOUT_SECS), and key entries ending in
-# `*` from older versions stay inert until the key is saved again.
+# Upgrading from v0.12.2 (or older v0.12): back up, then `docker compose pull && docker compose up -d`.
+# Nothing to migrate by hand. Review the v0.12.3 behaviour changes first (server
+# CHANGELOG 0.12.3): POST /ops/shutdown needs a super_admin key; four admin routes
+# refuse unknown JSON fields (422); an idle keep-alive connection is closed after
+# DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS (30 s: a proxy in front must drop idle
+# connections sooner); the server image is distroless (uid/gid 1000, no curl:
+# the health check below handles both). From v0.12.1 (or v0.12.0), the v0.12.2
+# notes apply too (UPGRADE.md "Upgrading from v0.12.1 to v0.12.2").
 #
 # Upgrading from v0.11.108 (see README "Upgrading from v0.11"):
 #   1. Back up:           POST /admin/backups
@@ -41,7 +44,7 @@ services:
   # Dakera - AI Agent Memory Platform
   # ==========================================================================
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.2}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.3}
     container_name: dakera
     # DAK-9890 / FW-b5ad5a7f / DAK-9814: place the container under a systemd
     # slice that sets memory.high=10G (soft cgroup-v2 backpressure). The kernel
@@ -120,6 +123,36 @@ services:
       - DAKERA_HNSW_CACHE_TTI_SECS=${DAKERA_HNSW_CACHE_TTI_SECS:-}
       - DAKERA_RATE_LIMIT_RPS=${DAKERA_RATE_LIMIT_RPS:-}
       - DAKERA_RATE_LIMIT_BURST=${DAKERA_RATE_LIMIT_BURST:-}
+      # Settings of server v0.12.3 (see .env.example). Written without a
+      # value: passed ONLY when set in .env (or the shell), so an older image is not
+      # handed a name it does not know (it would report it as an unknown variable).
+      - DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS
+      - DAKERA_NEIGHBORHOOD_MODE
+      - DAKERA_NEIGHBORHOOD_EVENT_TIME
+      - DAKERA_RECALL_RANK_DEPTH
+      - DAKERA_RECALL_COLLAPSE_DERIVED
+      - DAKERA_RECALL_EXCLUDE_SUMMARIES
+      - DAKERA_RECALL_SESSION_CAP
+      - DAKERA_SENTENCE_DECOMP
+      - DAKERA_SUPERSEDES_EVENT_TIME
+      - DAKERA_MAX_CONNECTIONS
+      # Keep below stop_grace_period (30 s) with a margin: the server waits up to 15 s
+      # for running media jobs, then drains REST connections for at most this long.
+      - DAKERA_SHUTDOWN_DRAIN_SECS
+      # Only read with DAKERA_AUTH_ENABLED=false (see .env.example).
+      - DAKERA_ALLOWED_HOSTS
+      # Document import (0.12.3, on by default; .env.example "Document import"). PDF / DOCX
+      # extraction runs in child processes: up to EXTRACT_CONCURRENCY x EXTRACT_MEMORY_MB
+      # (2 x 1024 MB) on top of the server, inside the 12G limit below.
+      - DAKERA_DOCUMENTS
+      - DAKERA_DOCUMENT_MAX_BYTES
+      - DAKERA_DOCUMENT_MAX_TEXT_BYTES
+      - DAKERA_DOCUMENT_MAX_CHUNKS
+      - DAKERA_DOCUMENT_CHUNK_TOKENS
+      - DAKERA_DOCUMENT_CHUNK_OVERLAP_TOKENS
+      - DAKERA_DOCUMENT_EXTRACT_TIMEOUT_SECS
+      - DAKERA_DOCUMENT_EXTRACT_MEMORY_MB
+      - DAKERA_DOCUMENT_EXTRACT_CONCURRENCY
       # gRPC listener: an EMPTY value would read as OFF on an upgraded deployment (v0.11's
       # reading), so this one defaults to true explicitly.
       - DAKERA_GRPC_ENABLED=${DAKERA_GRPC_ENABLED:-true}
@@ -146,6 +179,14 @@ services:
       #   docker compose run --rm dakera models pull bge-m3
       # and free what an older image left here: ... run --rm dakera models prune
       - dakera-models:/app/models
+    # Hardening: the server writes only to the volumes above and /tmp, runs as the
+    # image's uid 1000 and needs no Linux capability.
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     deploy:
       resources:
         limits:
@@ -168,7 +209,11 @@ services:
     healthcheck:
       # /health/ready is 503 while the models load (the port answers meanwhile,
       # /health/live is 200); a model not in the image downloads first.
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health/ready"]
+      # Works with every image: the images up to v0.12.2 have curl but no
+      # `dakera healthcheck` (there an unknown argument would start a SECOND
+      # server); the newer ones have `dakera healthcheck` (exit 0 only on 200) and
+      # their runtime image drops curl.
+      test: ["CMD-SHELL", "if command -v curl >/dev/null 2>&1; then curl -fsS http://127.0.0.1:3000/health/ready >/dev/null; else dakera healthcheck /health/ready; fi"]
       interval: 10s
       timeout: 5s
       # Reduced 5→3: mark unhealthy faster (30s vs 50s) so watchdog triggers
@@ -177,8 +222,9 @@ services:
       # Failures inside the start period do not count; the first success ends it.
       start_period: 600s
     # SIGTERM starts the graceful shutdown: running media-job stores are waited for up
-    # to 15 s, then the final flushes run. Compose's default (10 s) would kill it
-    # first; 30 s matches the Kubernetes manifests.
+    # to 15 s, then the REST drain (DAKERA_SHUTDOWN_DRAIN_SECS, 8 s by default, 0.12.3),
+    # then the final flushes. Compose's default (10 s) would kill it first; 30 s matches
+    # the Kubernetes manifests. Raise it with DAKERA_SHUTDOWN_DRAIN_SECS.
     stop_grace_period: 30s
     restart: unless-stopped
     networks:
@@ -212,6 +258,8 @@ services:
       - MINIO_PROMETHEUS_AUTH_TYPE=public
     volumes:
       - minio-data:/data
+    security_opt:
+      - no-new-privileges:true
     deploy:
       resources:
         limits:
@@ -260,6 +308,19 @@ services:
       - DAKERA_WATCHDOG_MEM_ALERT_PCT=${DAKERA_WATCHDOG_MEM_ALERT_PCT:-90}
       - DAKERA_WATCHDOG_POLL_SECS=${DAKERA_WATCHDOG_POLL_SECS:-30}
     command: ["sh", "/usr/local/bin/dakera-watchdog.sh"]
+    # Root (the Docker socket is root's), but with no capability, nothing to
+    # escalate to and a read-only root filesystem: it only talks to the socket.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
     depends_on:
       - dakera
     restart: unless-stopped
@@ -289,6 +350,8 @@ services:
       echo 'Dakera bucket ready';
       exit 0;
       "
+    security_opt:
+      - no-new-privileges:true
     networks:
       - dakera-net
 
@@ -297,7 +360,8 @@ services:
   # ==========================================================================
   # Enable with:  docker compose --profile monitoring up -d
   # Prometheus:   http://localhost:9090
-  # Grafana:      http://localhost:3003  (admin / dakera)
+  # Grafana:      http://localhost:3003  (user admin, password GRAFANA_PASSWORD from .env;
+  #               a NEW Grafana refuses to start without one, see the grafana service)
   prometheus:
     image: prom/prometheus:v3.2.0
     container_name: dakera-prometheus
@@ -314,6 +378,9 @@ services:
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=15d"
       - "--web.enable-lifecycle"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
     networks:
       - dakera-net
@@ -326,13 +393,30 @@ services:
       - "127.0.0.1:${GRAFANA_PORT:-3003}:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      # No default password (it used to be `admin`). Grafana only reads it when it
+      # creates its database: the entrypoint below refuses that first start without a
+      # GRAFANA_PASSWORD (or with `admin`); an existing Grafana keeps its password and
+      # starts as before. Not `${GRAFANA_PASSWORD:?}`: Compose would then refuse
+      # every profile, the production `--profile dashboard` included.
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_AUTH_ANONYMOUS_ENABLED=false
       - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/json/dakera-overview.json
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        if [ ! -s /var/lib/grafana/grafana.db ] &&
+        { [ -z "$${GF_SECURITY_ADMIN_PASSWORD}" ] || [ "$${GF_SECURITY_ADMIN_PASSWORD}" = admin ]; };
+        then echo 'Set GRAFANA_PASSWORD in .env (not admin) before the first start of Grafana' >&2; exit 1; fi;
+        [ -n "$${GF_SECURITY_ADMIN_PASSWORD}" ] || unset GF_SECURITY_ADMIN_PASSWORD;
+        exec /run.sh
     volumes:
       - grafana-data:/var/lib/grafana
       - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - prometheus
     restart: unless-stopped
@@ -343,27 +427,50 @@ services:
   # Dakera Dashboard (optional)
   # ==========================================================================
   dashboard:
-    # 0.5.0 (deploys like 0.4.0): operators sign in at /login with their OWN Dakera
+    # 0.5.2 (deploys like 0.4.0 / 0.5.x; runs as uid 10001, no curl inside).
+    # Operators sign in at /login with their OWN Dakera
     # API key, held in server memory by the dashboard's session service (no key in
     # this container: DAKERA_API_KEY and DAKERA_CLIENT_URL are gone since 0.4.0).
     # Sessions are in memory, so a restart signs everyone out. Put TLS in front
     # (README, "Dashboard 0.5.0", TLS in front):
     # the proxy must forward X-Forwarded-Proto and the original Host.
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.1}
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.2}
     container_name: dakera-dashboard
     profiles: ["dashboard", "full"]
     ports:
       - "127.0.0.1:${DASHBOARD_PORT:-3002}:3000"
     environment:
+      # A plain http(s)://host[:port][/path] URL (0.5.2 refuses anything else: it is
+      # written into nginx configuration).
       - DAKERA_API_UPSTREAM=http://dakera:3000
       # Longest a sign-in lasts (default 12; idle sessions end after 2 h):
       - DAKERA_SESSION_TTL_HOURS=${DAKERA_SESSION_TTL_HOURS:-12}
+      # Dashboard 0.5.2: addresses / CIDRs (comma or space separated) of the reverse
+      # proxies in front of it whose X-Forwarded-For names the client (nginx real_ip;
+      # the sign-in throttle counts that address). Empty: the connecting peer is the
+      # client. E.g. the Docker bridge gateway when a host proxy forwards to it.
+      - DAKERA_TRUSTED_PROXIES=${DAKERA_TRUSTED_PROXIES:-}
+    # python3 (in every dashboard image; 0.5.2 has no curl), proxies ignored, exit != 0
+    # on anything but a 2xx: nginx up AND the session service answering through it.
     healthcheck:
-      test: ["CMD", "curl", "-fs", "http://localhost:3000/_session/healthz"]
+      test: ["CMD", "python3", "-c", "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:3000/_session/healthz', timeout=5)"]
       interval: 30s
       timeout: 10s
       start_period: 10s
       retries: 3
+    # 0.5.2 runs as uid/gid 10001 and needs no capability. The four below are only for
+    # a DASHBOARD_IMAGE up to 0.5.1, which starts as root (nginx and the session service
+    # then drop to their own users; measured with 0.5.1). Not read_only for the same
+    # reason (0.5.1 edits its nginx configuration at start; 0.5.2 writes only /tmp).
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
     depends_on:
       dakera:
         condition: service_healthy
@@ -403,6 +510,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
     networks:
       - dakera-net

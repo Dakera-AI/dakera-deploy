@@ -4,6 +4,86 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+### Changed: Dakera server v0.12.3, Dashboard 0.5.2
+
+Merge after the `ghcr.io/dakera-ai/dakera:0.12.3` and `ghcr.io/dakera-ai/dakera-dashboard:0.5.2` images are
+published (engine Dakera-AI/dakera#922 first, then the dashboard release).
+
+- Default images: Dakera `0.12.2` -> `0.12.3` (every compose file, the devcontainer, `k8s/` including the
+  `check-config` / `downgrade` Jobs and the `models-cache` component, `.env` examples, README helm example) and
+  Dashboard `0.5.1` -> `0.5.2` (both compose files, `k8s/dashboard/`, `.env.example`, environment reference).
+- **Server image 0.12.3**: distroless (uid/gid 1000 numeric, `/bin/sh` only: no `curl`, `wget` or coreutils). Nothing
+  here runs anything in the server container but `dakera` and the health check's `sh` builtins. The `:gpu` image is
+  CUDA 13 and needs NVIDIA driver R580+ (`docs/features-v0.12.md`, `.env.example`).
+- **Dashboard 0.5.2** runs as uid/gid 10001 and has no `curl`: the compose health check runs `python3`
+  (`urllib`, proxies ignored; checked on 0.5.1 and on the 0.5.2 runtime). The 0.5.1 capabilities stay for a
+  `DASHBOARD_IMAGE` pinned to 0.5.1. New optional `DAKERA_TRUSTED_PROXIES` (compose, `.env` examples, k8s,
+  README). `DAKERA_API_UPSTREAM` must be a plain `http(s)` URL. `k8s/dashboard/`: `runAsNonRoot` uid/gid 10001,
+  read-only root filesystem, a `/tmp` emptyDir, no capability.
+- **New server settings passed when set** (`docker-compose.yml`, HA): `DAKERA_MAX_CONNECTIONS` (10000),
+  `DAKERA_SHUTDOWN_DRAIN_SECS` (8; with up to 15 s of media jobs it must stay below the 30 s stop grace period /
+  `terminationGracePeriodSeconds`), `DAKERA_ALLOWED_HOSTS`. `DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS` now also closes
+  idle HTTP/2 connections.
+- **Authentication off + a dotted host name = 421.** From 0.12.3 a server with `DAKERA_AUTH_ENABLED=false` refuses a
+  request whose `Host` is not localhost, an IP, a single-label name or listed in `DAKERA_ALLOWED_HOSTS` (DNS-rebinding
+  guard). The auth-off stacks here (`docker-compose.tif-phase1.yml`, `.devcontainer`) are reached by IP, `localhost`
+  or `dakera`; they pass `DAKERA_ALLOWED_HOSTS` through for anyone who reaches them by another name.
+  `k8s/configmap.yaml` documents it for the service FQDN / ingress host.
+- **Document import (0.12.3, on by default):** `DAKERA_DOCUMENTS` and the eight `DAKERA_DOCUMENT_*` settings are
+  passed when set (compose main + HA) and documented (`.env` examples, environment reference, `k8s/configmap.yaml`).
+  PDF / DOCX extraction runs in child processes using up to CONCURRENCY x MEMORY_MB (2 GB by default): the compose
+  limit (12G) leaves room; the k8s Deployment (4Gi) documents raising it or lowering the concurrency. Uploads of
+  up to 25 MiB pass every proxy here (`k8s/ingress.yaml` 500m, Traefik and Caddy set no limit, the dashboard's
+  nginx allows 200m on its API routes).
+
+### Changed: health checks without curl, new server settings, hardening
+
+- **Dakera health checks no longer depend on `curl` in the server image** (engine #920 F6: the runtime image drops
+  `curl`; `dakera healthcheck [PATH]` replaces it). Every compose file whose check exec'd `curl` inside the Dakera
+  container (`docker-compose.yml`, `docker-compose.ha.yml`, `docker-compose.playground.yml`,
+  `docker-compose.local.yml`, `docker-compose.tif-phase1.yml`, `.devcontainer/docker-compose.yml`) now runs
+  `curl` when the image has it and `dakera healthcheck /health/ready` otherwise. Both kinds of image stay healthy:
+  images up to v0.12.2 have no `healthcheck` subcommand (an unknown argument would start a second server), the next
+  ones have no `curl`. The dashboard, ODE and sandbox-proxy checks are unchanged (their images ship the tool they
+  call). Kubernetes probes were already `httpGet`; they now set `timeoutSeconds: 5`.
+- **New server settings (releases after v0.12.2) are passed when set**: `DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS`,
+  `DAKERA_NEIGHBORHOOD_MODE`, `DAKERA_NEIGHBORHOOD_EVENT_TIME`, `DAKERA_RECALL_RANK_DEPTH`,
+  `DAKERA_RECALL_COLLAPSE_DERIVED`, `DAKERA_RECALL_EXCLUDE_SUMMARIES`, `DAKERA_RECALL_SESSION_CAP`,
+  `DAKERA_SENTENCE_DECOMP`, `DAKERA_SUPERSEDES_EVENT_TIME` (`docker-compose.yml`, `docker-compose.ha.yml`). Listed
+  without a value, so an unset one never reaches the container and a v0.12.2 image reports no unknown variable.
+  Documented in `.env.example`, `.env.ha.example`, `examples/environment-variables.md`, `k8s/configmap.yaml`.
+- **Idle keep-alive connections vs the header timeout**: the server now closes a keep-alive connection that sends
+  no request head for `DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS` (30 s). The HA Traefik closes idle connections to the
+  nodes after 25 s (`traefik-dynamic.yml`, `serversTransports`; its default of 90 s would reuse connections the
+  server closed: 502s). `Caddyfile.template` does the same for the API (`keepalive 25s`). `k8s/ingress.yaml`
+  explains the ingress-nginx setting (`upstream-keepalive-timeout`, 60 s by default).
+- **Hardening (compose)**: the Dakera containers run with a read-only root filesystem (`/tmp` a tmpfs; the data
+  root and model cache are volumes), `cap_drop: [ALL]` and `no-new-privileges` (`docker-compose.yml`, HA,
+  playground). Measured with 0.12.2 and the current `:edge`: healthy, store / recall / backup work, no
+  configuration warning. Dashboard: `cap_drop: [ALL]` plus the four capabilities its 0.5.1 image needs (it starts as
+  root: `CHOWN`, `DAC_OVERRIDE`, `SETGID`, `SETUID`), `no-new-privileges`, 256 MB / 0.5 CPU. Watchdog: read-only,
+  no capability, 64 MB. Prometheus, Grafana, Traefik, Jaeger: no capability; MinIO and its setup job:
+  `no-new-privileges`.
+- **Grafana has no default password any more** (`docker-compose.yml` used `admin`). A NEW Grafana refuses to start
+  without `GRAFANA_PASSWORD` (or with `admin`); one that already has its database starts as before. Not a required
+  Compose variable, which would stop every profile, the production `--profile dashboard` included. The k8s Grafana
+  now needs `GRAFANA_PASSWORD` in `dakera-secrets` (`secret.example.yaml`); it was optional (admin / admin).
+- **`docker-compose.ha.yml`: only the load balancer is published on every interface.** MinIO (API and console), the
+  dashboard, the Traefik dashboard (`--api.insecure`, no authentication), Prometheus (`--web.enable-lifecycle`),
+  Grafana and Jaeger (UI and OTLP) are bound to 127.0.0.1, as in `docker-compose.yml`. Images pinned to the
+  versions `:latest` had (traefik `v3.7.15`, prometheus `v3.15.0`, grafana `13.2.4`, jaeger all-in-one `1.76.0`;
+  Grafana cannot be pinned older over a newer database). The Traefik health check named the wrong ping port (the LB
+  never turned healthy): fixed.
+- **Development stacks bound to loopback**: `docker-compose.local.yml`, `docker-compose.dev.yml` and
+  `.devcontainer/docker-compose.yml` (authentication off there) published Dakera and MinIO (default credentials) on
+  every interface. `monitoring/docker-compose.yml` likewise. The devcontainer's default image is 0.12.2.
+- **Kubernetes**: server pod and Jobs with `readOnlyRootFilesystem` (a `/tmp` emptyDir), no privilege escalation,
+  no capability, `RuntimeDefault` seccomp, no service-account token; dashboard with the same four capabilities as
+  in compose; MinIO, Grafana, Prometheus without privilege escalation. New `k8s/minio/networkpolicy.yaml`: only the
+  Dakera pods (server and Jobs) and Prometheus reach MinIO.
+- `CLAUDE.md`: the Helm chart lives in dakera-helm (this repository never had `charts/`). The watchdog's alert no
+  longer suggests `docker exec dakera curl`.
+
 ### Changed: Dakera server v0.12.1, Dashboard 0.5.0, dakera-mcp 0.12.0
 
 - Default Dakera image `0.12.0` -> `0.12.1` (compose files, `.env` examples, devcontainer, playground, `k8s/`
@@ -207,7 +287,7 @@ deployment validation"):
 - `scripts/runner/runner-health-monitor.service` + `runner-health-monitor.timer` — systemd unit files for runner health monitoring on runner hosts.
 - `scripts/runner/install.sh` — one-command installer for all runner automation on a new runner host.
 
-## [0.6.0] - 2026-05-21
+## [0.5.2] - 2026-05-21
 
 ### Fixed
 
@@ -391,7 +471,7 @@ deployment validation"):
 
 - Remove broken Docker publish workflow; add valid no-op release workflow (#6, #7)
 - Remove `v` prefix from GHCR image tags — GHCR publishes `0.6.x` not `v0.6.x` (#10)
-- Bump dakera image: `0.6.0` → `0.6.2` (Memory Network fix) → `0.6.3` (rustls security patch) → `0.6.4` (SSE query-param auth) (#12, #14, #17)
+- Bump dakera image: `0.5.2` → `0.6.2` (Memory Network fix) → `0.6.3` (rustls security patch) → `0.6.4` (SSE query-param auth) (#12, #14, #17)
 - Bump dakera-dashboard: `0.3.0` → `0.3.1` (Safari black screen fix) → `0.3.2` (WASM + mobile nav fix) → `0.3.3` (SSE api_key fix)
 - Sync HA compose image versions to match standard compose configs
 

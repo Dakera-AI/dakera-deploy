@@ -25,6 +25,7 @@ spec:
         app.kubernetes.io/component: storage
     spec:
       terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
       containers:
         - name: minio
           # minio/minio and minio/mc are no longer published on Docker Hub (the
@@ -34,6 +35,9 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
           args:
             - server
             - /data

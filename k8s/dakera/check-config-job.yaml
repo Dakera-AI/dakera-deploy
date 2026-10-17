@@ -1,5 +1,5 @@
 # =============================================================================
-# Dakera v0.12.2 - pre-upgrade configuration check (one-off Job)
+# Dakera v0.12.3 - pre-upgrade configuration check (one-off Job)
 # =============================================================================
 # `dakera --check-config` runs the startup configuration check alone, with the
 # same environment and the same data volume as the server, prints every warning
@@ -30,15 +30,18 @@ spec:
         app.kubernetes.io/component: check-config
     spec:
       restartPolicy: Never
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: check-config
-          image: ghcr.io/dakera-ai/dakera:0.12.2
+          image: ghcr.io/dakera-ai/dakera:0.12.3
           imagePullPolicy: IfNotPresent
           command: ["dakera"]
           args: ["--check-config"]
@@ -47,10 +50,24 @@ spec:
                 name: dakera-config
             - secretRef:
                 name: dakera-secrets
+          # Writes only to its volumes (the data root, the model cache, /tmp).
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: models
+              mountPath: /app/models
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: dakera-rocksdb
+        - name: models
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

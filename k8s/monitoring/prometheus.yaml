@@ -352,6 +352,10 @@ spec:
             - "--storage.tsdb.path=/prometheus"
             - "--storage.tsdb.retention.time=15d"
             - "--web.enable-lifecycle"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           ports:
             - name: http
               containerPort: 9090

@@ -1,8 +1,9 @@
 # =============================================================================
-# Dakera Server - Kubernetes Deployment (Dakera v0.12.2)
+# Dakera Server - Kubernetes Deployment (Dakera v0.12.3)
 # =============================================================================
-# v0.11 manifests: the `release/0.11` branch. Upgrading from v0.12.0: change the
-# image and apply (nothing to migrate by hand; this single server is not in
+# v0.11 manifests: the `release/0.11` branch. Upgrading from v0.12.0 - v0.12.2: change the
+# image and apply (0.12.3: POST /ops/shutdown needs a super_admin key; the image is
+# distroless, uid/gid 1000, with no curl or shell tools: probes are httpGet) (nothing to migrate by hand; this single server is not in
 # cluster mode, so DAKERA_CLUSTER_SECRET is not needed). Upgrading from v0.11.108:
 # see the README ("Upgrading from v0.11") and the server's docs/v0.12/UPGRADE.md.
 # One server per data root: the pod keeps its data root (/data) on the
@@ -16,7 +17,7 @@ metadata:
   labels:
     app.kubernetes.io/name: dakera
     app.kubernetes.io/component: server
-    app.kubernetes.io/version: "0.12.2"
+    app.kubernetes.io/version: "0.12.3"
 spec:
   replicas: 1
   # A server locks its data root while it runs: stop the old pod before the new
@@ -32,13 +33,18 @@ spec:
       labels:
         app.kubernetes.io/name: dakera
         app.kubernetes.io/component: server
-        app.kubernetes.io/version: "0.12.2"
+        app.kubernetes.io/version: "0.12.3"
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"
         prometheus.io/path: "/metrics"
     spec:
+      # SIGTERM: up to 15 s for running media jobs, then the REST drain
+      # (DAKERA_SHUTDOWN_DRAIN_SECS, default 8), then the final flushes. Raise this
+      # with DAKERA_SHUTDOWN_DRAIN_SECS.
       terminationGracePeriodSeconds: 30
+      # The server does not call the Kubernetes API.
+      automountServiceAccountToken: false
       # The image runs as uid/gid 1000 (dakera); fsGroup makes the mounted
       # volumes group-writable for it (EACCES on a root-owned volume otherwise).
       securityContext:
@@ -47,9 +53,11 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: dakera
-          image: ghcr.io/dakera-ai/dakera:0.12.2
+          image: ghcr.io/dakera-ai/dakera:0.12.3
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -63,6 +71,12 @@ spec:
                 name: dakera-config
             - secretRef:
                 name: dakera-secrets
+          # Writes only to its volumes (the data root, the model cache, /tmp).
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             # The data root (DAKERA_STORAGE_PATH=/data): WAL, graph, hot and warm tiers
             - name: data
@@ -73,31 +87,41 @@ spec:
             # `dakera models pull` (see docs/models-and-docker.md in the server repo).
             - name: models
               mountPath: /app/models
+            - name: tmp
+              mountPath: /tmp
           # The port binds before the models load: /health/live is 200 from then
           # on (liveness never restarts a pod that is downloading a model);
           # /health/ready is 503 until storage answers and the embedding engine
           # is up. The startup probe covers the time before the port binds
           # (write-ahead-log replay): 10 s x 60 = 10 minutes.
+          # httpGet probes need nothing in the image (no curl, no shell). timeoutSeconds:
+          # 5 as the compose health check (the 1 s default fails a busy server).
           startupProbe:
             httpGet:
               path: /health/live
               port: http
             periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 60
           livenessProbe:
             httpGet:
               path: /health/live
               port: http
             periodSeconds: 30
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /health/ready
               port: http
             periodSeconds: 10
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: 500m
               memory: 512Mi
+            # The limit also holds document extraction (0.12.3): up to
+            # DAKERA_DOCUMENT_EXTRACT_CONCURRENCY x _MEMORY_MB (2 x 1024 MB) in child
+            # processes. PDF-heavy imports: 6Gi, or concurrency 1 (configmap.yaml).
             limits:
               cpu: "2"
               memory: 4Gi
@@ -108,6 +132,8 @@ spec:
           persistentVolumeClaim:
             claimName: dakera-rocksdb
         - name: models
+          emptyDir: {}
+        - name: tmp
           emptyDir: {}
 ---
 apiVersion: v1
