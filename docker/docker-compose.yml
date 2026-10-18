@@ -153,6 +153,28 @@ services:
       - DAKERA_DOCUMENT_EXTRACT_TIMEOUT_SECS
       - DAKERA_DOCUMENT_EXTRACT_MEMORY_MB
       - DAKERA_DOCUMENT_EXTRACT_CONCURRENCY
+      # Throughput, memory and data-safety settings of server v0.12.3 (.env.example
+      # "Throughput and safety"). Unset = the server sizes them from the host
+      # (cores, memory limit); set them only to override.
+      - DAKERA_MAX_CONCURRENT_INFERENCES
+      - DAKERA_ADMISSION_WAIT_SECS
+      - DAKERA_INTERACTIVE_MIN_CORES
+      - DAKERA_EMBED_PREPACK
+      - DAKERA_RERANK_PREPACK
+      - DAKERA_RERANKER_MODEL
+      - DAKERA_RERANK_CACHE_ENTRIES
+      - DAKERA_RERANK_PASSAGE_TOKENS
+      - DAKERA_HNSW_CACHE_BYTES
+      - DAKERA_MEM_TRIM_INTERVAL_SECS
+      - DAKERA_LONG_CONTENT_WINDOWS
+      - DAKERA_AUDIT_SAMPLE_RATE
+      - DAKERA_AUDIT_READ_SAMPLE_RATE
+      - DAKERA_AUTOPILOT_DEDUP_MODE
+      - DAKERA_AUTOPILOT_DEDUP_CROSS_SESSION
+      - DAKERA_AUTOPILOT_CONSOLIDATE_CROSS_SESSION
+      - DAKERA_AUTOPILOT_TRASH_RETENTION_HOURS
+      - REEMBED_BATCH_SIZE
+      - REEMBED_INTERVAL_SECS
       # gRPC listener: an EMPTY value would read as OFF on an upgraded deployment (v0.11's
       # reading), so this one defaults to true explicitly.
       - DAKERA_GRPC_ENABLED=${DAKERA_GRPC_ENABLED:-true}
