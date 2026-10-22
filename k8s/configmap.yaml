@@ -44,10 +44,11 @@ data:
   # Longest REST drain at shutdown (default 8). With up to 15 s for media jobs first, keep
   # it below the Deployment's terminationGracePeriodSeconds (30) with a margin:
   # DAKERA_SHUTDOWN_DRAIN_SECS: "8"
-  # ONLY if DAKERA_AUTH_ENABLED is "false": a request whose Host is a dotted name (the
-  # service FQDN dakera.dakera.svc.cluster.local, the ingress host) gets 421 unless it is
-  # listed here (comma list, "*" = any); localhost, IPs and `dakera` are always accepted.
-  # DAKERA_ALLOWED_HOSTS: "dakera.dakera.svc.cluster.local,api.dakera.yourdomain.com"
+  # ONLY if DAKERA_AUTH_ENABLED is "false": a request whose Host is a public dotted name
+  # (the ingress host) gets 421 unless it is listed here (comma list, "*" = any);
+  # localhost, IPs, `dakera` and private-use names (*.internal, *.local, *.home.arpa:
+  # the service FQDN dakera.dakera.svc.cluster.local) are always accepted.
+  # DAKERA_ALLOWED_HOSTS: "api.dakera.yourdomain.com"
   # Document import (0.12.3, on by default; docker/.env.example "Document import"). PDF / DOCX
   # extraction runs in `dakera extract-text` children: up to CONCURRENCY x MEMORY_MB (2 x 1024 MB)
   # on top of the server, inside the Deployment's 4Gi limit; for PDF-heavy imports lower the

@@ -92,8 +92,10 @@ spec:
           # The port binds before the models load: /health/live is 200 from then
           # on (liveness never restarts a pod that is downloading a model);
           # /health/ready is 503 until storage answers and the embedding engine
-          # is up. The startup probe covers the time before the port binds
-          # (write-ahead-log replay): 10 s x 60 = 10 minutes.
+          # is up. From 0.12.3 the port also binds before crash recovery
+          # (/health/ready reports its progress); the startup probe covers an
+          # older image's write-ahead-log replay before the port binds: 10 s x 60
+          # = 10 minutes.
           # httpGet probes need nothing in the image (no curl, no shell). timeoutSeconds:
           # 5 as the compose health check (the 1 s default fails a busy server).
           startupProbe:

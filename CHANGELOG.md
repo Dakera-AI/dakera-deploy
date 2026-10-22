@@ -25,16 +25,35 @@ published (engine Dakera-AI/dakera#922 first, then the dashboard release).
   `terminationGracePeriodSeconds`), `DAKERA_ALLOWED_HOSTS`. `DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS` now also closes
   idle HTTP/2 connections.
 - **Authentication off + a dotted host name = 421.** From 0.12.3 a server with `DAKERA_AUTH_ENABLED=false` refuses a
-  request whose `Host` is not localhost, an IP, a single-label name or listed in `DAKERA_ALLOWED_HOSTS` (DNS-rebinding
+  request whose `Host` is not localhost, an IP, a single-label name, a private-use name (`*.internal`, `*.local`,
+  `*.home.arpa`) or listed in `DAKERA_ALLOWED_HOSTS` (DNS-rebinding
   guard). The auth-off stacks here (`docker-compose.tif-phase1.yml`, `.devcontainer`) are reached by IP, `localhost`
   or `dakera`; they pass `DAKERA_ALLOWED_HOSTS` through for anyone who reaches them by another name.
-  `k8s/configmap.yaml` documents it for the service FQDN / ingress host.
+  `k8s/configmap.yaml` documents it for a public ingress host (the service FQDN is a `.local` name, accepted).
 - **Document import (0.12.3, on by default):** `DAKERA_DOCUMENTS` and the eight `DAKERA_DOCUMENT_*` settings are
   passed when set (compose main + HA) and documented (`.env` examples, environment reference, `k8s/configmap.yaml`).
   PDF / DOCX extraction runs in child processes using up to CONCURRENCY x MEMORY_MB (2 GB by default): the compose
   limit (12G) leaves room; the k8s Deployment (4Gi) documents raising it or lowering the concurrency. Uploads of
   up to 25 MiB pass every proxy here (`k8s/ingress.yaml` 500m, Traefik and Caddy set no limit, the dashboard's
   nginx allows 200m on its API routes).
+- **Checked against the final 0.12.3 server** (every `DAKERA_*` name set here is one the server accepts;
+  `--check-config` passes on the rendered `.env.example`):
+  - `docker-compose.ha.yml` passes the throughput and safety settings too (`DAKERA_MAX_CONCURRENT_INFERENCES`,
+    `DAKERA_ADMISSION_WAIT_SECS`, `DAKERA_INTERACTIVE_MIN_CORES`, `DAKERA_EMBED_PREPACK`, `DAKERA_RERANK_PREPACK`,
+    `DAKERA_RERANKER_MODEL`, `DAKERA_RERANK_CACHE_ENTRIES`, `DAKERA_RERANK_PASSAGE_TOKENS`, `DAKERA_HNSW_CACHE_BYTES`,
+    `DAKERA_MEM_TRIM_INTERVAL_SECS`, `DAKERA_LONG_CONTENT_WINDOWS`, `DAKERA_AUDIT_*_SAMPLE_RATE`,
+    `DAKERA_AUTOPILOT_*`, `REEMBED_*`), as `docker-compose.yml` does; all are in the environment reference.
+  - Weight prepacking: `docker-compose.yml`'s 12G / 4 CPU limit turns `DAKERA_EMBED_PREPACK` and
+    `DAKERA_RERANK_PREPACK` on by default (about +2.8 GB resident); `.env.example` said they were off. The HA
+    nodes have no limit, so they stay off there.
+  - `DAKERA_RERANK_MAX_CANDIDATES` unset is a cap from 0.12.3 (195 with default settings; `0` = no cap), and a
+    full admission queue answers `429` + `Retry-After`, not `503` (`.env.example`, environment reference,
+    README, features guide).
+  - README: versions, pinning example and the new "Upgrading from v0.12.2 to v0.12.3" section (autopilot dedup
+    now off by default: `DAKERA_AUTOPILOT_DEDUP_MODE=merge` keeps the earlier behaviour).
+  - `docker/Dockerfile` re-synced with the engine's Dockerfile at v0.12.3 (distroless runtime, the
+    `graph_edges` bench stub); `Dockerfile.dev` copies `config/` (compiled into the engine) and stubs the
+    engine benches the source checkout's `.dockerignore` leaves out.
 
 ### Changed: health checks without curl, new server settings, hardening
 
@@ -76,7 +95,7 @@ published (engine Dakera-AI/dakera#922 first, then the dashboard release).
   never turned healthy): fixed.
 - **Development stacks bound to loopback**: `docker-compose.local.yml`, `docker-compose.dev.yml` and
   `.devcontainer/docker-compose.yml` (authentication off there) published Dakera and MinIO (default credentials) on
-  every interface. `monitoring/docker-compose.yml` likewise. The devcontainer's default image is 0.12.2.
+  every interface. `monitoring/docker-compose.yml` likewise.
 - **Kubernetes**: server pod and Jobs with `readOnlyRootFilesystem` (a `/tmp` emptyDir), no privilege escalation,
   no capability, `RuntimeDefault` seccomp, no service-account token; dashboard with the same four capabilities as
   in compose; MinIO, Grafana, Prometheus without privilege escalation. New `k8s/minio/networkpolicy.yaml`: only the

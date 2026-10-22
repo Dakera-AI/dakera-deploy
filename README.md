@@ -33,7 +33,7 @@
 
 | | Dakera server | Where |
 |---|---|---|
-| **Latest (this branch, `main`)** | **v0.12.1** | `main`: compose files, Kubernetes manifests and guides in this repo target v0.12.1 (Dashboard 0.5.0) |
+| **Latest (this branch, `main`)** | **v0.12.3** | `main`: compose files, Kubernetes manifests and guides in this repo target v0.12.3 (Dashboard 0.5.2) |
 | Previous | v0.11.x (last: v0.11.108) | the [`release/0.11`](https://github.com/Dakera-AI/dakera-deploy/tree/release/0.11) branch, kept unchanged |
 
 **On v0.11?** Use the [`release/0.11`](https://github.com/Dakera-AI/dakera-deploy/tree/release/0.11)
@@ -41,9 +41,10 @@ branch (`git clone -b release/0.11 https://github.com/Dakera-AI/dakera-deploy`):
 keeps working as before. Its Helm counterpart is the `0.11.x` chart on the
 [`release/0.11`](https://github.com/Dakera-AI/dakera-helm/tree/release/0.11) branch of dakera-helm.
 
-**On v0.12.0?** Follow [Upgrading from v0.12.0 to v0.12.1](#upgrading-from-v0120-to-v0121): a single node
-just pulls the new image; **a cluster needs `DAKERA_CLUSTER_SECRET` on every node** and, if it ran without one,
-an upgrade in one window.
+**On v0.12.2?** Follow [Upgrading from v0.12.2 to v0.12.3](#upgrading-from-v0122-to-v0123): pull the new
+images; nothing is migrated by hand. **On v0.12.0?** Take [Upgrading from v0.12.0 to v0.12.1](#upgrading-from-v0120-to-v0121)
+on the way: **a cluster needs `DAKERA_CLUSTER_SECRET` on every node** and, if it ran without one, an upgrade in
+one window.
 
 **Moving from v0.11?** Follow [Upgrading from v0.11](#upgrading-from-v011-to-v012). Going back is
 supported ([Rolling back to v0.11](#rolling-back-to-v011)).
@@ -54,7 +55,7 @@ supported ([Rolling back to v0.11](#rolling-back-to-v011)).
 
 Dakera is the **agent-native memory platform** — purpose-built for AI agents that need persistent, session-aware, cross-agent memory. A single self-hosted Rust binary gives you vector search, hybrid retrieval (BM25 + HNSW), knowledge graphs, session management, and built-in embeddings. No external dependencies. Your data stays on your infrastructure.
 
-**88.2% on the [LoCoMo benchmark](https://dakera.ai/benchmark)** — 1,540 questions testing long-conversation memory across temporal reasoning, multi-hop retrieval, and event ordering. This is the highest score for a self-hosted memory system.
+**88.2% on the [LoCoMo benchmark](https://dakera.ai/benchmark)** — 1,540 questions testing long-conversation memory across temporal reasoning, multi-hop retrieval, and event ordering.
 
 ---
 
@@ -167,11 +168,11 @@ docker compose -f docker-compose.dev.yml up -d
 
 Production-grade single-node deployment with MinIO, caching, and health checks.
 
-> **Version pinning**: The default Dakera image tag is pinned to v0.12.1 (v0.11: `release/0.11`).
+> **Version pinning**: The default images are pinned to Dakera v0.12.3 and Dashboard 0.5.2 (v0.11: `release/0.11`).
 > To run a specific version, set `DAKERA_IMAGE` and `DASHBOARD_IMAGE` in your `.env`:
 > ```bash
-> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.1
-> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.5.0
+> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.3
+> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.5.2
 > ```
 > Pinning to explicit versions prevents unexpected upgrades in production.
 
@@ -344,6 +345,49 @@ npx @dakera-ai/dakera-mcp               # zero-install, latest version
 ```
 
 See [dakera-cli](https://github.com/dakera-ai/dakera-cli) and [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) for full documentation.
+
+## Upgrading from v0.12.2 to v0.12.3
+
+Nothing is migrated by hand: v0.12.3 starts on v0.12.2 data as it is, and v0.12.2 starts again on data v0.12.3
+wrote. The server's guide:
+[UPGRADE.md, "Upgrading from v0.12.2 to v0.12.3"](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/UPGRADE.md#upgrading-from-v0122-to-v0123).
+
+1. **Back up** (`POST /admin/backups`).
+2. **Take the new files** (`git pull` on `main`): images `ghcr.io/dakera-ai/dakera:0.12.3` and
+   `ghcr.io/dakera-ai/dakera-dashboard:0.5.2`. If you pin `DAKERA_IMAGE` / `DASHBOARD_IMAGE` in `.env`, change
+   them there. Your own compose files: the server image has no `curl` any more, so a health check that execs
+   `curl` in it must change to `dakera healthcheck /health/ready` (the files here run either, whichever the image
+   has); the dashboard image has no `curl` either (the files here check it with `python3`).
+3. **Check the configuration** with the new image: `docker compose run --rm --no-deps dakera --check-config`
+   (exit 0 = it would start).
+4. **Start it**: `docker compose pull && docker compose up -d` (Kubernetes: `kubectl apply -k k8s/`).
+
+What behaves differently (all of it in the server's CHANGELOG):
+
+- **Autopilot deduplication is off by default.** Earlier releases merged near-duplicate memories every 6 hours;
+  set `DAKERA_AUTOPILOT_DEDUP_MODE=merge` to keep that (`report` lists what it would merge and changes nothing).
+  Merges and consolidations now keep sessions apart and keep what they remove restorable for 7 days.
+- **A full queue answers `429` + `Retry-After`** (it was `503`). The SDKs, the CLI, the MCP server and the
+  dashboard already retry on it.
+- **Recall and search for an agent that has stored nothing answer `200` with no memories** (they answered `404`).
+- **Faster on multi-core hosts**: the model pools run one worker per physical core and size themselves at
+  startup; long passages are reranked on their best window, and the cross-encoder pool is capped by default
+  (`DAKERA_RERANK_MAX_CANDIDATES`). Under a container memory limit with room for them, the embedder and the
+  reranker prepack their weights (faster, more memory): `docker-compose.yml`'s 12G limit turns this on, about
+  +2.8 GB resident; set `DAKERA_EMBED_PREPACK=0` and `DAKERA_RERANK_PREPACK=0` to keep the previous footprint.
+- **Reliability**: the server raises its open-files limit to the hard limit at startup, recovers its store
+  in-process when the disk refuses writes for a while, answers `/health/live` during crash recovery (with its
+  progress in `/health/ready`), and returns freed memory to the system after bursts.
+- **Document import is on**: PDF, DOCX, HTML, Markdown and text become searchable chunks
+  (`DAKERA_DOCUMENTS`; `.env.example`, "Document import").
+- **Security**: `POST /ops/shutdown` needs a `super_admin` key; four admin routes refuse unknown fields (`422`);
+  idle keep-alive connections close after `DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS` (30 s), so a proxy in front must
+  drop its idle upstream connections sooner (the Traefik and Caddy files here use 25 s); with authentication off,
+  a request by an unlisted DNS name gets `421` (`DAKERA_ALLOWED_HOSTS`). The `:gpu` image needs NVIDIA driver
+  R580 or newer.
+
+The new settings are listed in [examples/environment-variables.md](examples/environment-variables.md) and
+`docker/.env.example`; every one is optional.
 
 ## Upgrading from v0.12.0 to v0.12.1
 
@@ -690,7 +734,7 @@ and constraints are in [docs/features-v0.12.md](docs/features-v0.12.md) and `doc
 | `DAKERA_RECORDS` / `DAKERA_RECORD_MAX_VECTORS` / `DAKERA_RECORD_MAX_BYTES` | off / 4096 / 8388608 | Multi-vector records |
 | `DAKERA_SCORING_STRATEGY` | `single-vector` | `late-interaction` (with `DAKERA_MODEL=colbert-small`) |
 | `DAKERA_SEARCH_MODE` / `DAKERA_RABITQ_BITS` | `hybrid` / `1` | `rabitq`: latency, not memory |
-| `DAKERA_RERANK_MAX_CANDIDATES` | unset (whole pool) | Caps the candidates the cross-encoder scores |
+| `DAKERA_RERANK_MAX_CANDIDATES` | derived (`195` with default settings) | Caps the candidates the cross-encoder scores (`0` = no cap) |
 | `DAKERA_MEM_HIGH_WATER_FRACTION` | `0.85` | Memory budget media jobs reserve against (`503` + `Retry-After` when full) |
 
 ### Cluster (HA Mode)
@@ -799,11 +843,11 @@ and constraints are in [docs/features-v0.12.md](docs/features-v0.12.md) and `doc
 ## Dockerfiles
 
 All three build from a **dakera source checkout** (run them from its root); the published image,
-`ghcr.io/dakera-ai/dakera:0.12.1`, is what the compose files and manifests here use.
+`ghcr.io/dakera-ai/dakera:0.12.3`, is what the compose files and manifests here use.
 
 | Dockerfile | Base Image | Purpose |
 |------------|-----------|---------|
-| `Dockerfile` | `rust:1.95-slim-trixie` → `debian:trixie-slim` | The engine's own Dockerfile at v0.12.1 (builds the released image, models baked in); re-synced each server release |
+| `Dockerfile` | `rust:1.95-slim-trixie` → `gcr.io/distroless/cc-debian13` | The engine's own Dockerfile at v0.12.3 (builds the released image, models baked in; distroless, no `curl`); re-synced each server release |
 | `Dockerfile.dev` | `rust:1.95-trixie` → `debian:trixie-slim` | Dev build with BuildKit cache for fast incremental rebuilds (~30-120s after first build) |
 | `Dockerfile.local` | `debian:trixie-slim` | Lightweight runtime from a pre-built binary |
 
@@ -919,7 +963,7 @@ See [dakera-ai/dakera-helm](https://github.com/dakera-ai/dakera-helm) for chart 
 
 - **Use native S3** (AWS S3, GCS) instead of MinIO in cloud environments: set `DAKERA_S3_ENDPOINT` to your provider's endpoint and disable MinIO (`minio.enabled=false` in Helm)
 - **Scaling**: a server locks its data root and the volume is ReadWriteOnce, so one Deployment is one server and `k8s/dakera/hpa.yaml` is not applied by default. Scale out with cluster mode (one release per node: own bucket, own volume, shared `DAKERA_CLUSTER_SECRET`)
-- **Dashboard 0.5.0**: the Deployment has no API key (operators sign in with their own key; `DAKERA_API_KEY` is gone, rotate any key the old dashboard carried). Keep `replicas: 1` (sessions are in memory, or add sticky sessions), enable TLS on the dashboard host in `k8s/ingress.yaml` (ingress-nginx forwards `X-Forwarded-Proto` and `Host`), probes use `/_session/healthz`. See [Dashboard 0.5.0](#dashboard-050-server-side-sessions)
+- **Dashboard 0.5.2**: the Deployment has no API key (operators sign in with their own key; `DAKERA_API_KEY` is gone, rotate any key the old dashboard carried). It runs as uid/gid 10001 with a read-only root filesystem and a `/tmp` emptyDir. Keep `replicas: 1` (sessions are in memory, or add sticky sessions), enable TLS on the dashboard host in `k8s/ingress.yaml` (ingress-nginx forwards `X-Forwarded-Proto` and `Host`), probes use `/_session/healthz`. See [Dashboard 0.5.2](#dashboard-052-unprivileged-no-curl-inside) and [Dashboard 0.5.0](#dashboard-050-server-side-sessions)
 - **TLS**: add cert-manager annotations to `k8s/ingress.yaml` or `ingress.annotations` in Helm values
 - **Secrets management**: use an external secrets operator (External Secrets, Vault) instead of `kubectl create secret` for production
 - **Metrics**: Dakera exposes Prometheus metrics at `GET /metrics` — pods have `prometheus.io/scrape: "true"` annotations for auto-discovery
