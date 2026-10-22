@@ -15,7 +15,7 @@
 # ============================================================================
 # Build Stage
 # ============================================================================
-# The engine pins its toolchain in rust-toolchain.toml (1.95.0 at v0.12.1) and its `docker`
+# The engine pins its toolchain in rust-toolchain.toml (1.95.0 at v0.12.3) and its `docker`
 # Cargo profile (thin LTO, incremental) builds on stable; same base as the engine's Dockerfile.
 FROM rust:1.95-trixie AS builder
 
@@ -64,6 +64,16 @@ WORKDIR /build
 # Copy all source code
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+# The engine embeds config/en_patterns.json at compile time (include_str!).
+COPY config ./config
+# The engine's .dockerignore leaves out crates/**/benches/, but crates/engine/Cargo.toml
+# declares [[bench]] targets: empty stubs keep the manifest valid, as the engine's own
+# Dockerfile does (keep the list equal to its [[bench]] names). Never compiled by
+# `cargo build`.
+RUN mkdir -p crates/engine/benches && \
+    for b in concurrent_load graph_edges index_comparison insert_benchmark query_benchmark scale_recall search_modes; do \
+      [ -f "crates/engine/benches/$b.rs" ] || printf 'fn main() {}\n' > "crates/engine/benches/$b.rs"; \
+    done
 
 # Build with BuildKit cache mounts for incremental compilation.
 # The cache mounts persist between Docker builds:

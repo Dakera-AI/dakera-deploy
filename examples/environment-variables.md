@@ -112,9 +112,9 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 | `DAKERA_SCORING_STRATEGY` | `single-vector` | `late-interaction` (with `DAKERA_MODEL=colbert-small`, `DAKERA_TIERED=0`: `docker-compose.late-interaction.yml`) |
 | `DAKERA_SEARCH_MODE` | `hybrid` | `hybrid`, `binary`, `float`, `scalar` (alias `sq`), `rabitq` (`docker-compose.rabitq.yml`; saves latency, not memory) |
 | `DAKERA_RABITQ_BITS` | `1` | 1-8 bits per dimension, only in `rabitq` mode |
-| `DAKERA_RERANK_MAX_CANDIDATES` | unset (whole pool) | Most candidates any recall sends to the cross-encoder; request field `rerank_candidates` is capped by it |
+| `DAKERA_RERANK_MAX_CANDIDATES` | derived (`195` with default settings) | Most candidates any recall sends to the cross-encoder; request field `rerank_candidates` is capped by it. Unset, from 0.12.3: the largest pool a `top_k <= 10` recall builds; `0` = no cap (the earlier default) |
 | `DAKERA_RERANK_WARMUP` | on | Load the reranker at boot (the exact words `0`/`false` load it on first use) |
-| `DAKERA_RERANKER_MODEL` | `bge-reranker-v2-m3` | `bge-reranker-base` selects the smaller reranker |
+| `DAKERA_RERANKER_MODEL` | `bge-reranker-v2-m3` | `bge-reranker-base` (or `base`) selects the smaller reranker |
 
 ## Security
 
@@ -132,6 +132,66 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 | `DAKERA_MAX_BODY_SIZE` | `10485760` (10 MiB) | Max request body size in bytes. The compose files and the ConfigMap set `524288000` (500 MB) |
 | `DAKERA_REQUEST_TIMEOUT` | `300` | Request timeout in seconds, the outer ceiling. `docker-compose.yml` sets 600, `docker-compose.ha.yml` and the ConfigMap 120 |
 | `DAKERA_RATE_LIMIT_RPS` / `DAKERA_RATE_LIMIT_BURST` / `DAKERA_RATE_LIMIT_ENABLED` | `100` / `50` / `true` | Server-wide rate limit (REST and gRPC). v0.11's `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` still work, deprecated |
+| `DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS` | `30` | Server v0.12.3. Seconds a client has to send a complete HTTP/1 request head on the REST port, counted from when the server waits for one (a new or an idle keep-alive connection, which is then closed); `[1, 86400]`. A proxy that keeps idle upstream connections longer (ingress-nginx 60 s, Traefik 90 s by default; `docker-compose.ha.yml`'s Traefik is set to 25 s) must be set below it, or this raised above the proxy's. From 0.12.3 it also closes an idle HTTP/2 connection that sends no request |
+| `DAKERA_MAX_CONNECTIONS` | `10000` | Server 0.12.3. Most open REST connections, `[1, 1000000]`; one over the cap is closed at once. Keep it below the file-descriptor limit |
+| `DAKERA_SHUTDOWN_DRAIN_SECS` | `8` | Server 0.12.3. Longest REST drain at shutdown, `[0, 3600]` (SSE streams end at the signal). Plus up to 15 s for media jobs: keep the sum below `stop_grace_period` / `terminationGracePeriodSeconds` (30 s here) |
+| `DAKERA_ALLOWED_HOSTS` | — | Server 0.12.3, read only with `DAKERA_AUTH_ENABLED=false`: Host names accepted besides localhost, `*.localhost`, IPs, single-label names and private-use names (`*.internal`, `*.local`, `*.home.arpa`: `host.docker.internal`, a Kubernetes service FQDN) (comma list, `*` = any); others get `421 HOST_NOT_ALLOWED` (DNS-rebinding guard; `/health*`, `/internal/*` exempt). A stack without auth reached by a public dotted name must set it |
+
+## Recall (server v0.12.3)
+
+The compose files pass these only when they are set (an older image reports a name it does not know).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_NEIGHBORHOOD_MODE` | `inline` | Neighbourhood context of a recall that names no `neighborhood_mode`: `inline` (after the `top_k` results, marked `retrieval: "neighborhood"`), `separate` (in `context_memories`; `memories` holds at most `top_k`) or `off` |
+| `DAKERA_NEIGHBORHOOD_EVENT_TIME` | off | Neighbourhood window on event time instead of ingest time |
+| `DAKERA_RECALL_RANK_DEPTH` | `10` | Ranking depth floor `[1, 1000]`: the first `k` of a `top_k=k` recall equal the first `k` of a `top_k=10` recall |
+| `DAKERA_RECALL_COLLAPSE_DERIVED` | off | One result per source memory (sentence sub-memories collapsed; `matched_text`, `matched_ids`) |
+| `DAKERA_RECALL_EXCLUDE_SUMMARIES` | off | Session summaries left out unless a request sets `include_summaries: true` |
+| `DAKERA_RECALL_SESSION_CAP` | `0` | At most N results of one session in the head of list / aggregation recalls (`0` = no cap) |
+| `DAKERA_SENTENCE_DECOMP` | on | `0`: no sentence sub-memories derived on any write path |
+| `DAKERA_SUPERSEDES_EVENT_TIME` | on | Supersedes edges ordered by the memories' event dates when both have one |
+
+## Document import (server v0.12.3)
+
+On by default. The compose files pass these only when set. Server guide: `docs/documents.md` in the server repository.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_DOCUMENTS` | on | The document routes (`POST /v1/memory/documents`, `.../attachments/{ref}/document`, jobs, list, delete); off: `501 FEATURE_DISABLED` |
+| `DAKERA_DOCUMENT_MAX_BYTES` | `26214400` (25 MiB) | Largest source document (`413`). A proxy in front must accept bodies this large (ingress-nginx: `proxy-body-size`, 1 MB by default; `k8s/ingress.yaml` sets 500 MB) |
+| `DAKERA_DOCUMENT_MAX_TEXT_BYTES` | `20971520` (20 MiB) | Most extracted text (`413`) |
+| `DAKERA_DOCUMENT_MAX_CHUNKS` | `5000` | Most chunks per document (`413`, before any write) |
+| `DAKERA_DOCUMENT_CHUNK_TOKENS` | `400` | Default chunk budget, `[32, 8192]`, clamped to the model's cap |
+| `DAKERA_DOCUMENT_CHUNK_OVERLAP_TOKENS` | `50` | Default overlap, `[0, 1024]` |
+| `DAKERA_DOCUMENT_EXTRACT_TIMEOUT_SECS` | `60` | Wall clock of one PDF / DOCX extraction (`504 EXTRACTION_TIMEOUT` in the job) |
+| `DAKERA_DOCUMENT_EXTRACT_MEMORY_MB` | `1024` | Address-space limit of one `dakera extract-text` child |
+| `DAKERA_DOCUMENT_EXTRACT_CONCURRENCY` | `2` | Extractions at once. The container's memory limit must hold the server plus CONCURRENCY x MEMORY_MB (2 GB by default): 12G in `docker-compose.yml`, 4Gi in `k8s/` (lower the concurrency or raise the limit for PDF-heavy imports) |
+
+## Throughput and safety (server v0.12.3)
+
+Unset, each is sized by the server from the host (cores, container memory limit). The compose files pass them only
+when set.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_MAX_CONCURRENT_INFERENCES` | half the cores, at least `4` | Inference permits for document embeds, and separately for query embeds |
+| `DAKERA_ADMISSION_WAIT_SECS` | `20` | How long a write or recall queues for an inference permit or recall slot before `429` + `Retry-After` (`0` = refuse at once; at most half of `DAKERA_REQUEST_TIMEOUT`). Bulk loaders raise it together with `DAKERA_REQUEST_TIMEOUT` |
+| `DAKERA_INTERACTIVE_MIN_CORES` | half the cores, at least `1` | Cores ingest leaves to waiting searches |
+| `DAKERA_EMBED_PREPACK` / `DAKERA_RERANK_PREPACK` | auto | ONNX weight prepacking for the embedder / cross-encoder (bit-identical results, faster, about 0.3 GB of private memory per core each). Auto: on when the server runs under a container memory limit and the copies fit in 20% of it (`docker-compose.yml`'s 12G / 4 CPU limit turns both on); off without a container limit (`docker-compose.ha.yml`). `1` / `0` force it |
+| `DAKERA_RERANK_CACHE_ENTRIES` | `65536` | Exact cross-encoder score cache (LRU, about 150 bytes an entry, no text kept); `0` = off |
+| `DAKERA_RERANK_PASSAGE_TOKENS` | `0` | Most passage tokens per rerank pair (`0` = as many as fit); a long passage is scored on its best window |
+| `DAKERA_HNSW_CACHE_BYTES` | 40% of the memory limit | Byte budget of the ANN index cache (`DAKERA_HNSW_CACHE_MAX`, default `10000`, caps its entries) |
+| `DAKERA_MEM_TRIM_INTERVAL_SECS` | `60` | Periodic return of freed memory to the OS after growth (`0` = only under memory pressure) |
+| `DAKERA_LONG_CONTENT_WINDOWS` | off | Overlapping token windows for text longer than the embedding model reads, so a fact past its cap is found by vector search |
+| `DAKERA_AUDIT_SAMPLE_RATE` / `DAKERA_AUDIT_READ_SAMPLE_RATE` | `1.0` / the write rate | Share of successful writes / reads that get an audit line; errors, deletions, merges, restores and admin routes are always logged |
+| `DAKERA_AUTOPILOT_DEDUP_MODE` | `off` | Autopilot dedup: `off`, `report` (finds duplicates, changes nothing) or `merge` (folds them; the default of every release before 0.12.3) |
+| `DAKERA_AUTOPILOT_DEDUP_CROSS_SESSION` / `DAKERA_AUTOPILOT_CONSOLIDATE_CROSS_SESSION` | `false` | Let dedup / consolidation combine memories of different sessions |
+| `DAKERA_AUTOPILOT_TRASH_RETENTION_HOURS` | `168` | Memories removed by dedup or consolidation stay restorable this long (`GET /v1/memory/deduplicated`); `0` = deleted outright |
+| `REEMBED_BATCH_SIZE` / `REEMBED_INTERVAL_SECS` | `50` / `300` | Tiered re-embed (`DAKERA_TIERED=1`): memories per cycle and idle poll; a backlog drains back to back |
+
+The server raises its soft open-files limit to the hard one at startup (the compose files set `nofile` to
+65536 / 1048576).
 
 ## Docker Compose Port Overrides
 
@@ -148,8 +208,9 @@ The default and HA compose files expose different ports to allow co-deployment o
 | `PROMETHEUS_PORT` | `9090` | Prometheus (monitoring profile) |
 | `GRAFANA_PORT` | `3003` | Grafana (monitoring profile) |
 | `DASHBOARD_PORT` | `3002` | Dashboard UI (dashboard profile) |
-| `DASHBOARD_IMAGE` | `ghcr.io/dakera-ai/dakera-dashboard:0.5.0` | Dashboard image |
+| `DASHBOARD_IMAGE` | `ghcr.io/dakera-ai/dakera-dashboard:0.5.2` | Dashboard image |
 | `DAKERA_SESSION_TTL_HOURS` | `12` | Dashboard 0.4.0+: longest an operator sign-in lasts (idle sessions end after 2 h) |
+| `DAKERA_TRUSTED_PROXIES` | — | Dashboard 0.5.2: addresses / CIDRs (comma or space separated) of the reverse proxies whose `X-Forwarded-For` names the client (nginx `real_ip`; the sign-in throttle counts that address) |
 
 ### HA Profile (`docker-compose.ha.yml`)
 

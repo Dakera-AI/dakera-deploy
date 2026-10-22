@@ -1,26 +1,23 @@
 # dakera-deploy
 
-Kubernetes + Helm deployment infrastructure for the Dakera AI platform — Helm charts, Docker
-Compose configs, raw K8s manifests, and Prometheus/Grafana monitoring stack.
+Deployment infrastructure for the Dakera AI platform — Docker Compose configs, raw K8s manifests
+(kustomize), and the Prometheus/Grafana monitoring stack. The Helm chart is NOT in this repository:
+it lives in Dakera-AI/dakera-helm (`charts/dakera`), which publishes it.
 
 ## Key Commands
 ```bash
-helm lint charts/dakera                         # Lint Helm chart
-helm install dakera charts/dakera               # Install to current K8s context
-helm upgrade dakera charts/dakera               # Upgrade existing release
-helm package charts/dakera                      # Package chart (.tgz)
-docker-compose -f docker/docker-compose.yml up  # Local Docker deployment
-gh workflow run "Publish Helm Chart"            # Push chart to GHCR OCI registry
+docker compose -f docker/docker-compose.yml config --quiet   # Validate (CI mirror; needs DAKERA_ROOT_API_KEY set)
+docker compose -f docker/docker-compose.yml up -d            # Local Docker deployment
+kustomize build k8s/                                         # Render the raw manifests (CI mirror)
 ```
 
 ## Architecture
-- `charts/dakera/` — Helm chart: Chart.yaml, values.yaml, templates/
-- `docker/` — Docker Compose configs for dev/prod
-- `k8s/` — Raw Kubernetes manifests (non-Helm)
+- `docker/` — Docker Compose configs for dev/prod (production redeploys `docker compose --profile dashboard up -d`
+  from `docker/` on every engine merge, with the `:edge` image: keep `main` working with the current image)
+- `k8s/` — Raw Kubernetes manifests (non-Helm); `k8s-features/` — kustomize components / overlays
 - `monitoring/` — Prometheus scrape configs + Grafana dashboard JSONs
 
 ## Conventions
-- Helm chart OCI package lives at `oci://ghcr.io/dakera-ai/charts/dakera` (public)
-- Requires `GH_PAT_PACKAGES` secret for Helm publish workflow
+- Helm chart: Dakera-AI/dakera-helm, published as `oci://ghcr.io/dakera-ai/dakera-helm/dakera` and
+  https://dakera-ai.github.io/dakera-helm; keep its values in step with the compose files here
 - Deploy version bumps are batched weekly unless a security patch requires immediate redeploy
-- `Set Helm Chart GHCR Visibility` workflow must run after initial publish to make package public

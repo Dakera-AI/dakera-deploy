@@ -54,7 +54,7 @@ All rows are **off by default**. "Overlay" is the compose file in `docker/` (add
 | **Multi-vector records** | `docker-compose.records.yml` / `overlays/records` / `features.records` | `DAKERA_RECORDS`, `DAKERA_RECORD_MAX_VECTORS` (4096), `DAKERA_RECORD_MAX_BYTES` (8 MiB) | Extras are stored beside the primary vector (f32, f16 or i8) | At most 8 extra representations per record; over a limit is `413`; no record delete route (delete through the vector routes) | `records.enabled`, `records.max_*` |
 | **Late interaction** (colbert-small, MaxSim) | `docker-compose.late-interaction.yml` / `overlays/late-interaction` / `features.lateInteraction` | `DAKERA_MODEL=colbert-small`, `DAKERA_SCORING_STRATEGY=late-interaction`, `DAKERA_TIERED=0` | ~34 MB model, 96-d token vectors; steady recall p50 0.10 s at 1k memories, 0.23 s at 10k | Fresh store or migration; **not with `DAKERA_TIERED=1`** (`501`); not with multilingual / vision; `dakera downgrade` refuses it | `scoring.late_interaction.enabled`, `.model_supported`, `.lane` = `text`; `late_interaction_stats` |
 | **RaBitQ search mode** | `docker-compose.rabitq.yml` / `overlays/rabitq` / `features.rabitq` | `DAKERA_SEARCH_MODE=rabitq`, `DAKERA_RABITQ_BITS` (1) | **Saves latency, not memory**: codes sit next to the float vectors and are rebuilt after a restart | Any store; drop the setting to go back | `search_mode` = `rabitq` |
-| **Rerank controls** | env only (all shapes) | `DAKERA_RERANK_MAX_CANDIDATES`; per request `rerank_candidates`; `rerank_report` in the answer | Cuts CPU per recall (the cost is per candidate) | Unset = the whole pool, as before | `rerank_report` on recall / search |
+| **Rerank controls** | env only (all shapes) | `DAKERA_RERANK_MAX_CANDIDATES`; per request `rerank_candidates`; `rerank_report` in the answer | Cuts CPU per recall (the cost is per candidate) | Unset = from v0.12.3 the largest pool a `top_k <= 10` recall builds (195 with default settings); `0` = no cap | `rerank_report` on recall / search |
 | **Model store** (`dakera models list / pull / prune`, baked images, proxies, mirror, offline) | the base files pass `HF_ENDPOINT`, `HF_HUB_OFFLINE`, `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`; K8s `models-cache` component; Helm `dakera.models.*` | `HF_HOME`, `HF_TOKEN`, `HF_ENDPOINT`, `HF_HUB_OFFLINE`, proxy variables, `DAKERA_MODEL_PATH` (+ `_WHISPER_`, `_VISION_`) | The image needs no volume; other models need a model volume | `https://` proxy URLs are not supported | `dakera models list`; `/health/ready`; `/health` `degraded` |
 | **Security** (gRPC auth, scoped keys, keyring, cluster secret) | on by default (v0.12 behaviour); secrets in `.env`, `.env.ha`, K8s Secret | `DAKERA_AUTH_ENABLED`, `DAKERA_ENCRYPTION_KEY`, `DAKERA_CLUSTER_SECRET`, `DAKERA_CLUSTER_NODE_ID` | none | gRPC clients need a key; namespace-pinned keys lose node-wide routes | `/health` `config_warnings`; `GET /admin/encryption/status`; `/admin/cluster/status` |
 | **Reliability** (RocksDB hot tier, WAL group commit, durable outbox, tombstones, bucket per node) | the base files (tiered storage on) | `DAKERA_ROCKSDB_SYNC`, `DAKERA_HOT_TIER`, `DAKERA_WAL*`, `DAKERA_CLUSTER_*` | fsync per write batch; the outbox is bounded at 64 MiB | One S3 bucket per cluster node; one server per data root | `/health` `degraded`; `/admin/cluster/status` |
@@ -274,10 +274,10 @@ job cap. `DAKERA_MEM_BACKPRESSURE=0` turns the refusals off (reservations are st
   the local cache.
 - **CPU is shared.** Every model draws from one pool of compute tokens (one per core): query-side work
   (query embeddings, rerank, visual queries) is served first; bulk work (document embeddings,
-  transcription, image pages, entity extraction) uses at most `cores - 1` at once, so a transcription
-  never takes the whole machine from recall.
-- SDK clients time out at 30 s; the server answers its queueing `503` within 20 s so that the `503` +
-  `Retry-After` arrives first: retry on `503`.
+  transcription, image pages, entity extraction) leaves `DAKERA_INTERACTIVE_MIN_CORES` (half the cores by
+  default, from v0.12.3) to waiting searches, so a transcription never takes the whole machine from recall.
+- SDK clients time out at 30 s; a write or recall that gets no slot within `DAKERA_ADMISSION_WAIT_SECS` (20 s)
+  is answered `429` + `Retry-After` (from v0.12.3; `503` before), so the answer arrives first: retry on it.
 
 **Sizing the multimodal box.** The measured configuration is a **4-core / 8 GiB** container with every
 model loaded: **530 MiB anonymous memory**, no out-of-memory kill; an image page peaked **+1.9 GiB at 17
@@ -357,7 +357,8 @@ to shrink RAM. For memory, v0.12 already stores HNSW node vectors in f16 (see
 
 The cross-encoder reranker is on by default and is the main CPU cost of a recall. v0.12 lets you bound it.
 
-- `DAKERA_RERANK_MAX_CANDIDATES` (server-wide, unset = the whole candidate pool) and the per-request
+- `DAKERA_RERANK_MAX_CANDIDATES` (server-wide; unset = from v0.12.3 the largest pool a `top_k <= 10` recall
+  builds, 195 with default settings; `0` = no cap) and the per-request
   `rerank_candidates` cap how many candidates the cross-encoder scores; the best by retrieval score are
   scored, the rest keep their order below. A request's value is capped by the server's. Applies to
   `/v1/memory/recall` and `/v1/memory/search`.
@@ -382,7 +383,9 @@ needs **no network** (`--network none` works), downloads, converts and writes no
 read-only root filesystem, and is not affected by anything mounted at `/app/models`. Image: 783 MB
 (release notes, amd64; 1.24 GB unpacked in `docker images`), ready 4.4 s after start (release notes;
 4.2 s measured in the deployment validation). The `:gpu` image (NVIDIA GPU required, ~4-5 GB) ships
-FP32 models for CUDA.
+FP32 models for CUDA. From v0.12.3 it is built on CUDA 13: the host needs NVIDIA driver **R580 or newer**
+(an older driver cannot run it). From v0.12.3 the CPU image is distroless (uid/gid 1000, `/bin/sh` only: no
+`curl`, `wget` or coreutils inside); its health check is `dakera healthcheck`.
 
 Everything else downloads on first use into the **model cache** (`HF_HOME`, `/app/models`, a volume):
 
@@ -704,7 +707,7 @@ saved and reloaded instead of rebuilt; concurrent writes share the log's fsync.
   cores, lower `DAKERA_RERANK_MAX_CANDIDATES` (the cost is per candidate: an earlier spike scored 150 pairs in
   20.7 CPU-s, about 0.14 CPU-s per candidate, so capping at 50 candidates is estimated at about 7 CPU-s;
   an estimate, measure it on your data) or lower `top_k`. Recall queueing is derived from the core count (at most two
-  recalls per core, at least four, run at once; the rest queue and answer `503` + `Retry-After` after 20 s).
+  recalls per core, at least four, run at once; the rest queue and answer `429` + `Retry-After` after 20 s).
 - **Multimodal box.** 4 cores and 8 GiB is the measured configuration for every model; the image peak is
   +1.9 GiB at 17 tiles and a page reserves that working memory from the budget (limit x 0.85) before it
   starts: when it does not fit, it is answered `503` + `Retry-After`, so leave that headroom. Pages cost about
