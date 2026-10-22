@@ -71,7 +71,7 @@ jobs:
             -f docker-compose.rabitq.yml config --quiet
 
       - name: Lint Dockerfiles
-        uses: hadolint/hadolint-action@v3.4.0
+        uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: docker/Dockerfile
           failure-threshold: warning
