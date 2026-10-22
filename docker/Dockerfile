@@ -1,16 +1,16 @@
 # =============================================================================
 # Dakera server image, built from SOURCE: a copy of the engine's own Dockerfile
-# at tag v0.12.1 (github.com/Dakera-AI/dakera, Dockerfile), which builds the
-# released ghcr.io/dakera-ai/dakera:0.12.1 image. Differences from upstream are
+# at tag v0.12.3 (github.com/Dakera-AI/dakera, Dockerfile), which builds the
+# released ghcr.io/dakera-ai/dakera:0.12.3 image. Differences from upstream are
 # hadolint-only: inline ignores for the pinned SHA-256 and TOKENIZER_URL build args
-# (DL3064, read as secrets) and the `echo | sha256sum -c` pipes (DL4006), and the
-# HEALTHCHECK in exec form (DL3025). Re-sync it on every server release.
+# (DL3064, read as secrets) and the `echo | sha256sum -c` pipes (DL4006). Re-sync
+# it on every server release.
 #
 # Run it from the root of a dakera checkout (the build context is the engine
 # source, not this repository):
-#   git clone --branch v0.12.1 https://github.com/Dakera-AI/dakera && cd dakera
-#   docker build -f /path/to/dakera-deploy/docker/Dockerfile -t dakera:0.12.1 .
-# Everyone else: use the published image, ghcr.io/dakera-ai/dakera:0.12.1
+#   git clone --branch v0.12.3 https://github.com/Dakera-AI/dakera && cd dakera
+#   docker build -f /path/to/dakera-deploy/docker/Dockerfile -t dakera:0.12.3 .
+# Everyone else: use the published image, ghcr.io/dakera-ai/dakera:0.12.3
 # (docker/docker-compose.yml pins it).
 # =============================================================================
 
@@ -21,15 +21,24 @@
 #   - Multi-stage build for minimal final image (≤150 MB target post-CE-3)
 #   - cargo-chef for dependency caching (fast rebuilds)
 #   - Explicit strip stage (belt-and-suspenders with Cargo strip = "symbols")
-#   - Non-root user for security
+#   - Non-root user for security (uid/gid 1000 `dakera`)
 #   - HuggingFace model cache directory
 #   - Health checks for Kubernetes readiness/liveness probes
+#   - Distroless runtime (gcr.io/distroless/cc-debian13): glibc, libstdc++,
+#     libssl3 and CA certificates, plus Debian's dash as /bin/sh — no curl, no
+#     package manager, no coreutils
+#
+# Base images are pinned by digest (tag@digest; the tag is documentation, the
+# digest is what is pulled). Bump a digest with
+#   docker buildx imagetools inspect <image>:<tag>
+# and re-run a trivy scan of the runtime image (docs/v0.12/docker-models.md).
 # =============================================================================
 
 # -----------------------------------------------------------------------------
 # Stage 1: Chef - Prepare dependency recipe
 # -----------------------------------------------------------------------------
-FROM rust:1.95-slim-trixie AS chef
+# rust:1.95-slim-trixie
+FROM rust:1.95-slim-trixie@sha256:e14e87345b4d5964ddcc3491d27ee046a0f23820f340c3c1e24da6880141f7c0 AS chef
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
@@ -92,10 +101,10 @@ ENV CARGO_BUILD_JOBS=2
 # context (.dockerignore: crates/**/benches/), so create empty stubs for each declared
 # engine bench purely to satisfy manifest validation — `cargo build` never compiles
 # benches, and this dir is not carried into the runtime image. If a [[bench]] is added
-# to crates/engine/Cargo.toml, add its name here (the release image build will fail loudly
-# with the missing name until then). DAK-9959.
+# to crates/engine/Cargo.toml, add its name here and in Dockerfile.gpu; PR Guardrails
+# (scripts/check_dockerfile_bench_stubs.py) fails until both list it. DAK-9959.
 RUN mkdir -p crates/engine/benches && \
-    for b in concurrent_load index_comparison insert_benchmark query_benchmark scale_recall search_modes; do \
+    for b in concurrent_load graph_edges index_comparison insert_benchmark query_benchmark scale_recall search_modes; do \
       printf 'fn main() {}\n' > "crates/engine/benches/$b.rs"; \
     done && \
     . /etc/cargo_rustflags.sh && cargo chef cook --release --recipe-path recipe.json
@@ -151,7 +160,8 @@ RUN strip --strip-all /app/target/release/dakera
 # (onnx/model.onnx, 1.34 GB) is a separate image-size decision and is still
 # fetched at runtime (guarded by the DAK-5976 truncation check); baking the CPU
 # file does NOT affect the GPU path — it reads a different filename.
-FROM debian:trixie-slim AS model-fetch
+# debian:trixie-slim — build-only stage (curl fetches the models); never shipped
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS model-fetch
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -247,43 +257,72 @@ RUN HF_HUB_OFFLINE=1 /app/target/release/dakera models pull --bake --dir /models
       bge-large bge-reranker-v2-m3
 
 # -----------------------------------------------------------------------------
-# Stage 5: Runtime - Minimal production image
+# Stage 5a: Runtime base
 # -----------------------------------------------------------------------------
-FROM debian:trixie-slim AS runtime
+# Distroless cc (Debian 13, the release the binary is built on): glibc,
+# libgcc, libstdc++ (ONNX Runtime is linked in statically but is C++),
+# libssl3, zlib, zstd, CA certificates and tzdata. No package manager and no
+# curl (issue #920 F6): the image's HEALTHCHECK, and any probe run inside the
+# container, is `dakera healthcheck [PATH]`; Kubernetes uses httpGet probes.
+# One addition (stage 5b): Debian's dash as /bin/sh, so `CMD-SHELL` health
+# checks and `docker exec … sh` keep working — the deployed compose files use
+# a CMD-SHELL check that runs on images with and without curl.
+# gcr.io/distroless/cc-debian13:nonroot
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2 AS runtime-base
 
-# Install runtime dependencies
-# - ca-certificates: HTTPS for HuggingFace model downloads
-# - libssl3: TLS support
-# - curl: Health check support
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    libssl3 \
-    libstdc++6 \
-    curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
-
-# Create non-root user for security
-RUN groupadd --gid 1000 dakera && \
-    useradd --uid 1000 --gid dakera --shell /bin/bash --create-home dakera
-
-# Create the data root (DAKERA_STORAGE_PATH=/data: every local path — WAL,
-# hot/warm tiers, knowledge graph, filesystem backend — derives from it), the
-# model cache (HF_HOME: models downloaded on first use) and the image's model
-# store (owned by the runtime user so a derived image can add to it:
-# `RUN dakera models pull --bake whisper vision`)
+# -----------------------------------------------------------------------------
+# Stage 5b: Runtime filesystem skeleton (build-only, never shipped)
+# -----------------------------------------------------------------------------
+# The user entry, the directories it owns and the shell are prepared here (in
+# the model-fetch stage's Debian 13) and copied in: the `dakera` entries are
+# appended to the base's own /etc/passwd and /etc/group; /usr/bin/dash (needs
+# only libc) with /usr/bin/sh -> dash, and dash's dpkg record in
+# /var/lib/dpkg/status.d (distroless's package database), so image scanners
+# and the SBOM see the shell and its version. uid/gid 1000 `dakera` is unchanged
+# from the earlier Debian image: volumes created by it stay writable.
 # The data root's standard subdirectories exist in the image, owned by the
-# runtime user: a named volume mounted on one of them (a compose file
-# keeping the hot tier or warm cache on its own volume) is initialised from
-# the image's directory and so owned by `dakera` too; a path the image lacks
-# is created root-owned and the server cannot open it. Empty directories are
-# not data: a fresh install stays fresh.
-RUN mkdir -p /data/wal /data/wal-snapshots /data/hot /data/cache/warm /data/cluster-outbox /app/models /usr/local/share/dakera/models && \
-    chown -R dakera:dakera /app /data /usr/local/share/dakera
+# runtime user: a named volume mounted on one of them (a compose file keeping
+# the hot tier or warm cache on its own volume) is initialised from the
+# image's directory and so owned by `dakera` too; a path the image lacks is
+# created root-owned and the server cannot open it. Empty directories are not
+# data: a fresh install stays fresh. The image's model store is owned by the
+# runtime user so a derived image can add to it (`RUN dakera models pull
+# --bake whisper vision`).
+FROM model-fetch AS runtime-fs
+COPY --from=runtime-base /etc/passwd /etc/group /rootfs/etc/
+RUN groupadd --gid 1000 dakera && \
+    useradd --uid 1000 --gid dakera --shell /sbin/nologin --home-dir /home/dakera --no-create-home dakera && \
+    grep '^dakera:' /etc/passwd >> /rootfs/etc/passwd && \
+    grep '^dakera:' /etc/group >> /rootfs/etc/group
+RUN mkdir -p /rootfs/usr/bin /rootfs/var/lib/dpkg/status.d && \
+    cp /usr/bin/dash /rootfs/usr/bin/dash && \
+    ln -s dash /rootfs/usr/bin/sh && \
+    dpkg-query --status dash > /rootfs/var/lib/dpkg/status.d/dash && \
+    cp /var/lib/dpkg/info/dash.md5sums /rootfs/var/lib/dpkg/status.d/dash.md5sums
+RUN mkdir -p /data/wal /data/wal-snapshots /data/hot /data/cache/warm /data/cluster-outbox /app/models /usr/local/share/dakera/models /home/dakera && \
+    chown -R dakera:dakera /app /data /usr/local/share/dakera /home/dakera
 
-# Copy the stripped binary
-COPY --from=stripper /app/target/release/dakera /usr/local/bin/dakera
-RUN chmod +x /usr/local/bin/dakera
+# -----------------------------------------------------------------------------
+# Stage 5: Runtime - Minimal production image (distroless, see stage 5a)
+# -----------------------------------------------------------------------------
+FROM runtime-base AS runtime
+
+# The base's users plus `dakera` (uid/gid 1000); root-owned, like the base's.
+COPY --from=runtime-fs --chown=0:0 /rootfs/etc/passwd /rootfs/etc/group /etc/
+# /bin/sh (dash) and its dpkg record; /bin is a link to /usr/bin in the base.
+COPY --from=runtime-fs --chown=0:0 /rootfs/usr/bin/ /usr/bin/
+COPY --from=runtime-fs --chown=0:0 /rootfs/var/lib/dpkg/status.d/ /var/lib/dpkg/status.d/
+# The data root (DAKERA_STORAGE_PATH=/data: every local path — WAL, hot/warm
+# tiers, knowledge graph, filesystem backend — derives from it), the model
+# cache (HF_HOME: models downloaded on first use), the image's model store and
+# the user's home, all owned by `dakera`.
+COPY --from=runtime-fs --chown=dakera:dakera /data /data
+COPY --from=runtime-fs --chown=dakera:dakera /app /app
+COPY --from=runtime-fs --chown=dakera:dakera /usr/local/share/dakera /usr/local/share/dakera
+COPY --from=runtime-fs --chown=dakera:dakera /home/dakera /home/dakera
+
+# Copy the stripped binary (root-owned, mode 0755)
+COPY --from=stripper --chown=0:0 /app/target/release/dakera /usr/local/bin/dakera
 
 # DAK-6203: The DAK-6129 "bundle vocab_matrix.bin from dakera-ai/bge-large-model2vec-256d"
 # step was removed. That HuggingFace repo (and the entire dakera-ai HF org) never existed
@@ -299,8 +338,9 @@ RUN chmod +x /usr/local/bin/dakera
 # writes nothing — whatever is mounted at /app/models, read-only root included.
 COPY --from=model-convert --chown=dakera:dakera /models/dakera /usr/local/share/dakera/models/dakera
 
-# Switch to non-root user
-USER dakera
+# Switch to the non-root user (numeric, so Kubernetes `runAsNonRoot` can verify
+# it without a `runAsUser`; it is `dakera` in /etc/passwd)
+USER 1000:1000
 WORKDIR /app
 
 # Environment variables
@@ -325,7 +365,9 @@ ENV HF_HOME=/app/models \
 EXPOSE 3000 50051
 
 # Health check - verify API is responsive
-# Uses DAKERA_PORT env var so the check works regardless of configured port.
+# `dakera healthcheck` (no shell, no curl) sends GET /health to 127.0.0.1 (or
+# DAKERA_HOST when it is a specific address) on DAKERA_PORT (default 3000), so
+# the check works regardless of the configured port; it exits 0 only on 200.
 # The port answers while the server starts (TRACKER H3): /health is 503
 # "starting" until the models are loaded. The shipped models load in seconds;
 # a model the image does not ship (DAKERA_MODEL=bge-m3, colbert-small, ...)
@@ -333,7 +375,7 @@ EXPOSE 3000 50051
 # do not count, and the first success ends it, so a generous start period costs
 # a fast start nothing.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=600s --retries=3 \
-    CMD ["sh", "-c", "curl -f http://127.0.0.1:${DAKERA_PORT:-3000}/health || exit 1"]
+    CMD ["dakera", "healthcheck"]
 
 # Volumes: the data root and the model cache. Before v0.12 the data root was
 # /app/data; a server that finds data there and none under /data refuses to
