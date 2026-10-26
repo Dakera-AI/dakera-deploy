@@ -268,7 +268,7 @@ RUN HF_HUB_OFFLINE=1 /app/target/release/dakera models pull --bake --dir /models
 # checks and `docker exec … sh` keep working — the deployed compose files use
 # a CMD-SHELL check that runs on images with and without curl.
 # gcr.io/distroless/cc-debian13:nonroot
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2 AS runtime-base
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e AS runtime-base
 
 # -----------------------------------------------------------------------------
 # Stage 5b: Runtime filesystem skeleton (build-only, never shipped)
