@@ -44,7 +44,3 @@ temp/
 
 # Database files
 *.db
-
-# Cloudflare Tunnel (docker/docker-compose.cloud.yml): real config and credentials
-docker/cloudflared/config.yml
-docker/cloudflared/*.json
