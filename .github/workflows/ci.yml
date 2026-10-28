@@ -69,6 +69,8 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.multilingual.yml \
             -f docker-compose.multimodal.yml -f docker-compose.records.yml \
             -f docker-compose.rabitq.yml config --quiet
+          echo "== docker-compose.cloud.yml (Dakera Cloud: tunnel + shared-server settings)"
+          docker compose -f docker-compose.yml -f docker-compose.cloud.yml --profile monitoring config --quiet
 
       - name: Lint Dockerfiles
         uses: hadolint/hadolint-action@v3.4.0

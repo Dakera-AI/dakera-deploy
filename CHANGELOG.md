@@ -4,6 +4,15 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+### Added: Dakera Cloud overlay
+
+- `docker/docker-compose.cloud.yml`: the engine behind a Cloudflare Tunnel for Dakera Cloud. Two `cloudflared`
+  replicas dial out (no public ports); ingress as code in `docker/cloudflared/config.yml.example`
+  (`api.dakera.ai`, `engine-origin.dakera.ai` behind Access, `ops.dakera.ai` for Grafana; `/metrics`, `/admin` and
+  `/internal` answer 404 from the edge). Shared-server engine settings: `DAKERA_RERANK_MAX_CANDIDATES=30`,
+  `DAKERA_REQUEST_TIMEOUT=90` (inside Cloudflare's 125 s), `DAKERA_ADMISSION_WAIT_SECS=20`, `DAKERA_TELEMETRY=0`.
+  Runbook: `docs/cloud.md`. CI validates the overlay.
+
 ### Changed: Dakera server v0.12.3, Dashboard 0.5.2
 
 Merge after the `ghcr.io/dakera-ai/dakera:0.12.3` and `ghcr.io/dakera-ai/dakera-dashboard:0.5.2` images are
