@@ -1,6 +1,6 @@
 services:
   dakera:
-    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.3}
+    image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.4}
     ports:
       - "127.0.0.1:3000:3000"
       - "127.0.0.1:50051:50051"

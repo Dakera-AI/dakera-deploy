@@ -72,12 +72,13 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DAKERA_MODEL` | `bge-large` | Embedding model. `bge-large` and the reranker ship in the image; any other model downloads into the model cache (`/app/models`) on first use or via `dakera models pull` |
+| `DAKERA_MODEL` | `bge-large` | Embedding model. `bge-large` and the reranker ship in the image; any other model downloads into the model cache (`/app/models`) on first use or via `dakera models pull`. Sizing: at least 4 CPUs (8 for `bge-m3`) |
+| `DAKERA_GLINER_MODEL` | `gliner-bi-small` with an English embedding model, `gliner-x-small` with `bge-m3` / `multilingual-minilm` | Server 0.12.4. Entity-extraction model; both defaults ship in the image. Must read the embedding model's languages (English: `gliner-bi-small`, `gliner-bi-edge`, `gliner-medium`; multilingual: `gliner-x-small`, `gliner-multi`): another one refuses a fresh install (an existing deployment is warned and runs the default). A change re-tags stored memories in the background |
 | `DAKERA_ALLOW_MODEL_CHANGE` | — | From 0.12.1 only needed where the background re-embed cannot run (`DAKERA_TIERED=1`, late-interaction scoring, the visual lane, a recorded model this build does not know): set `1` for ONE start to acknowledge that the store was embedded by another model, then re-embed with `POST /admin/namespaces/migrate-dimensions` and remove it. Otherwise a changed `DAKERA_MODEL` re-embeds the store in the background |
 | `DAKERA_TIERED` | `false` (compose: `1`) | The tiered **embedding** engine (not tiered storage): it always embeds with `bge-large`, ignores `DAKERA_MODEL` and refuses late interaction. Identical on every node sharing a store |
 | `DAKERA_MAX_SEQ_LENGTH` | model maximum (`bge-m3`: 2048) | Truncation length in tokens for text models |
 | `HF_TOKEN` | — | Hugging Face token for model downloads (optional) |
-| `HF_ENDPOINT` | `https://huggingface.co` | A Hugging Face mirror or internal proxy of the Hub |
+| `HF_ENDPOINT` | `https://huggingface.co` | A Hugging Face mirror or internal proxy of the Hub. From 0.12.4 files come from Dakera's copies (`huggingface.co/DakeraAI`) first, then the original repositories; both go through this endpoint |
 | `HF_HUB_OFFLINE` | — | `1`: never download; a missing file fails at once naming it (air-gapped) |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` / `NO_PROXY` | — | Proxy for model downloads (`http://` or `socks4/4a/5/5h://`; **not** `https://`). Include `127.0.0.1,localhost,minio` in `NO_PROXY` |
 | `DAKERA_MODEL_PATH` / `DAKERA_WHISPER_MODEL_PATH` / `DAKERA_VISION_MODEL_PATH` | — | Operator directories holding the model files (offline); SHA-256-checked unless `DAKERA_MODEL_PATH_SKIP_VERIFY=1` |
@@ -131,7 +132,7 @@ Automatically moves data between hot (L1), warm (L2/RocksDB), and cold (L3/S3) t
 |----------|---------|-------------|
 | `DAKERA_MAX_BODY_SIZE` | `10485760` (10 MiB) | Max request body size in bytes. The compose files and the ConfigMap set `524288000` (500 MB) |
 | `DAKERA_REQUEST_TIMEOUT` | `300` | Request timeout in seconds, the outer ceiling. `docker-compose.yml` sets 600, `docker-compose.ha.yml` and the ConfigMap 120 |
-| `DAKERA_RATE_LIMIT_RPS` / `DAKERA_RATE_LIMIT_BURST` / `DAKERA_RATE_LIMIT_ENABLED` | `100` / `50` / `true` | Server-wide rate limit (REST and gRPC). v0.11's `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` still work, deprecated |
+| `DAKERA_RATE_LIMIT_RPS` / `DAKERA_RATE_LIMIT_BURST` / `DAKERA_RATE_LIMIT_ENABLED` | `100` / `50` / `true` | Rate limit (REST and gRPC). From 0.12.4 per API key (per client address with authentication off; across replicas with Redis); before, one bucket for the server. v0.11's `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` still work, deprecated |
 | `DAKERA_HTTP_HEADER_READ_TIMEOUT_SECS` | `30` | Server v0.12.3. Seconds a client has to send a complete HTTP/1 request head on the REST port, counted from when the server waits for one (a new or an idle keep-alive connection, which is then closed); `[1, 86400]`. A proxy that keeps idle upstream connections longer (ingress-nginx 60 s, Traefik 90 s by default; `docker-compose.ha.yml`'s Traefik is set to 25 s) must be set below it, or this raised above the proxy's. From 0.12.3 it also closes an idle HTTP/2 connection that sends no request |
 | `DAKERA_MAX_CONNECTIONS` | `10000` | Server 0.12.3. Most open REST connections, `[1, 1000000]`; one over the cap is closed at once. Keep it below the file-descriptor limit |
 | `DAKERA_SHUTDOWN_DRAIN_SECS` | `8` | Server 0.12.3. Longest REST drain at shutdown, `[0, 3600]` (SSE streams end at the signal). Plus up to 15 s for media jobs: keep the sum below `stop_grace_period` / `terminationGracePeriodSeconds` (30 s here) |
@@ -146,7 +147,7 @@ The compose files pass these only when they are set (an older image reports a na
 | `DAKERA_NEIGHBORHOOD_MODE` | `inline` | Neighbourhood context of a recall that names no `neighborhood_mode`: `inline` (after the `top_k` results, marked `retrieval: "neighborhood"`), `separate` (in `context_memories`; `memories` holds at most `top_k`) or `off` |
 | `DAKERA_NEIGHBORHOOD_EVENT_TIME` | off | Neighbourhood window on event time instead of ingest time |
 | `DAKERA_RECALL_RANK_DEPTH` | `10` | Ranking depth floor `[1, 1000]`: the first `k` of a `top_k=k` recall equal the first `k` of a `top_k=10` recall |
-| `DAKERA_RECALL_COLLAPSE_DERIVED` | off | One result per source memory (sentence sub-memories collapsed; `matched_text`, `matched_ids`) |
+| `DAKERA_RECALL_COLLAPSE_DERIVED` | on (0.12.4; off before) | One result per source memory (sentence sub-memories collapsed; `matched_text`, `matched_ids`) |
 | `DAKERA_RECALL_EXCLUDE_SUMMARIES` | off | Session summaries left out unless a request sets `include_summaries: true` |
 | `DAKERA_RECALL_SESSION_CAP` | `0` | At most N results of one session in the head of list / aggregation recalls (`0` = no cap) |
 | `DAKERA_SENTENCE_DECOMP` | on | `0`: no sentence sub-memories derived on any write path |
@@ -166,7 +167,7 @@ On by default. The compose files pass these only when set. Server guide: `docs/d
 | `DAKERA_DOCUMENT_CHUNK_OVERLAP_TOKENS` | `50` | Default overlap, `[0, 1024]` |
 | `DAKERA_DOCUMENT_EXTRACT_TIMEOUT_SECS` | `60` | Wall clock of one PDF / DOCX extraction (`504 EXTRACTION_TIMEOUT` in the job) |
 | `DAKERA_DOCUMENT_EXTRACT_MEMORY_MB` | `1024` | Address-space limit of one `dakera extract-text` child |
-| `DAKERA_DOCUMENT_EXTRACT_CONCURRENCY` | `2` | Extractions at once. The container's memory limit must hold the server plus CONCURRENCY x MEMORY_MB (2 GB by default): 12G in `docker-compose.yml`, 4Gi in `k8s/` (lower the concurrency or raise the limit for PDF-heavy imports) |
+| `DAKERA_DOCUMENT_EXTRACT_CONCURRENCY` | `2` | Extractions at once. The container's memory limit must hold the server plus CONCURRENCY x MEMORY_MB (2 GB by default): 12G in `docker-compose.yml`, 6Gi in `k8s/` (lower the concurrency or raise the limit for PDF-heavy imports) |
 
 ## Throughput and safety (server v0.12.3)
 
@@ -183,15 +184,42 @@ when set.
 | `DAKERA_RERANK_PASSAGE_TOKENS` | `0` | Most passage tokens per rerank pair (`0` = as many as fit); a long passage is scored on its best window |
 | `DAKERA_HNSW_CACHE_BYTES` | 40% of the memory limit | Byte budget of the ANN index cache (`DAKERA_HNSW_CACHE_MAX`, default `10000`, caps its entries) |
 | `DAKERA_MEM_TRIM_INTERVAL_SECS` | `60` | Periodic return of freed memory to the OS after growth (`0` = only under memory pressure) |
-| `DAKERA_LONG_CONTENT_WINDOWS` | off | Overlapping token windows for text longer than the embedding model reads, so a fact past its cap is found by vector search |
+| `DAKERA_LONG_CONTENT_WINDOWS` | on (0.12.4; off before) | Overlapping token windows for text longer than the embedding model reads, so a fact past its cap is found by vector search |
 | `DAKERA_AUDIT_SAMPLE_RATE` / `DAKERA_AUDIT_READ_SAMPLE_RATE` | `1.0` / the write rate | Share of successful writes / reads that get an audit line; errors, deletions, merges, restores and admin routes are always logged |
-| `DAKERA_AUTOPILOT_DEDUP_MODE` | `off` | Autopilot dedup: `off`, `report` (finds duplicates, changes nothing) or `merge` (folds them; the default of every release before 0.12.3) |
+| `DAKERA_AUTOPILOT_DEDUP_MODE` | `report` (0.12.4; `off` in 0.12.3) | Autopilot dedup: `off`, `report` (finds duplicates, changes nothing) or `merge` (folds them; the default of every release before 0.12.3) |
 | `DAKERA_AUTOPILOT_DEDUP_CROSS_SESSION` / `DAKERA_AUTOPILOT_CONSOLIDATE_CROSS_SESSION` | `false` | Let dedup / consolidation combine memories of different sessions |
 | `DAKERA_AUTOPILOT_TRASH_RETENTION_HOURS` | `168` | Memories removed by dedup or consolidation stay restorable this long (`GET /v1/memory/deduplicated`); `0` = deleted outright |
 | `REEMBED_BATCH_SIZE` / `REEMBED_INTERVAL_SECS` | `50` / `300` | Tiered re-embed (`DAKERA_TIERED=1`): memories per cycle and idle poll; a backlog drains back to back |
 
 The server raises its soft open-files limit to the hard one at startup (the compose files set `nofile` to
 65536 / 1048576).
+
+## Server v0.12.4
+
+The compose files pass these only when they are set (an older image reports a name it does not know). Each
+default below is what v0.12.4 runs; the description says how to get 0.12.3's behaviour back. Server guide:
+`docs/v0.12/UPGRADE.md`, "Upgrading from v0.12.3 to v0.12.4".
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DAKERA_CONTACT_EMAIL` | — | Your e-mail address: shown in the startup banner and, when telemetry is on, sent with it so the Dakera team can reach you about this install. A value that is not an address refuses the boot |
+| `DAKERA_DEFAULT_ENTITY_TYPES` | `person,organization,location` | Entity types extracted in every namespace that never set `extract_entities` / `entity_types` (GLiNER labels or `@conversational`, `@technical`, `@personal`, `@pii`). `none` = no server default (0.12.3). An invalid label refuses the boot |
+| `DAKERA_ENTITY_TAGGING` | `background` | `background`: the store answers with the rule-based tags and a worker adds the model's; `inline`: inside the store |
+| `DAKERA_STANDING_INSTRUCTIONS` | on | Store-time detection of standing instructions ("From now on, answer in French"), tagged `dakera-instruction` and returned in recall's `instructions`; `0` = off |
+| `DAKERA_FORGET_REQUESTS` | `detect` | A stored text that asks to forget something: `detect` reports it in the store's answer, `apply` also forgets it restorably, `off` does not read it |
+| `DAKERA_RECALL_IMPORTANCE_WEIGHTED` | `false` | Server default of recall's `importance_weighted` (a request that names it wins). `true` = 0.12.3's flat importance-heavy weights |
+| `DAKERA_RECALL_INCLUDE_ASSOCIATED` | on | Knowledge-graph neighbours of the recalled memories in `associated_memories` (ranking unchanged); `false` = off |
+| `DAKERA_RERANK_HEAD` | `10` | A reranked recall above this `top_k` returns the cross-encoder's first N, then the recall without it, then the reranked rest; `0` = the reranked list alone (0.12.3) |
+| `DAKERA_NORMALIZE_RELEVANCE` | on | Min-max normalised relevance before the blend; `0` = off (0.12.3) |
+| `DAKERA_BITEMPORAL_INGEST` | on | Stamp `valid_from` on ingest so the bi-temporal weight has something to read; `0` = off (0.12.3) |
+| `DAKERA_AUTOPILOT_CONSOLIDATION_MODE` | `report` | Autopilot consolidation: `off`, `report` (reports groups, changes nothing) or `merge` (every earlier release) |
+| `DAKERA_EXTRACTOR_ON_STORE` | `false` | Tag stored memories with the configured LLM extractor instead of GLiNER (each tag is a provider call). Not passed by the compose files |
+| `DAKERA_STRONG_READ_TIMEOUT_MS` | `2000` | Cluster: how long a `strong` / bounded-staleness read waits for its peers before `503`, `[50, 60000]` (`docker-compose.ha.yml` passes it) |
+
+Also from 0.12.4: the server warns at startup (`/health` `config_warnings`) about too few CPUs for the models
+(`sizing`: 4, or 8 for `bge-m3`), a data path set without `DAKERA_STORAGE` (`storage_in_memory`: the default
+`memory` store replays the write-ahead log at every start) and, on Kubernetes, a data root a new pod loses
+(`ephemeral_data_dir`).
 
 ## Docker Compose Port Overrides
 

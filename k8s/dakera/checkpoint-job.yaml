@@ -1,0 +1,81 @@
+# =============================================================================
+# Dakera v0.12.4 -> an earlier v0.12 (one-off Job, run with the 0.12.4 image)
+# =============================================================================
+# The on-disk formats are the same, so going back within v0.12 is an image swap,
+# with one step first. 0.12.4 snapshots while writes go on and marks refused
+# writes void in the write-ahead log; an earlier 0.12 replays the log without
+# those rules. `dakera checkpoint` replays the log, takes one snapshot of the
+# stopped store and truncates the log, so the earlier image has nothing to
+# replay. Run it AFTER the server has stopped: it refuses (exit 78, nothing
+# changed) while a server runs on the data. Same environment and volume as the
+# server. Never put it in the server's own `args`.
+#   kubectl -n dakera scale deploy/dakera --replicas=0
+#   kubectl apply -f k8s/dakera/checkpoint-job.yaml
+#   kubectl -n dakera wait --for=condition=complete job/dakera-checkpoint --timeout=30m
+#   kubectl -n dakera logs job/dakera-checkpoint
+#   kubectl -n dakera delete job dakera-checkpoint
+# Exit 0 = done (or nothing to do: no write-ahead log); 1 = failed (do NOT start
+# the earlier image, fix the cause and rerun); 78 = refused. Then set the earlier
+# image (e.g. ghcr.io/dakera-ai/dakera:0.12.3) in dakera/deployment.yaml and
+# apply. Clusters: every node, then the whole cluster on the earlier image.
+# Going back to v0.11.108 is downgrade-job.yaml instead. Server docs:
+# docs/v0.12/rollback.md. Not part of kustomization.yaml.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dakera-checkpoint
+  namespace: dakera
+  labels:
+    app.kubernetes.io/name: dakera
+    app.kubernetes.io/component: checkpoint
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dakera
+        app.kubernetes.io/component: checkpoint
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: checkpoint
+          image: ghcr.io/dakera-ai/dakera:0.12.4
+          imagePullPolicy: IfNotPresent
+          command: ["dakera"]
+          args: ["checkpoint"]
+          envFrom:
+            - configMapRef:
+                name: dakera-config
+            - secretRef:
+                name: dakera-secrets
+          # Writes only to its volumes (the data root, the model cache, /tmp).
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: models
+              mountPath: /app/models
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: dakera-rocksdb
+        - name: models
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

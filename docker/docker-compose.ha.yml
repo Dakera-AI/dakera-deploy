@@ -32,7 +32,7 @@
 #
 # Override any port by setting the corresponding HA_* env var. See .env.ha.example.
 #
-# Dakera v0.12.3, Dashboard 0.5.2 (upgrade notes: docker-compose.yml). (v0.11 users:
+# Dakera v0.12.4, Dashboard 0.5.2 (upgrade notes: docker-compose.yml). (v0.11 users:
 # the previous version of this file is on the `release/0.11` branch.)
 #
 # v0.12 cluster requirements:
@@ -55,6 +55,15 @@
 #   docker compose -f docker-compose.ha.yml run --rm --no-deps dakera-1 --check-config
 # then `docker compose -f docker-compose.ha.yml down` (volumes kept) and `up -d`.
 #
+# Upgrading from v0.12.1 - v0.12.3: back up, pull, then recreate the nodes (the secret
+# is already set). Going back from v0.12.4 to an earlier v0.12 (whole cluster): stop
+# every node, run `checkpoint` on each, start the earlier image everywhere:
+#   docker compose -f docker-compose.ha.yml stop dakera-1 dakera-2 dakera-3
+#   for n in dakera-1 dakera-2 dakera-3; do
+#     docker compose -f docker-compose.ha.yml run --rm --no-deps $n checkpoint
+#   done        # minio must be running
+#   DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.3 docker compose -f docker-compose.ha.yml up -d
+#
 # Going back to v0.11.108: roll back the WHOLE cluster, never one node. Wait until
 # every node's sync outbox is empty (GET /admin/cluster/status), stop every node,
 # run downgrade on each (it needs MinIO up), start v0.11.108 everywhere:
@@ -67,7 +76,7 @@
 name: dakera-ha
 
 x-dakera-common: &dakera-common
-  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.3}
+  image: ${DAKERA_IMAGE:-ghcr.io/dakera-ai/dakera:0.12.4}
   restart: unless-stopped
   # SIGTERM starts the graceful shutdown (running media-job stores are waited for up to
   # 15 s, then the REST drain, DAKERA_SHUTDOWN_DRAIN_SECS (8 s by default, 0.12.3), then
@@ -132,7 +141,8 @@ x-dakera-env: &dakera-env
   # the shared cache already held that version), so a write on one node never
   # reached some of the others. Measured on 0.12.0: with the shared Redis, 3 of 6
   # node pairs never converged (300 s); without it, all 6 within 0.1 s. Leader
-  # election does not use Redis (HTTP vote between nodes). Rate limits are per node.
+  # election does not use Redis (HTTP vote between nodes). Rate limits are per API
+  # key (0.12.4) and, without Redis, per node.
   # Tiered storage (L1 hot → L2 warm → L3 cold)
   DAKERA_TIERED_STORAGE: "${DAKERA_TIERED_STORAGE:-true}"
   DAKERA_HOT_TO_WARM_SECS: "${DAKERA_HOT_TO_WARM_SECS:-3600}"
@@ -231,6 +241,24 @@ x-dakera-env: &dakera-env
   DAKERA_AUTOPILOT_TRASH_RETENTION_HOURS:
   REEMBED_BATCH_SIZE:
   REEMBED_INTERVAL_SECS:
+  # Settings of server v0.12.4 (.env.example "Server v0.12.4"), passed only when set.
+  # Same value on every node.
+  DAKERA_CONTACT_EMAIL:
+  # Entity extraction (on by default from 0.12.4); DAKERA_GLINER_MODEL must read the
+  # embedding model's languages (unset = the right one, in the image).
+  DAKERA_DEFAULT_ENTITY_TYPES:
+  DAKERA_GLINER_MODEL:
+  DAKERA_ENTITY_TAGGING:
+  DAKERA_STANDING_INSTRUCTIONS:
+  DAKERA_FORGET_REQUESTS:
+  DAKERA_RECALL_IMPORTANCE_WEIGHTED:
+  DAKERA_RECALL_INCLUDE_ASSOCIATED:
+  DAKERA_RERANK_HEAD:
+  DAKERA_NORMALIZE_RELEVANCE:
+  DAKERA_BITEMPORAL_INGEST:
+  DAKERA_AUTOPILOT_CONSOLIDATION_MODE:
+  # How long a `strong` / bounded-staleness read waits for its peers (default 2000 ms).
+  DAKERA_STRONG_READ_TIMEOUT_MS:
   # gRPC listener: an EMPTY value would read as OFF on an upgraded deployment (v0.11's reading).
   DAKERA_GRPC_ENABLED: "${DAKERA_GRPC_ENABLED:-true}"
   HF_TOKEN: "${HF_TOKEN:-}"

@@ -265,7 +265,7 @@ jobs to give memory back, then the request is answered **`503` with `Retry-After
 job cap. `DAKERA_MEM_BACKPRESSURE=0` turns the refusals off (reservations are still counted).
 
 - A model's **first load converts** its graph to the ORT format once; the conversion reserves its peak
-  from the same budget (GLiNER ~780 MB, the visual model ~1 GB). If it never fits (a small memory
+  from the same budget (the visual model ~1 GB; the models the image ships are already converted). If it never fits (a small memory
   limit), the job is `503` naming `dakera models pull <model>` and `/health` lists `speech_to_text`,
   `vision_model` or `entity_extraction` under `degraded`. Pull the model **outside the server** (init
   container, `models pull`, a derived image) or raise the memory limit.
@@ -282,7 +282,7 @@ job cap. `DAKERA_MEM_BACKPRESSURE=0` turns the refusals off (reservations are st
 **Sizing the multimodal box.** The measured configuration is a **4-core / 8 GiB** container with every
 model loaded: **530 MiB anonymous memory**, no out-of-memory kill; an image page peaked **+1.9 GiB at 17
 tiles** (TRACKER V6). The compose files give the container 12G / 4 CPUs; the K8s multimodal and vision
-components and the Helm blocks raise the base 4Gi limit to 8Gi. A small box can run everything, one
+components and the Helm blocks raise the base 6Gi limit to 8Gi. A small box can run everything, one
 heavy job at a time: jobs that do not fit wait or get a `503`.
 
 **Verify.**
@@ -377,12 +377,13 @@ The measured gain of v0.12 itself (4 CPU / 8 GiB container, `top_k` 16): 11.5 s 
 
 ## The model store
 
-The image ships **`bge-large`** (embedding, INT8) and **`bge-reranker-v2-m3`** (reranker, INT8) in a
+The image ships **`bge-large`** (embedding, INT8), **`bge-reranker-v2-m3`** (reranker, INT8), and from
+v0.12.4 **`gliner-bi-small`** and **`gliner-x-small`** (entity extraction, English and about 100 languages,
+Dakera's int8 builds) and the forget/instruction detector's encoder (`multilingual-minilm`, INT8), in a
 model store next to the binary (`/usr/local/share/dakera/models`, already converted). A default start
 needs **no network** (`--network none` works), downloads, converts and writes nothing, works with a
-read-only root filesystem, and is not affected by anything mounted at `/app/models`. Image: 783 MB
-(release notes, amd64; 1.24 GB unpacked in `docker images`), ready 4.4 s after start (release notes;
-4.2 s measured in the deployment validation). The `:gpu` image (NVIDIA GPU required, ~4-5 GB) ships
+read-only root filesystem, and is not affected by anything mounted at `/app/models`. The v0.12.4 CPU image
+is about 2.65 GB. The `:gpu` image (NVIDIA GPU required, ~4-5 GB) ships
 FP32 models for CUDA. From v0.12.3 it is built on CUDA 13: the host needs NVIDIA driver **R580 or newer**
 (an older driver cannot run it). From v0.12.3 the CPU image is distroless (uid/gid 1000, `/bin/sh` only: no
 `curl`, `wget` or coreutils inside); its health check is `dakera healthcheck`.
@@ -397,10 +398,21 @@ Everything else downloads on first use into the **model cache** (`HF_HOME`, `/ap
 | whisper-tiny.en | `whisper-tiny.en` | `DAKERA_ATTACHMENTS` and `DAKERA_WHISPER_MODEL` | ~151 MB |
 | whisper-base.en, whisper-tiny, whisper-small | the model name | `DAKERA_ATTACHMENTS` and `DAKERA_WHISPER_MODEL` | see the model table |
 | colmodernvbert | `vision` | `DAKERA_VISION` | ~966 MB |
-| GLiNER (entity extraction) | `gliner` | per namespace (`extract_entities` + `entity_types`) | ~782 MB |
+| GLiNER `gliner-bi-edge`, `gliner-medium`, `gliner-multi` | the model name (`gliner` = the one `DAKERA_GLINER_MODEL` selects) | `DAKERA_GLINER_MODEL` | 65 MB, 272 MB, 366 MB |
 
 Each non-shipped model also keeps an ORT-format copy (disk about the model's size again). Every file is
-checked against a pinned SHA-256; a corrupt file is deleted and fetched again once.
+checked against a pinned SHA-256; a corrupt file is deleted and fetched again once. From v0.12.4 every file
+is downloaded from Dakera's copy of its repository ([huggingface.co/DakeraAI](https://huggingface.co/DakeraAI),
+byte-for-byte the original) first, then from the original repository; the same SHA-256 is checked either way,
+and an existing cache is used as it is.
+
+**Entity extraction (v0.12.4).** On by default for every namespace that never set `extract_entities` /
+`entity_types` (`DAKERA_DEFAULT_ENTITY_TYPES`, default `person,organization,location`; `none` turns the
+default off). The GLiNER model follows the embedding model's languages: `gliner-bi-small` with English models,
+`gliner-x-small` with `bge-m3` and `multilingual-minilm`. `DAKERA_GLINER_MODEL` must name a model of those
+languages (English: `gliner-bi-small`, `gliner-bi-edge`, `gliner-medium`; multilingual: `gliner-x-small`,
+`gliner-multi`): another one refuses a fresh install, and an existing deployment is warned and runs the
+default. Changing it re-tags the stored memories in the background.
 
 ```bash
 docker compose run --rm dakera models list            # what is on disk, how big, what prune would free
@@ -415,7 +427,7 @@ layout) and `--bake` (fill the image's own store, for a `RUN` in a Dockerfile).
 **Baked images.** Your own image with models inside, no volume, no download:
 
 ```dockerfile
-FROM ghcr.io/dakera-ai/dakera:0.12.1
+FROM ghcr.io/dakera-ai/dakera:0.12.4
 RUN dakera models pull --bake whisper vision
 ```
 
@@ -423,17 +435,18 @@ Rebuild it when you move to a new Dakera version (a baked model is tied to the b
 
 **Behind a proxy or a mirror.** The downloader reads `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` /
 `NO_PROXY` (either case; chosen as curl does; CIDR in `NO_PROXY` works), `HF_ENDPOINT` (a mirror of the
-Hub) and `HF_TOKEN` (sent to the Hub's own origin only). Proxy URLs: `http://`, `socks4://`,
+Hub; it serves both Dakera's copies and the original repositories, so a mirror needs the `DakeraAI`
+organisation or only the originals) and `HF_TOKEN` (sent to the Hub's own origin only). Proxy URLs: `http://`, `socks4://`,
 `socks4a://`, `socks5://`, `socks5h://`; an `https://` proxy URL (TLS to the proxy), another scheme or
 an IPv6 proxy address is **not supported** and fails naming the variable. The base compose files pass all
 of these from `.env` (empty = unset). Put the compose service names and loopback in `NO_PROXY`
 (`127.0.0.1,localhost,minio,dakera-1,dakera-2,dakera-3`) so no other traffic of the container is
-sent through the proxy; the container's own health check runs `curl` against `127.0.0.1`.
+sent through the proxy; the container's own health check runs against `127.0.0.1`.
 
 **Offline and air-gapped.** The default image needs nothing. For other models, on a connected machine:
 
 ```bash
-docker run --rm -v "$PWD/models:/seed" ghcr.io/dakera-ai/dakera:0.12.1 \
+docker run --rm -v "$PWD/models:/seed" ghcr.io/dakera-ai/dakera:0.12.4 \
   models pull --dir /seed bge-m3 whisper vision
 ```
 
@@ -444,7 +457,8 @@ whisper and the vision model can also be read from an operator directory
 SHA-256-checked unless `DAKERA_MODEL_PATH_SKIP_VERIFY=1`. A v0.11 model cache may hold another upstream
 revision of the reranker or GLiNER: v0.12 replaces it at first load (a download), and under
 `HF_HUB_OFFLINE=1` leaves it and fails naming the file, so seed the pinned files
-(`models pull --dir ... reranker gliner`).
+(`models pull --dir ... reranker`, plus the GLiNER model by name if `DAKERA_GLINER_MODEL` names one the image
+does not ship).
 
 **Several replicas, one volume** (the three HA nodes share `dakera-models`): supported. A file one replica
 is downloading is waited for by the others (taken over if it stalls for two minutes), a model is
@@ -455,14 +469,16 @@ copies of the models the image now ships; after pruning, a rollback to v0.11.108
 **When is the server ready?** `GET /health/live` answers `200` as soon as the port is bound;
 `GET /health/ready` is `200` once the embedding model is loaded and storage answers (`503` with the
 phase and every download's progress while starting). The reranker loads in the background; whisper and the
-vision model are downloaded in the background right after ready. A store into a GLiNER namespace waits up
-to 10 s for the model, then gets `503` + `Retry-After`. The compose health check starts counting after
+vision model are downloaded in the background right after ready. A store into a namespace that extracts
+entities answers with the rule-based tags and the GLiNER tags follow in the background
+(`DAKERA_ENTITY_TAGGING=background`, the default); with `inline` it waits up to 10 s for the model, then gets
+`503` + `Retry-After`. The compose health check starts counting after
 600 s; the Kubernetes startup probe covers 10 minutes.
 
 **Disk.** Plan the model volume from what each model takes once converted (measured: the download plus
 its ORT copy): `bge-m3` 1.1 GB, `whisper-tiny.en` 367 MB (154 MB downloaded), `colbert-small` 66 MB, `vision`
-1.9 GB. With GLiNER (not measured here; ~782 MB download, about twice that converted) the four text and
-media models need about 5 GB. 10 GiB leaves room for upgrades.
+1.9 GB. The default GLiNER models ship in the image; `gliner-multi` (the largest one it does not ship) is a
+366 MB download. 10 GiB leaves room for upgrades.
 
 ---
 
@@ -692,11 +708,14 @@ saved and reloaded instead of rebuilt; concurrent writes share the log's fsync.
 
 **Sizing guidance derived from them** (arithmetic on the numbers above, not new measurements):
 
-- **Memory, base.** Plan **about 1 GB** for the server with the default models and a small corpus
-  (0.65 GB measured after reranking, 0.97 GB for the paired LoCoMo run). The compose files' 12G limit and
-  the chart's 4Gi leave room. On a limit as small as ~2 GiB with entity extraction (GLiNER), the model's
-  one-time conversion (~780 MB reserved from the memory budget) may never fit: run `dakera models pull gliner`
-  once, outside the server (the `models-cache` component and `dakera.models.pull` do this).
+- **CPU (v0.12.4).** Embedding and the reranker share the cores: give the server at least **4 CPUs** with
+  `bge-large` or another English model and **8 with `bge-m3`**. Below that the server warns at startup
+  (`/health` `config_warnings`: `sizing`) and recalls queue behind each other under load. The compose file
+  limits the server to 4 CPUs, the Kubernetes Deployment to 4 (8 with the multilingual component).
+- **Memory, base.** With v0.12.4 the image's default models loaded (bge-large, the reranker, GLiNER, the
+  forget/instruction encoder) hold **about 3.5 GiB** before any data (server README, "Sizing"); the figures
+  of the older measurements here (0.65 GB after reranking, 0.97 GB for the paired LoCoMo run) predate
+  GLiNER on by default. The compose files' 12G limit and the Kubernetes Deployment's 6Gi leave room.
 - **Memory, per vector.** The HNSW node vectors cost **2.76 KB per 1024-d vector** (`bge-large`, `bge-m3`):
   1 million vectors is about 2.8 GB for the graph's vectors alone, before the stored records, the full-text
   index and the caches. Measure RSS (`dakera_process_resident_bytes`) at 10 % of your corpus and extrapolate

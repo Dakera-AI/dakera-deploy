@@ -22,6 +22,14 @@
 #
 # Resources: the model is NOT in the image: ~570 MB downloaded into the dakera-models
 # volume (plus an ORT-format copy of about the same size), memory-mapped, CPU only.
+# CPUs: bge-m3 with the reranker wants at least 8 (4 for bge-large); with fewer the
+# server warns at startup (/health config_warnings: sizing) and recalls queue under
+# load. The HA nodes have no CPU limit: three nodes on one host share its cores.
+# Entity extraction (on by default from 0.12.4) follows the embedding model's
+# languages: with bge-m3 it uses gliner-x-small (about 100 languages, in the image).
+# Leave DAKERA_GLINER_MODEL unset, or set gliner-x-small / gliner-multi: an English
+# GLiNER model (gliner-bi-small, gliner-bi-edge, gliner-medium) beside bge-m3 refuses
+# a fresh install (an existing store is warned and runs gliner-x-small).
 # Pre-pull:  docker compose -f docker-compose.ha.yml run --rm --no-deps dakera-1 models pull bge-m3
 #
 # Verify:   curl -s localhost:3100/v1/capabilities -H "X-API-Key: $DAKERA_ROOT_API_KEY" |
