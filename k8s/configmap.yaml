@@ -51,8 +51,8 @@ data:
   # DAKERA_ALLOWED_HOSTS: "api.dakera.yourdomain.com"
   # Document import (0.12.3, on by default; docker/.env.example "Document import"). PDF / DOCX
   # extraction runs in `dakera extract-text` children: up to CONCURRENCY x MEMORY_MB (2 x 1024 MB)
-  # on top of the server, inside the Deployment's 4Gi limit; for PDF-heavy imports lower the
-  # concurrency to 1 or raise the limit (6Gi). Uploads up to MAX_BYTES (25 MiB) pass the ingress
+  # on top of the server, inside the Deployment's 6Gi limit; for PDF-heavy imports lower the
+  # concurrency to 1 or raise the limit. Uploads up to MAX_BYTES (25 MiB) pass the ingress
   # (proxy-body-size 500m).
   # DAKERA_DOCUMENTS: "true"
   # DAKERA_DOCUMENT_MAX_BYTES: "26214400"
@@ -66,3 +66,30 @@ data:
   # Recall defaults (docker/.env.example, "Recall and connections"):
   # DAKERA_NEIGHBORHOOD_MODE: "inline"
   # DAKERA_RECALL_RANK_DEPTH: "10"
+  # Server v0.12.4 (an older image reports these names as unknown):
+  # Your e-mail address, for the Dakera team to reach you about this install (shown in
+  # the startup banner; sent only when telemetry is on). Not an address = refused boot.
+  # DAKERA_CONTACT_EMAIL: "you@company.com"
+  # Entity extraction is on by default for every namespace that never set its own
+  # (person,organization,location); "none" turns the server default off:
+  # DAKERA_DEFAULT_ENTITY_TYPES: "person,organization,location"
+  # GLiNER model. Unset = the one for the embedding model's languages, both in the image:
+  # gliner-bi-small (English models) or gliner-x-small (bge-m3, multilingual-minilm).
+  # Another language set than DAKERA_MODEL refuses a fresh install. English:
+  # gliner-bi-small, gliner-bi-edge, gliner-medium; multilingual: gliner-x-small, gliner-multi.
+  # DAKERA_GLINER_MODEL: "gliner-bi-small"
+  # Recall defaults that moved in 0.12.4 (these values bring back 0.12.3's behaviour):
+  # DAKERA_RECALL_IMPORTANCE_WEIGHTED: "true"
+  # DAKERA_RECALL_INCLUDE_ASSOCIATED: "false"
+  # DAKERA_RERANK_HEAD: "0"
+  # DAKERA_NORMALIZE_RELEVANCE: "0"
+  # DAKERA_RECALL_COLLAPSE_DERIVED: "0"
+  # DAKERA_LONG_CONTENT_WINDOWS: "0"
+  # DAKERA_BITEMPORAL_INGEST: "0"
+  # Autopilot consolidation and dedup report what they would fold and change nothing
+  # (0.12.3: consolidation merged, dedup was off); off / report / merge:
+  # DAKERA_AUTOPILOT_CONSOLIDATION_MODE: "merge"
+  # DAKERA_AUTOPILOT_DEDUP_MODE: "off"
+  # Store-time reading of standing instructions and requests to forget (off / detect / apply):
+  # DAKERA_STANDING_INSTRUCTIONS: "0"
+  # DAKERA_FORGET_REQUESTS: "off"

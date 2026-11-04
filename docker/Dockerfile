@@ -1,16 +1,15 @@
 # =============================================================================
 # Dakera server image, built from SOURCE: a copy of the engine's own Dockerfile
-# at tag v0.12.3 (github.com/Dakera-AI/dakera, Dockerfile), which builds the
-# released ghcr.io/dakera-ai/dakera:0.12.3 image. Differences from upstream are
-# hadolint-only: inline ignores for the pinned SHA-256 and TOKENIZER_URL build args
-# (DL3064, read as secrets) and the `echo | sha256sum -c` pipes (DL4006). Re-sync
-# it on every server release.
+# at tag v0.12.4 (github.com/Dakera-AI/dakera, Dockerfile), which builds the
+# released ghcr.io/dakera-ai/dakera:0.12.4 image. Differences from upstream are
+# hadolint-only: inline ignores for the pinned SHA-256 and *TOKENIZER_URL build args
+# (DL3064, read as secrets). Re-sync it on every server release.
 #
 # Run it from the root of a dakera checkout (the build context is the engine
 # source, not this repository):
-#   git clone --branch v0.12.3 https://github.com/Dakera-AI/dakera && cd dakera
-#   docker build -f /path/to/dakera-deploy/docker/Dockerfile -t dakera:0.12.3 .
-# Everyone else: use the published image, ghcr.io/dakera-ai/dakera:0.12.3
+#   git clone --branch v0.12.4 https://github.com/Dakera-AI/dakera && cd dakera
+#   docker build -f /path/to/dakera-deploy/docker/Dockerfile -t dakera:0.12.4 .
+# Everyone else: use the published image, ghcr.io/dakera-ai/dakera:0.12.4
 # (docker/docker-compose.yml pins it).
 # =============================================================================
 
@@ -37,8 +36,8 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Chef - Prepare dependency recipe
 # -----------------------------------------------------------------------------
-# rust:1.95-slim-trixie
-FROM rust:1.95-slim-trixie@sha256:e14e87345b4d5964ddcc3491d27ee046a0f23820f340c3c1e24da6880141f7c0 AS chef
+# rust:1.98-slim-trixie
+FROM rust:1.98-slim-trixie@sha256:4cd829461bd5c4d511c32e269da9cb8929223b666519d8004e35fc8d1d771ab7 AS chef
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
@@ -155,18 +154,28 @@ RUN strip --strip-all /app/target/release/dakera
 # <root>/dakera/<repo with '/'->'--'>/...), which the image's model store
 # shares, so stage 4c and the loaders find the files where they look.
 #
-# Scope: only the default CPU INT8 quantized model is baked (337 MB,
-# onnx/model_quantized.onnx @ Xenova/bge-large-en-v1.5). The GPU FP32 model
+# Scope: the models a default CPU start uses — the embedding model (INT8,
+# 337 MB, onnx/model_quantized.onnx @ Xenova/bge-large-en-v1.5), the reranker
+# (INT8, 570 MB), GLiNER for entity extraction (gliner-bi-small, 118 MB, and
+# gliner-x-small, 189 MB, Dakera's int8 builds) and the forget-request
+# detector's encoder (INT8, 118 MB); `default_image_models()` in
+# crates/inference/src/model_catalog.rs is the list. Opt-in models (whisper,
+# vision, gliner-multi, other embedding rows) are pulled on first use or baked
+# by a derived image. The GPU FP32 model
 # (onnx/model.onnx, 1.34 GB) is a separate image-size decision and is still
 # fetched at runtime (guarded by the DAK-5976 truncation check); baking the CPU
 # file does NOT affect the GPU path — it reads a different filename.
 # debian:trixie-slim — build-only stage (curl fetches the models); never shipped
-FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS model-fetch
+FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS model-fetch
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Every file comes from Dakera's copy (huggingface.co/DakeraAI) first, then
+# from its own repository, and is kept only with its pinned SHA-256.
+COPY scripts/docker/fetch-model.sh /usr/local/bin/fetch-model
 
 # Pinned content hashes (LFS oid / sha256sum) — bump these when the upstream
 # artifact legitimately changes; a mismatch fails the build loudly by design.
@@ -200,40 +209,76 @@ ARG RERANKER_TOKENIZER_URL=https://huggingface.co/onnx-community/bge-reranker-v2
 # hadolint ignore=DL3064
 ARG RERANKER_TOKENIZER_SHA256=8bf8afbfd11306bd872018c53bfdf2e160a56f8edbcf49933324404791c148d3
 
-# hadolint ignore=DL4006
 RUN set -eux; \
-    onnx_dir=/models/dakera/Xenova--bge-large-en-v1.5/onnx; \
-    tok_dir=/models/dakera/BAAI--bge-large-en-v1.5; \
-    mkdir -p "$onnx_dir" "$tok_dir"; \
-    curl -fSL \
-      --retry 20 --retry-all-errors --retry-delay 30 --retry-max-time 1800 \
-      --connect-timeout 30 --max-time 600 \
-      -o "$onnx_dir/model_quantized.onnx" "$ONNX_URL"; \
-    echo "${ONNX_SHA256}  $onnx_dir/model_quantized.onnx" | sha256sum -c -; \
-    curl -fSL \
-      --retry 10 --retry-all-errors --retry-delay 10 --retry-max-time 300 \
-      --connect-timeout 30 --max-time 60 \
-      -o "$tok_dir/tokenizer.json" "$TOKENIZER_URL"; \
-    echo "${TOKENIZER_SHA256}  $tok_dir/tokenizer.json" | sha256sum -c -
+    fetch-model /models/dakera/Xenova--bge-large-en-v1.5/onnx/model_quantized.onnx \
+      "$ONNX_SHA256" "$ONNX_URL" 600; \
+    fetch-model /models/dakera/BAAI--bge-large-en-v1.5/tokenizer.json \
+      "$TOKENIZER_SHA256" "$TOKENIZER_URL" 60
 
 # DAK-7190: reranker (bge-reranker-v2-m3) bake — separate RUN so a re-pin of either
 # model does not invalidate the other's build-cache layer.
-# hadolint ignore=DL4006
 RUN set -eux; \
-    rr_onnx_dir=/models/dakera/onnx-community--bge-reranker-v2-m3-ONNX/onnx; \
-    rr_dir=/models/dakera/onnx-community--bge-reranker-v2-m3-ONNX; \
-    mkdir -p "$rr_onnx_dir"; \
-    echo "Downloading reranker INT8 ONNX (~570 MB) …"; \
-    curl -fSL \
-      --retry 20 --retry-all-errors --retry-delay 30 --retry-max-time 1800 \
-      --connect-timeout 30 --max-time 900 \
-      -o "$rr_onnx_dir/model_int8.onnx" "$RERANKER_ONNX_URL"; \
-    echo "${RERANKER_ONNX_SHA256}  $rr_onnx_dir/model_int8.onnx" | sha256sum -c -; \
-    curl -fSL \
-      --retry 10 --retry-all-errors --retry-delay 10 --retry-max-time 300 \
-      --connect-timeout 30 --max-time 60 \
-      -o "$rr_dir/tokenizer.json" "$RERANKER_TOKENIZER_URL"; \
-    echo "${RERANKER_TOKENIZER_SHA256}  $rr_dir/tokenizer.json" | sha256sum -c -
+    fetch-model /models/dakera/onnx-community--bge-reranker-v2-m3-ONNX/onnx/model_int8.onnx \
+      "$RERANKER_ONNX_SHA256" "$RERANKER_ONNX_URL" 900; \
+    fetch-model /models/dakera/onnx-community--bge-reranker-v2-m3-ONNX/tokenizer.json \
+      "$RERANKER_TOKENIZER_SHA256" "$RERANKER_TOKENIZER_URL" 60
+
+# Entity extraction (GLiNER: the English default, gliner-bi-small, and the
+# multilingual one a multilingual embedding model selects, gliner-x-small —
+# Dakera's int8 builds, scripts/gliner_compact) and the forget-request
+# detector's own encoder (multilingual-minilm INT8,
+# crates/api/src/forget_intent.rs). Both used to be downloaded on first use:
+# the first store into a namespace with entity extraction waited for the
+# model, a first request to forget for a 118 MB one, and an air-gapped
+# container never got either. Same pinned-SHA pattern; the pins are the
+# registry's (GlinerSpec in crates/inference/src/ner.rs, the
+# multilingual-minilm row in crates/core-types/src/model.rs;
+# `container_image_models.rs` checks them). The tokenizers are pinned by
+# sha256sum of the files.
+ARG GLINER_ONNX_URL=https://huggingface.co/DakeraAI/gliner-bi-small-v2.0-int8/resolve/main/onnx/model.onnx
+# hadolint ignore=DL3064
+ARG GLINER_ONNX_SHA256=1fa420c63c757863c3296a450e00d9ec155597dffb57771a15d77e416e2bc379
+# hadolint ignore=DL3064
+ARG GLINER_TOKENIZER_URL=https://huggingface.co/DakeraAI/gliner-bi-small-v2.0-int8/resolve/main/tokenizer.json
+# hadolint ignore=DL3064
+ARG GLINER_TOKENIZER_SHA256=2315a8bea85452f3c4e8ce980f7853cac013820238e7776a4e48159037a5f164
+ARG GLINER_LABELS_ONNX_URL=https://huggingface.co/DakeraAI/gliner-bi-small-v2.0-int8/resolve/main/onnx/labels_encoder.onnx
+# hadolint ignore=DL3064
+ARG GLINER_LABELS_ONNX_SHA256=b3e1fb9a10335c72d96d320b0af0292840c3cbee7b4868e3f24c9a81794d078a
+# hadolint ignore=DL3064
+ARG GLINER_LABELS_TOKENIZER_URL=https://huggingface.co/DakeraAI/gliner-bi-small-v2.0-int8/resolve/main/labels_tokenizer.json
+# hadolint ignore=DL3064
+ARG GLINER_LABELS_TOKENIZER_SHA256=91f1def9b9391fdabe028cd3f3fcc4efd34e5d1f08c3bf2de513ebb5911a1854
+ARG GLINER_MULTI_ONNX_URL=https://huggingface.co/DakeraAI/gliner-x-small-int8/resolve/main/onnx/model.onnx
+# hadolint ignore=DL3064
+ARG GLINER_MULTI_ONNX_SHA256=2f6f0a848f9210d0fb7c30f1b35a952509afa198edf872aaab7f19527a33cede
+# hadolint ignore=DL3064
+ARG GLINER_MULTI_TOKENIZER_URL=https://huggingface.co/DakeraAI/gliner-x-small-int8/resolve/main/tokenizer.json
+# hadolint ignore=DL3064
+ARG GLINER_MULTI_TOKENIZER_SHA256=fa84928bec4c38fdf40a153724857ba1ba86aa3789d9801251bed82c8eaa033d
+ARG FORGET_ONNX_URL=https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/onnx/model_int8.onnx
+# hadolint ignore=DL3064
+ARG FORGET_ONNX_SHA256=d6ea442ff6a891daefed7c83b2f596fc5dc66bf697e4d006236f64f34bbcf4c8
+# hadolint ignore=DL3064
+ARG FORGET_TOKENIZER_URL=https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/tokenizer.json
+# hadolint ignore=DL3064
+ARG FORGET_TOKENIZER_SHA256=2c3387be76557bd40970cec13153b3bbf80407865484b209e655e5e4729076b8
+
+RUN set -eux; \
+    g=/models/dakera/DakeraAI--gliner-bi-small-v2.0-int8; \
+    fetch-model "$g/onnx/model.onnx" "$GLINER_ONNX_SHA256" "$GLINER_ONNX_URL" 600; \
+    fetch-model "$g/tokenizer.json" "$GLINER_TOKENIZER_SHA256" "$GLINER_TOKENIZER_URL" 60; \
+    fetch-model "$g/onnx/labels_encoder.onnx" "$GLINER_LABELS_ONNX_SHA256" "$GLINER_LABELS_ONNX_URL" 300; \
+    fetch-model "$g/labels_tokenizer.json" "$GLINER_LABELS_TOKENIZER_SHA256" "$GLINER_LABELS_TOKENIZER_URL" 60; \
+    m=/models/dakera/DakeraAI--gliner-x-small-int8; \
+    fetch-model "$m/onnx/model.onnx" "$GLINER_MULTI_ONNX_SHA256" "$GLINER_MULTI_ONNX_URL" 900; \
+    fetch-model "$m/tokenizer.json" "$GLINER_MULTI_TOKENIZER_SHA256" "$GLINER_MULTI_TOKENIZER_URL" 120
+
+RUN set -eux; \
+    fetch-model /models/dakera/Xenova--paraphrase-multilingual-MiniLM-L12-v2/onnx/model_int8.onnx \
+      "$FORGET_ONNX_SHA256" "$FORGET_ONNX_URL" 600; \
+    fetch-model /models/dakera/sentence-transformers--paraphrase-multilingual-MiniLM-L12-v2/tokenizer.json \
+      "$FORGET_TOKENIZER_SHA256" "$FORGET_TOKENIZER_URL" 60
 
 # -----------------------------------------------------------------------------
 # Stage 4c: the image's model store, in final form
@@ -254,7 +299,7 @@ RUN set -eux; \
 FROM builder AS model-convert
 COPY --from=model-fetch /models /models
 RUN HF_HUB_OFFLINE=1 /app/target/release/dakera models pull --bake --dir /models \
-      bge-large bge-reranker-v2-m3
+      bge-large bge-reranker-v2-m3 gliner-bi-small gliner-x-small multilingual-minilm
 
 # -----------------------------------------------------------------------------
 # Stage 5a: Runtime base
@@ -268,7 +313,7 @@ RUN HF_HUB_OFFLINE=1 /app/target/release/dakera models pull --bake --dir /models
 # checks and `docker exec … sh` keep working — the deployed compose files use
 # a CMD-SHELL check that runs on images with and without curl.
 # gcr.io/distroless/cc-debian13:nonroot
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2 AS runtime-base
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e AS runtime-base
 
 # -----------------------------------------------------------------------------
 # Stage 5b: Runtime filesystem skeleton (build-only, never shipped)

@@ -4,6 +4,51 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
+### Changed: Dakera server v0.12.4, Dashboard 0.5.3
+
+Merge after the `ghcr.io/dakera-ai/dakera:0.12.4` and `ghcr.io/dakera-ai/dakera-dashboard:0.5.3` images are
+published.
+
+- **Dashboard 0.5.2 -> 0.5.3** (both compose files, `k8s/dashboard/`, `.env` examples, README, environment
+  reference): forget by request and the trash, the engine's setup advice, standing instructions in the Recall lab,
+  ways to reach the team, and anonymous usage telemetry. It deploys like 0.5.2 (same variables, port, user, health
+  check). Its telemetry follows the server's opt-out: `DAKERA_TELEMETRY` and `DO_NOT_TRACK` are passed to it.
+- **Fixed: the telemetry opt-out never reached the server.** The README says `DAKERA_TELEMETRY=off` (or
+  `DO_NOT_TRACK=1`) in `.env` turns telemetry off, but neither compose file passed either variable to the server;
+  both files now pass them (when set) to the server and the dashboard.
+
+- Default image: Dakera `0.12.3` -> `0.12.4` (every compose file, the devcontainer, `k8s/` including the
+  `check-config` / `downgrade` Jobs and the `models-cache` component, `.env` examples, README helm example).
+- **Every `DAKERA_*` name set here is one 0.12.4 knows** (checked against the server's registry: on a fresh
+  install an unknown name or an invalid value refuses the boot).
+- **New server settings passed when set** (`docker-compose.yml`, HA): `DAKERA_CONTACT_EMAIL` (commented in the
+  `.env` examples and `k8s/configmap.yaml`), `DAKERA_DEFAULT_ENTITY_TYPES`, `DAKERA_GLINER_MODEL`,
+  `DAKERA_ENTITY_TAGGING`, `DAKERA_STANDING_INSTRUCTIONS`, `DAKERA_FORGET_REQUESTS`,
+  `DAKERA_RECALL_IMPORTANCE_WEIGHTED`, `DAKERA_RECALL_INCLUDE_ASSOCIATED`, `DAKERA_RERANK_HEAD`,
+  `DAKERA_NORMALIZE_RELEVANCE`, `DAKERA_BITEMPORAL_INGEST`, `DAKERA_AUTOPILOT_CONSOLIDATION_MODE`; HA also
+  `DAKERA_STRONG_READ_TIMEOUT_MS`. Documented in `.env.example` ("Server v0.12.4"), `.env.ha.example`, the
+  environment reference and the ConfigMap, with the value that brings back 0.12.3's behaviour.
+- **Defaults that changed** are documented where they are listed: entity extraction on by default (the
+  background sweep tags existing memories after the upgrade), GLiNER chosen by the embedding model's languages
+  (`DAKERA_GLINER_MODEL` must match them: the multilingual overlays and component say so), recall's
+  `importance_weighted` false, collapse of derived memories, long-content windows, normalisation and bi-temporal
+  ingest on, autopilot dedup and consolidation `report`, the rate limit per API key.
+- **Models**: the image ships `gliner-bi-small` and `gliner-x-small` and the forget/instruction encoder (about
+  2.65 GB); every download comes from `huggingface.co/DakeraAI` first, then the original repository, and
+  `HF_ENDPOINT` serves both (`.env` examples, README, features guide, `models-cache` component).
+- **Sizing**: 4 CPUs for `bge-large`, 8 for `bge-m3` (the server's new `sizing` warning). `k8s/dakera/deployment.yaml`
+  limits move from 2 CPUs / 4Gi to 4 CPUs / 6Gi (the default models hold about 3.5 GiB); the multilingual
+  component raises the CPU limit to 8, and the multimodal component no longer lowers it. The compose overlays
+  document the 8-CPU need (Docker refuses a CPU limit above the host's count, so the base file keeps 4).
+- **Rolling back to an earlier 0.12**: `dakera checkpoint` before the image swap (README "Upgrading from v0.12.3 to
+  v0.12.4", compose headers, new `k8s/dakera/checkpoint-job.yaml`).
+- **Kubernetes data root**: already on a PersistentVolumeClaim in `k8s/` (the server's new `ephemeral_data_dir`
+  warning is about an emptyDir / container filesystem); the Deployment says why.
+- `docker/Dockerfile` re-synced with the engine's Dockerfile at v0.12.4 (Rust 1.98, models fetched from
+  Dakera's copies, GLiNER and the encoder baked); `Dockerfile.dev` on Rust 1.98.
+- README: versions, pinning, sizing, a new "Upgrading from v0.12.3 to v0.12.4" section, telemetry and the contact
+  address.
+
 ### Changed: Dakera server v0.12.3, Dashboard 0.5.2
 
 Merge after the `ghcr.io/dakera-ai/dakera:0.12.3` and `ghcr.io/dakera-ai/dakera-dashboard:0.5.2` images are

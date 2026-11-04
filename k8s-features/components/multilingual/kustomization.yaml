@@ -15,6 +15,13 @@
 # combinable with the late-interaction or vision components. One-way for v0.11
 # (`dakera downgrade` refuses a store on bge-m3).
 #
+# CPUs: bge-m3 with the reranker wants at least 8 (the server warns at startup,
+# config_warnings: sizing, with fewer), so this component raises the CPU limit to 8.
+# Entity extraction (on by default from 0.12.4) then uses gliner-x-small (about 100
+# languages, in the image). Leave DAKERA_GLINER_MODEL unset or set a multilingual one
+# (gliner-x-small, gliner-multi): an English GLiNER model beside bge-m3 refuses a fresh
+# install.
+#
 # Verify: kubectl -n dakera port-forward svc/dakera 3000:3000, then
 #   curl -s localhost:3000/v1/capabilities -H "X-API-Key: $KEY" | jq .default_model
 apiVersion: kustomize.config.k8s.io/v1alpha1
@@ -37,3 +44,19 @@ patches:
         DAKERA_FULLTEXT_LANGUAGE: "multilingual"
         # en de fr es it pt nl, or auto (detected per query).
         DAKERA_QUERY_LANG: "auto"
+  - target:
+      kind: Deployment
+      name: dakera
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: dakera
+      spec:
+        template:
+          spec:
+            containers:
+              - name: dakera
+                resources:
+                  limits:
+                    cpu: "8"

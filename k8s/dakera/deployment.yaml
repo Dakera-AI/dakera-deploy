@@ -1,11 +1,15 @@
 # =============================================================================
-# Dakera Server - Kubernetes Deployment (Dakera v0.12.3)
+# Dakera Server - Kubernetes Deployment (Dakera v0.12.4)
 # =============================================================================
-# v0.11 manifests: the `release/0.11` branch. Upgrading from v0.12.0 - v0.12.2: change the
-# image and apply (0.12.3: POST /ops/shutdown needs a super_admin key; the image is
-# distroless, uid/gid 1000, with no curl or shell tools: probes are httpGet) (nothing to migrate by hand; this single server is not in
-# cluster mode, so DAKERA_CLUSTER_SECRET is not needed). Upgrading from v0.11.108:
-# see the README ("Upgrading from v0.11") and the server's docs/v0.12/UPGRADE.md.
+# v0.11 manifests: the `release/0.11` branch. Upgrading from v0.12.0 - v0.12.3: change the
+# image and apply (nothing to migrate by hand; this single server is not in cluster
+# mode, so DAKERA_CLUSTER_SECRET is not needed). 0.12.4 turns entity extraction on for
+# every namespace that never set it (DAKERA_DEFAULT_ENTITY_TYPES in configmap.yaml) and
+# moves recall defaults: README "Upgrading from v0.12.3 to v0.12.4" (from before 0.12.3,
+# also: POST /ops/shutdown needs a super_admin key; the image is distroless, uid/gid
+# 1000, with no curl or shell tools: probes are httpGet). Going back to an
+# earlier v0.12: dakera/checkpoint-job.yaml first. Upgrading from v0.11.108: see the
+# README ("Upgrading from v0.11") and the server's docs/v0.12/UPGRADE.md.
 # One server per data root: the pod keeps its data root (/data) on the
 # ReadWriteOnce volume, so the update strategy is Recreate and the Deployment is
 # not autoscaled (see kustomization.yaml).
@@ -17,7 +21,7 @@ metadata:
   labels:
     app.kubernetes.io/name: dakera
     app.kubernetes.io/component: server
-    app.kubernetes.io/version: "0.12.3"
+    app.kubernetes.io/version: "0.12.4"
 spec:
   replicas: 1
   # A server locks its data root while it runs: stop the old pod before the new
@@ -33,7 +37,7 @@ spec:
       labels:
         app.kubernetes.io/name: dakera
         app.kubernetes.io/component: server
-        app.kubernetes.io/version: "0.12.3"
+        app.kubernetes.io/version: "0.12.4"
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"
@@ -57,7 +61,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dakera
-          image: ghcr.io/dakera-ai/dakera:0.12.3
+          image: ghcr.io/dakera-ai/dakera:0.12.4
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -121,15 +125,25 @@ spec:
             requests:
               cpu: 500m
               memory: 512Mi
-            # The limit also holds document extraction (0.12.3): up to
+            # CPU: embedding and the reranker share the cores the limit allows. 4 is
+            # the minimum for bge-large (8 for bge-m3, which the multilingual component
+            # sets); below it the server warns at startup (/health config_warnings:
+            # sizing) and recalls queue behind each other under load.
+            # Memory: the image's default models loaded (bge-large, the reranker,
+            # GLiNER, the forget/instruction encoder) hold about 3.5 GiB before any
+            # data. The limit also holds document extraction: up to
             # DAKERA_DOCUMENT_EXTRACT_CONCURRENCY x _MEMORY_MB (2 x 1024 MB) in child
-            # processes. PDF-heavy imports: 6Gi, or concurrency 1 (configmap.yaml).
+            # processes; for PDF-heavy imports raise it, or set concurrency 1
+            # (configmap.yaml).
             limits:
-              cpu: "2"
-              memory: 4Gi
+              cpu: "4"
+              memory: 6Gi
       volumes:
         # PVC name kept from v0.11 so an upgrade keeps the volume; it now holds
-        # the whole data root, not only RocksDB.
+        # the whole data root, not only RocksDB. Keep the data root on a
+        # PersistentVolumeClaim: from 0.12.4 the server warns (config_warnings:
+        # ephemeral_data_dir) when it lies on the container's filesystem, a tmpfs
+        # or an emptyDir, which a new pod loses.
         - name: data
           persistentVolumeClaim:
             claimName: dakera-rocksdb

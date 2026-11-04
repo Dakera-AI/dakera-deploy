@@ -33,7 +33,7 @@
 
 | | Dakera server | Where |
 |---|---|---|
-| **Latest (this branch, `main`)** | **v0.12.3** | `main`: compose files, Kubernetes manifests and guides in this repo target v0.12.3 (Dashboard 0.5.2) |
+| **Latest (this branch, `main`)** | **v0.12.4** | `main`: compose files, Kubernetes manifests and guides in this repo target v0.12.4 (Dashboard 0.5.3) |
 | Previous | v0.11.x (last: v0.11.108) | the [`release/0.11`](https://github.com/Dakera-AI/dakera-deploy/tree/release/0.11) branch, kept unchanged |
 
 **On v0.11?** Use the [`release/0.11`](https://github.com/Dakera-AI/dakera-deploy/tree/release/0.11)
@@ -41,8 +41,9 @@ branch (`git clone -b release/0.11 https://github.com/Dakera-AI/dakera-deploy`):
 keeps working as before. Its Helm counterpart is the `0.11.x` chart on the
 [`release/0.11`](https://github.com/Dakera-AI/dakera-helm/tree/release/0.11) branch of dakera-helm.
 
-**On v0.12.2?** Follow [Upgrading from v0.12.2 to v0.12.3](#upgrading-from-v0122-to-v0123): pull the new
-images; nothing is migrated by hand. **On v0.12.0?** Take [Upgrading from v0.12.0 to v0.12.1](#upgrading-from-v0120-to-v0121)
+**On v0.12.3?** Follow [Upgrading from v0.12.3 to v0.12.4](#upgrading-from-v0123-to-v0124): pull the new
+image; nothing is migrated by hand, but entity extraction is now on by default and recall rankings change.
+**On v0.12.2?** Take [Upgrading from v0.12.2 to v0.12.3](#upgrading-from-v0122-to-v0123) on the way. **On v0.12.0?** Take [Upgrading from v0.12.0 to v0.12.1](#upgrading-from-v0120-to-v0121)
 on the way: **a cluster needs `DAKERA_CLUSTER_SECRET` on every node** and, if it ran without one, an upgrade in
 one window.
 
@@ -168,11 +169,11 @@ docker compose -f docker-compose.dev.yml up -d
 
 Production-grade single-node deployment with MinIO, caching, and health checks.
 
-> **Version pinning**: The default images are pinned to Dakera v0.12.3 and Dashboard 0.5.2 (v0.11: `release/0.11`).
+> **Version pinning**: The default images are pinned to Dakera v0.12.4 and Dashboard 0.5.3 (v0.11: `release/0.11`).
 > To run a specific version, set `DAKERA_IMAGE` and `DASHBOARD_IMAGE` in your `.env`:
 > ```bash
-> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.3
-> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.5.2
+> DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.4
+> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.5.3
 > ```
 > Pinning to explicit versions prevents unexpected upgrades in production.
 
@@ -192,6 +193,12 @@ docker compose up -d
 - REST API: http://localhost:3000
 - gRPC API: localhost:50051
 - MinIO Console: http://localhost:9001
+
+**Sizing.** Embedding (writes) and the cross-encoder reranker (recalls rerank by default) share the CPUs:
+give the server at least **4 CPUs** with `bge-large` (the default) or another English model, and **8 with
+`bge-m3`** (the multilingual overlay). Below that, recalls wait for each other under load and the server says so
+at startup (`/health` `config_warnings`: `sizing`). `docker-compose.yml` limits the server to 4 CPUs and 12G;
+the image's default models loaded hold about 3.5 GiB before any data. The CPU image is about 2.65 GB to pull.
 
 ### High Availability (3-Node Cluster)
 
@@ -217,6 +224,16 @@ defaults to `true` here too: the load balancer port is published on every interf
 Redis: with one Redis shared by the three nodes, v0.12.0's replication applied nothing on some peers
 (measured: 3 of 6 node pairs never converged); without it every write reached the two other nodes within
 0.1 s.
+
+### Dashboard 0.5.3
+
+**Dashboard 0.5.3** (with Dakera 0.12.4; it works with 0.12.0 – 0.12.3 too, forget by request needs 0.12.4) deploys
+exactly like 0.5.2: the same variables, port `3000`, user and health check. New in it: forget by request and the
+agent's trash, the engine's setup advice on the Overview, standing instructions in the Recall lab, and ways to reach
+the team. It sends **anonymous usage telemetry** (pages and feature use; never content, ids, names or keys: the
+dashboard's `TELEMETRY.md`) to Dakera's PostHog project in the EU. The server's opt-out turns it off too:
+`DAKERA_TELEMETRY=off` or `DO_NOT_TRACK=1` in `.env` (both compose files pass them to the dashboard), browser Do Not
+Track / Global Privacy Control, or the dashboard's Settings › Privacy.
 
 ### Dashboard 0.5.2 (unprivileged, no curl inside)
 
@@ -345,6 +362,85 @@ npx @dakera-ai/dakera-mcp               # zero-install, latest version
 ```
 
 See [dakera-cli](https://github.com/dakera-ai/dakera-cli) and [dakera-mcp](https://github.com/dakera-ai/dakera-mcp) for full documentation.
+
+## Upgrading from v0.12.3 to v0.12.4
+
+Nothing is migrated by hand: the on-disk format is unchanged and v0.12.4 starts on v0.12.3 data as it is. The
+server's guide:
+[UPGRADE.md, "Upgrading from v0.12.3 to v0.12.4"](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/UPGRADE.md#upgrading-from-v0123-to-v0124).
+
+1. **Back up** (`POST /admin/backups`).
+2. **Take the new files** (`git pull` on `main`): images `ghcr.io/dakera-ai/dakera:0.12.4` and
+   `ghcr.io/dakera-ai/dakera-dashboard:0.5.3`. If you pin `DAKERA_IMAGE` / `DASHBOARD_IMAGE` in `.env`, change
+   them there.
+3. **Check the configuration** with the new image: `docker compose run --rm --no-deps dakera --check-config`
+   (exit 0 = it would start). Every `DAKERA_*` variable must be one v0.12.4 knows, with a valid value: on a fresh
+   install an unknown name or an invalid value refuses to start; an existing deployment is warned.
+4. **Start it**: `docker compose pull && docker compose up -d` (Kubernetes: `kubectl apply -k k8s/`; Helm: chart
+   0.12.4).
+
+What behaves differently (all of it in the server's CHANGELOG; each default can be set back, see
+`docker/.env.example`, "Server v0.12.4"):
+
+- **Entity extraction is on by default.** Every namespace that never set `extract_entities` / `entity_types`
+  extracts `person,organization,location`, and the background sweep tags the memories already stored after the
+  upgrade (about 15 ms of one core per short memory, at background priority). Stored memories also gain
+  rule-based `entity:date:*` / `entity:url:*` tags. `DAKERA_DEFAULT_ENTITY_TYPES=none` restores the old default.
+  A namespace that turned extraction off before 0.12.4 cannot be told apart from one that never set it: to keep
+  it untagged, upgrade with `DAKERA_DEFAULT_ENTITY_TYPES=none`, set `"extract_entities": false` on it again, then
+  remove the variable.
+- **New GLiNER models, chosen by the embedding model's languages.** The image ships `gliner-bi-small` (English,
+  the default with every English embedding model) and `gliner-x-small` (about 100 languages, the default with
+  `bge-m3` and `multilingual-minilm`). A deployment that never set `DAKERA_GLINER_MODEL` moves from `gliner-medium`
+  to its new default and re-tags its memories in the background. `DAKERA_GLINER_MODEL` must name a model of the
+  embedding model's languages (English: `gliner-bi-small`, `gliner-bi-edge`, `gliner-medium`; multilingual:
+  `gliner-x-small`, `gliner-multi`): another one refuses a fresh install, and an existing deployment is warned
+  and runs the default.
+- **Recall rankings change.** `importance_weighted` defaults to `false`; relevance normalisation, collapse of
+  derived memories, long-content windows and bi-temporal ingest are on; a recall above `top_k` 10 keeps a reranked
+  head of 10; recall answers the knowledge-graph neighbours in `associated_memories`; the name boost stays 0.3.
+- **Autopilot reports instead of merging**: deduplication and consolidation find what they would fold and change
+  nothing (`DAKERA_AUTOPILOT_DEDUP_MODE=merge`, `DAKERA_AUTOPILOT_CONSOLIDATION_MODE=merge` for the merges
+  earlier releases ran).
+- **Stores read each text with the multilingual detector**: standing instructions ("From now on, answer in
+  French") are tagged and returned in recall's `instructions`; a request to forget is reported in the store's
+  answer (`DAKERA_STANDING_INSTRUCTIONS=0`, `DAKERA_FORGET_REQUESTS=off` turn them off).
+- **The rate limit is per API key** (per client address with authentication off), not one bucket for the server.
+- **Memory policies**: a policy's TTLs default to none, and a `null` TTL stays `null` across restarts.
+- **Models come from Dakera's copies first.** Every file is downloaded from
+  [huggingface.co/DakeraAI](https://huggingface.co/DakeraAI) first, then from the original repository, and
+  checked against the same pinned SHA-256. `HF_ENDPOINT` applies to both: a mirror or proxy needs to serve the
+  `DakeraAI` organisation (or only the original repositories; the copy is then skipped). An existing model cache
+  is used as it is. Pre-fetch what the image does not ship with `dakera models pull <model>`.
+- **The image is about 2.65 GB** and ships its default models (bge-large, the reranker, `gliner-bi-small`,
+  `gliner-x-small` and the forget/instruction encoder): a default start downloads nothing.
+- **Startup advice** (`/health` `config_warnings`, logged once): `sizing` (fewer CPUs than the models want: 4, or
+  8 for `bge-m3`; see [Sizing](#default-full-single-node)), `storage_in_memory` (a data path is set without
+  `DAKERA_STORAGE`, which defaults to `memory`: memories are held in RAM and replayed from the write-ahead log at
+  every start; set `DAKERA_STORAGE=filesystem` or `s3`), and `ephemeral_data_dir` (on Kubernetes, a data root on
+  the container's filesystem, a `tmpfs` or an `emptyDir`, which a new pod loses: mount a PersistentVolumeClaim,
+  as `k8s/` and the Helm chart do).
+- **New, optional: `DAKERA_CONTACT_EMAIL`**, your address, shown in the startup banner and, when telemetry is on,
+  sent with it so the Dakera team can reach you about this install. An address that is not one refuses the boot.
+- **Tenant mode** (`DAKERA_TENANT_MODE`) is off unless set; a deployment that does not set it sees no change.
+
+**Going back to v0.12.3** (or an earlier v0.12): the formats are the same, so it is an image swap with one step
+first. Stop the server, run `dakera checkpoint` with the 0.12.4 image (it replays the write-ahead log, takes one
+snapshot and truncates the log, so the earlier release has nothing to replay), then start the earlier image:
+
+```bash
+cd docker
+docker compose stop dakera-watchdog dakera
+docker compose run --rm dakera checkpoint     # exit 0 = done; 78 = refused (a server still runs on the data)
+DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.3 docker compose up -d
+```
+
+Kubernetes: scale the Deployment to 0, `kubectl apply -f k8s/dakera/checkpoint-job.yaml`, then apply the earlier
+image. Clusters: every node, then the whole cluster (the recipe is in the header of `docker/docker-compose.ha.yml`).
+A deployment that ran tenant mode revokes its tenant keys first (UPGRADE.md, "Going back from v0.12.4 to v0.12.3").
+
+The new settings are listed in [examples/environment-variables.md](examples/environment-variables.md) and
+`docker/.env.example`; every one is optional.
 
 ## Upgrading from v0.12.2 to v0.12.3
 
@@ -534,7 +630,9 @@ DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.11.108 docker compose up -d
   stays live up to 120 s), the store uses a v0.12-only feature, or no data was found where the
   configuration looks (an empty or wrong volume / bucket).
 - Kubernetes: `kubectl apply -f k8s/dakera/downgrade-job.yaml` after scaling the Deployment to 0.
-- Docker run: `docker run --rm <same env and volumes> ghcr.io/dakera-ai/dakera:0.12.1 downgrade`.
+- Docker run: `docker run --rm <same env and volumes> ghcr.io/dakera-ai/dakera:0.12.4 downgrade` (the image of
+  the version being rolled back).
+- Going back to an earlier v0.12 instead: `dakera checkpoint` ([Upgrading from v0.12.3 to v0.12.4](#upgrading-from-v0123-to-v0124)).
 - Clusters: roll back the whole cluster, not one node (HA recipe in the header of
   `docker/docker-compose.ha.yml`).
 - Air-gapped, after `dakera models prune`: re-seed the model volume first (server UPGRADE.md, "Going back to v0.11").
@@ -679,6 +777,7 @@ dakera-deploy/
 | `DAKERA_STORAGE` | `memory` | Storage backend (`memory`, `filesystem`, `s3`) |
 | `DAKERA_STORAGE_PATH` | `/data` | Data root: write-ahead log, knowledge graph, filesystem backend, hot and warm tiers all derive from it |
 | `RUST_LOG` | `info` | Log verbosity level |
+| `DAKERA_CONTACT_EMAIL` | - | Your e-mail address (v0.12.4): shown in the startup banner and, with telemetry on, sent with it so the Dakera team can reach you about this install. Not an address = the boot is refused |
 | `DAKERA_TELEMETRY` | `enabled` | Product telemetry (hostname and IP included; see below). Set to `0`/`off` to disable (see [Telemetry](#telemetry)) |
 
 ### Telemetry
@@ -691,6 +790,8 @@ To disable it, set either of:
 DAKERA_TELEMETRY=off   # or 0 / false / no
 DO_NOT_TRACK=1         # honored as an unconditional opt-out
 ```
+
+When `DAKERA_CONTACT_EMAIL` is set and telemetry is on, the address is sent with it (v0.12.4); with telemetry off it is only shown in the startup banner.
 
 Fully air-gapped operation is supported (a failed send is one debug log line). Inspect the exact payload before it is sent with `DAKERA_TELEMETRY_DEBUG=1`.
 
@@ -714,9 +815,11 @@ Fully air-gapped operation is supported (a failed send is one debug log line). I
 
 ### Models
 
-The image ships `bge-large` and the reranker and loads them in seconds with no network. Any other
-model (`DAKERA_MODEL=bge-m3`, whisper, vision, GLiNER) downloads on first use into the model cache
-(`/app/models`, the `dakera-models` volume). Pre-pull / air-gapped:
+The image ships `bge-large`, the reranker, GLiNER (`gliner-bi-small`, English, and `gliner-x-small`,
+multilingual; the one matching the embedding model's languages runs) and the forget/instruction encoder, and loads
+them with no network. Any other model (`DAKERA_MODEL=bge-m3`, whisper, vision, `gliner-medium`, `gliner-multi`,
+`gliner-bi-edge`) downloads on first use into the model cache (`/app/models`, the `dakera-models` volume), from
+[Dakera's copies](https://huggingface.co/DakeraAI) first, then the original repositories. Pre-pull / air-gapped:
 `docker compose run --rm dakera models pull <model>`; inspect with `models list`; free space with
 `models prune`. Mirrors, proxies and offline hosts: `HF_ENDPOINT`, `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` / `NO_PROXY` and `HF_HUB_OFFLINE` in `.env`. See [docs/features-v0.12.md](docs/features-v0.12.md#the-model-store) and the server's [models-and-docker.md](https://github.com/Dakera-AI/dakera/blob/main/docs/models-and-docker.md).
 
@@ -843,12 +946,12 @@ and constraints are in [docs/features-v0.12.md](docs/features-v0.12.md) and `doc
 ## Dockerfiles
 
 All three build from a **dakera source checkout** (run them from its root); the published image,
-`ghcr.io/dakera-ai/dakera:0.12.3`, is what the compose files and manifests here use.
+`ghcr.io/dakera-ai/dakera:0.12.4`, is what the compose files and manifests here use.
 
 | Dockerfile | Base Image | Purpose |
 |------------|-----------|---------|
-| `Dockerfile` | `rust:1.95-slim-trixie` → `gcr.io/distroless/cc-debian13` | The engine's own Dockerfile at v0.12.3 (builds the released image, models baked in; distroless, no `curl`); re-synced each server release |
-| `Dockerfile.dev` | `rust:1.95-trixie` → `debian:trixie-slim` | Dev build with BuildKit cache for fast incremental rebuilds (~30-120s after first build) |
+| `Dockerfile` | `rust:1.98-slim-trixie` → `gcr.io/distroless/cc-debian13` | The engine's own Dockerfile at v0.12.4 (builds the released image, models baked in; distroless, no `curl`); re-synced each server release |
+| `Dockerfile.dev` | `rust:1.98-trixie` → `debian:trixie-slim` | Dev build with BuildKit cache for fast incremental rebuilds (~30-120s after first build) |
 | `Dockerfile.local` | `debian:trixie-slim` | Lightweight runtime from a pre-built binary |
 
 ## Common Operations
@@ -928,7 +1031,7 @@ The Helm chart has moved to the dedicated **[dakera-helm](https://github.com/dak
 
 ```bash
 # Install from GHCR OCI
-helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.12.3 \
+helm install dakera oci://ghcr.io/dakera-ai/dakera-helm/dakera --version 0.12.4 \
   --namespace dakera --create-namespace \
   --set dakera.rootApiKey=$(openssl rand -hex 32) \
   --set minio.rootPassword=$(openssl rand -hex 16)
@@ -953,7 +1056,7 @@ See [dakera-ai/dakera-helm](https://github.com/dakera-ai/dakera-helm) for chart 
 
 | Component | CPU Request | Memory Request | Default Replicas |
 |-----------|------------|---------------|-----------------|
-| Dakera server | 500m | 512Mi | 1 (one server per data root; no HPA) |
+| Dakera server | 500m (limit 4; 8 with the multilingual component) | 512Mi (limit 6Gi) | 1 (one server per data root; no HPA) |
 | Dashboard | 100m | 64Mi | 1 |
 | MinIO | 250m | 256Mi | 1 (StatefulSet) |
 | Prometheus | 250m | 256Mi | 1 |
@@ -963,7 +1066,7 @@ See [dakera-ai/dakera-helm](https://github.com/dakera-ai/dakera-helm) for chart 
 
 - **Use native S3** (AWS S3, GCS) instead of MinIO in cloud environments: set `DAKERA_S3_ENDPOINT` to your provider's endpoint and disable MinIO (`minio.enabled=false` in Helm)
 - **Scaling**: a server locks its data root and the volume is ReadWriteOnce, so one Deployment is one server and `k8s/dakera/hpa.yaml` is not applied by default. Scale out with cluster mode (one release per node: own bucket, own volume, shared `DAKERA_CLUSTER_SECRET`)
-- **Dashboard 0.5.2**: the Deployment has no API key (operators sign in with their own key; `DAKERA_API_KEY` is gone, rotate any key the old dashboard carried). It runs as uid/gid 10001 with a read-only root filesystem and a `/tmp` emptyDir. Keep `replicas: 1` (sessions are in memory, or add sticky sessions), enable TLS on the dashboard host in `k8s/ingress.yaml` (ingress-nginx forwards `X-Forwarded-Proto` and `Host`), probes use `/_session/healthz`. See [Dashboard 0.5.2](#dashboard-052-unprivileged-no-curl-inside) and [Dashboard 0.5.0](#dashboard-050-server-side-sessions)
+- **Dashboard 0.5.3** (as 0.5.2): the Deployment has no API key (operators sign in with their own key; `DAKERA_API_KEY` is gone, rotate any key the old dashboard carried). It runs as uid/gid 10001 with a read-only root filesystem and a `/tmp` emptyDir. Keep `replicas: 1` (sessions are in memory, or add sticky sessions), enable TLS on the dashboard host in `k8s/ingress.yaml` (ingress-nginx forwards `X-Forwarded-Proto` and `Host`), probes use `/_session/healthz`. See [Dashboard 0.5.2](#dashboard-052-unprivileged-no-curl-inside) and [Dashboard 0.5.0](#dashboard-050-server-side-sessions)
 - **TLS**: add cert-manager annotations to `k8s/ingress.yaml` or `ingress.annotations` in Helm values
 - **Secrets management**: use an external secrets operator (External Secrets, Vault) instead of `kubectl create secret` for production
 - **Metrics**: Dakera exposes Prometheus metrics at `GET /metrics` — pods have `prometheus.io/scrape: "true"` annotations for auto-discovery

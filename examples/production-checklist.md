@@ -19,13 +19,14 @@ Use this checklist before exposing Dakera to the internet or handling real workl
 - [ ] **Pin image versions**: Set `DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.1` explicitly — never use `latest` in production
 - [ ] **Mount volumes**: Ensure the `dakera-data` (data root: WAL, knowledge graph), `dakera-cache`, `dakera-rocksdb`, `dakera-models` and `minio-data` volumes are on reliable storage
 - [ ] **Configure backups**: See [backup-restore.md](backup-restore.md) for backup procedures
-- [ ] **Know your way back**: `docker compose run --rm dakera downgrade` (server stopped first) returns v0.12 data to v0.11.108; see README "Rolling back to v0.11"
+- [ ] **Know your way back**: `docker compose run --rm dakera downgrade` (server stopped first) returns v0.12 data to v0.11.108; see README "Rolling back to v0.11"; going back from v0.12.4 to an earlier v0.12 is `docker compose run --rm dakera checkpoint` (server stopped first), then the earlier image (README "Upgrading from v0.12.3 to v0.12.4")
+- [ ] **Optional: leave a contact**: `DAKERA_CONTACT_EMAIL` (v0.12.4) shows your address in the startup banner and, with telemetry on, lets the Dakera team reach you about this install
 - [ ] **After upgrading, check that a keyword search returns hits**: from v0.12.1 full-text indexes built by v0.11 are re-analysed in the background at startup (log line `Full-text index re-analysed under the configured analyzer`), so the v0.12.0 manual rebuild (`scripts/post-upgrade-reindex.sh`) is no longer needed. Still on v0.12.0 with v0.11.108 data: run it once. See README "After the upgrade: full-text indexes"
 - [ ] **Run `--check-config` before every upgrade**: `docker compose run --rm --no-deps dakera --check-config` (exit 0 = would start, 78 = would refuse)
 
 ## Performance
 
-- [ ] **Set resource limits**: `docker-compose.yml` limits the server to 12G memory and 4 CPUs (the Kubernetes manifests: 4Gi and 2 CPUs; the Helm chart: 4Gi and 2) — adjust to your workload. The measured configuration for every optional model is 4 cores / 8 GiB; reranking is CPU-bound (24 CPU-s per `top_k` 16 recall): see [sizing](../docs/features-v0.12.md#performance-and-sizing)
+- [ ] **Set resource limits**: `docker-compose.yml` limits the server to 12G memory and 4 CPUs (the Kubernetes manifests and the Helm chart from 0.12.4: 6Gi and 4 CPUs). The server wants at least 4 CPUs (8 with `bge-m3`) and warns at startup below that (`/health` `config_warnings`: `sizing`); the default models hold about 3.5 GiB — adjust to your workload. The measured configuration for every optional model is 4 cores / 8 GiB; reranking is CPU-bound (24 CPU-s per `top_k` 16 recall): see [sizing](../docs/features-v0.12.md#performance-and-sizing)
 - [ ] **Tune the hot tier**: `DAKERA_L1_CACHE_SIZE` sizes the tiered-storage hot tier (the compose files use `512MB`; a bare number below 10 million is a vector count) — increase for memory-heavy workloads
 - [ ] **Cap rerank cost if recall CPU is the limit**: `DAKERA_RERANK_MAX_CANDIDATES` (see the features guide)
 - [ ] **Tiered storage**: on in the compose files and manifests (`DAKERA_TIERED_STORAGE=true`, needs `DAKERA_STORAGE=s3`); the hot tier is RocksDB with fsynced writes (`DAKERA_ROCKSDB_SYNC`), expect more write latency on slow disks
@@ -40,7 +41,7 @@ Everything below is off by default; see [docs/features-v0.12.md](../docs/feature
 - [ ] **`DAKERA_TIERED=0`** with multilingual, late interaction or vision (the tiered embedding engine pins `bge-large` and refuses late interaction); identical on every node
 - [ ] **Vision is a dedicated store** (data root and bucket of its own); never turn it on over a text store
 <!-- TODO: whisper-base.en / whisper-tiny / whisper-base / whisper-small footprints are being measured; revisit the volume sizing when they land. -->
-- [ ] **Model volume**: `dakera-models` on persistent storage, ~10 GiB for every optional model (the image ships only `bge-large` and the reranker); pre-pull (`models pull bge-m3 whisper vision`) so the first start does not wait on a download; air-gapped hosts seed it with `models pull --dir` and set `HF_HUB_OFFLINE=1`
+- [ ] **Model volume**: `dakera-models` on persistent storage, ~10 GiB for every optional model (the image ships `bge-large`, the reranker, GLiNER `gliner-bi-small` / `gliner-x-small` and the forget/instruction encoder; other models come from huggingface.co/DakeraAI first, then the original repositories); pre-pull (`models pull bge-m3 whisper vision`) so the first start does not wait on a download; air-gapped hosts seed it with `models pull --dir` and set `HF_HUB_OFFLINE=1`
 - [ ] **Behind a proxy or mirror**: `HTTPS_PROXY` (an `http://` or `socks5h://` URL, never `https://`), `NO_PROXY=127.0.0.1,localhost,minio,...`, `HF_ENDPOINT`
 - [ ] **Memory for media**: at least 8 GiB for transcription and image pages (measured: 530 MiB anonymous with every model loaded, +1.9 GiB image peak); clients retry `503` + `Retry-After`
 - [ ] **Verify**: `GET /v1/capabilities` shows the feature on (and `default_model`), `GET /health` has no unexpected `degraded` or `config_warnings`
