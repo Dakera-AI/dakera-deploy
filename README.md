@@ -33,7 +33,7 @@
 
 | | Dakera server | Where |
 |---|---|---|
-| **Latest (this branch, `main`)** | **v0.12.4** | `main`: compose files, Kubernetes manifests and guides in this repo target v0.12.4 (Dashboard 0.5.2) |
+| **Latest (this branch, `main`)** | **v0.12.4** | `main`: compose files, Kubernetes manifests and guides in this repo target v0.12.4 (Dashboard 0.5.3) |
 | Previous | v0.11.x (last: v0.11.108) | the [`release/0.11`](https://github.com/Dakera-AI/dakera-deploy/tree/release/0.11) branch, kept unchanged |
 
 **On v0.11?** Use the [`release/0.11`](https://github.com/Dakera-AI/dakera-deploy/tree/release/0.11)
@@ -169,11 +169,11 @@ docker compose -f docker-compose.dev.yml up -d
 
 Production-grade single-node deployment with MinIO, caching, and health checks.
 
-> **Version pinning**: The default images are pinned to Dakera v0.12.4 and Dashboard 0.5.2 (v0.11: `release/0.11`).
+> **Version pinning**: The default images are pinned to Dakera v0.12.4 and Dashboard 0.5.3 (v0.11: `release/0.11`).
 > To run a specific version, set `DAKERA_IMAGE` and `DASHBOARD_IMAGE` in your `.env`:
 > ```bash
 > DAKERA_IMAGE=ghcr.io/dakera-ai/dakera:0.12.4
-> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.5.2
+> DASHBOARD_IMAGE=ghcr.io/dakera-ai/dakera-dashboard:0.5.3
 > ```
 > Pinning to explicit versions prevents unexpected upgrades in production.
 
@@ -224,6 +224,16 @@ defaults to `true` here too: the load balancer port is published on every interf
 Redis: with one Redis shared by the three nodes, v0.12.0's replication applied nothing on some peers
 (measured: 3 of 6 node pairs never converged); without it every write reached the two other nodes within
 0.1 s.
+
+### Dashboard 0.5.3
+
+**Dashboard 0.5.3** (with Dakera 0.12.4; it works with 0.12.0 – 0.12.3 too, forget by request needs 0.12.4) deploys
+exactly like 0.5.2: the same variables, port `3000`, user and health check. New in it: forget by request and the
+agent's trash, the engine's setup advice on the Overview, standing instructions in the Recall lab, and ways to reach
+the team. It sends **anonymous usage telemetry** (pages and feature use; never content, ids, names or keys: the
+dashboard's `TELEMETRY.md`) to Dakera's PostHog project in the EU. The server's opt-out turns it off too:
+`DAKERA_TELEMETRY=off` or `DO_NOT_TRACK=1` in `.env` (both compose files pass them to the dashboard), browser Do Not
+Track / Global Privacy Control, or the dashboard's Settings › Privacy.
 
 ### Dashboard 0.5.2 (unprivileged, no curl inside)
 
@@ -360,8 +370,9 @@ server's guide:
 [UPGRADE.md, "Upgrading from v0.12.3 to v0.12.4"](https://github.com/Dakera-AI/dakera/blob/main/docs/v0.12/UPGRADE.md#upgrading-from-v0123-to-v0124).
 
 1. **Back up** (`POST /admin/backups`).
-2. **Take the new files** (`git pull` on `main`): image `ghcr.io/dakera-ai/dakera:0.12.4` (Dashboard 0.5.2
-   unchanged). If you pin `DAKERA_IMAGE` in `.env`, change it there.
+2. **Take the new files** (`git pull` on `main`): images `ghcr.io/dakera-ai/dakera:0.12.4` and
+   `ghcr.io/dakera-ai/dakera-dashboard:0.5.3`. If you pin `DAKERA_IMAGE` / `DASHBOARD_IMAGE` in `.env`, change
+   them there.
 3. **Check the configuration** with the new image: `docker compose run --rm --no-deps dakera --check-config`
    (exit 0 = it would start). Every `DAKERA_*` variable must be one v0.12.4 knows, with a valid value: on a fresh
    install an unknown name or an invalid value refuses to start; an existing deployment is warned.
@@ -1055,7 +1066,7 @@ See [dakera-ai/dakera-helm](https://github.com/dakera-ai/dakera-helm) for chart 
 
 - **Use native S3** (AWS S3, GCS) instead of MinIO in cloud environments: set `DAKERA_S3_ENDPOINT` to your provider's endpoint and disable MinIO (`minio.enabled=false` in Helm)
 - **Scaling**: a server locks its data root and the volume is ReadWriteOnce, so one Deployment is one server and `k8s/dakera/hpa.yaml` is not applied by default. Scale out with cluster mode (one release per node: own bucket, own volume, shared `DAKERA_CLUSTER_SECRET`)
-- **Dashboard 0.5.2**: the Deployment has no API key (operators sign in with their own key; `DAKERA_API_KEY` is gone, rotate any key the old dashboard carried). It runs as uid/gid 10001 with a read-only root filesystem and a `/tmp` emptyDir. Keep `replicas: 1` (sessions are in memory, or add sticky sessions), enable TLS on the dashboard host in `k8s/ingress.yaml` (ingress-nginx forwards `X-Forwarded-Proto` and `Host`), probes use `/_session/healthz`. See [Dashboard 0.5.2](#dashboard-052-unprivileged-no-curl-inside) and [Dashboard 0.5.0](#dashboard-050-server-side-sessions)
+- **Dashboard 0.5.3** (as 0.5.2): the Deployment has no API key (operators sign in with their own key; `DAKERA_API_KEY` is gone, rotate any key the old dashboard carried). It runs as uid/gid 10001 with a read-only root filesystem and a `/tmp` emptyDir. Keep `replicas: 1` (sessions are in memory, or add sticky sessions), enable TLS on the dashboard host in `k8s/ingress.yaml` (ingress-nginx forwards `X-Forwarded-Proto` and `Host`), probes use `/_session/healthz`. See [Dashboard 0.5.2](#dashboard-052-unprivileged-no-curl-inside) and [Dashboard 0.5.0](#dashboard-050-server-side-sessions)
 - **TLS**: add cert-manager annotations to `k8s/ingress.yaml` or `ingress.annotations` in Helm values
 - **Secrets management**: use an external secrets operator (External Secrets, Vault) instead of `kubectl create secret` for production
 - **Metrics**: Dakera exposes Prometheus metrics at `GET /metrics` — pods have `prometheus.io/scrape: "true"` annotations for auto-discovery

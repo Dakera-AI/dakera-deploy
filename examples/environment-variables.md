@@ -202,6 +202,8 @@ default below is what v0.12.4 runs; the description says how to get 0.12.3's beh
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `DAKERA_TELEMETRY` | on | `off` / `0` / `false` / `no`: product telemetry off, for the server and (compose) the dashboard 0.5.3 |
+| `DO_NOT_TRACK` | — | `1`: the same, unconditionally |
 | `DAKERA_CONTACT_EMAIL` | — | Your e-mail address: shown in the startup banner and, when telemetry is on, sent with it so the Dakera team can reach you about this install. A value that is not an address refuses the boot |
 | `DAKERA_DEFAULT_ENTITY_TYPES` | `person,organization,location` | Entity types extracted in every namespace that never set `extract_entities` / `entity_types` (GLiNER labels or `@conversational`, `@technical`, `@personal`, `@pii`). `none` = no server default (0.12.3). An invalid label refuses the boot |
 | `DAKERA_ENTITY_TAGGING` | `background` | `background`: the store answers with the rule-based tags and a worker adds the model's; `inline`: inside the store |
@@ -236,9 +238,9 @@ The default and HA compose files expose different ports to allow co-deployment o
 | `PROMETHEUS_PORT` | `9090` | Prometheus (monitoring profile) |
 | `GRAFANA_PORT` | `3003` | Grafana (monitoring profile) |
 | `DASHBOARD_PORT` | `3002` | Dashboard UI (dashboard profile) |
-| `DASHBOARD_IMAGE` | `ghcr.io/dakera-ai/dakera-dashboard:0.5.2` | Dashboard image |
+| `DASHBOARD_IMAGE` | `ghcr.io/dakera-ai/dakera-dashboard:0.5.3` | Dashboard image |
 | `DAKERA_SESSION_TTL_HOURS` | `12` | Dashboard 0.4.0+: longest an operator sign-in lasts (idle sessions end after 2 h) |
-| `DAKERA_TRUSTED_PROXIES` | — | Dashboard 0.5.2: addresses / CIDRs (comma or space separated) of the reverse proxies whose `X-Forwarded-For` names the client (nginx `real_ip`; the sign-in throttle counts that address) |
+| `DAKERA_TRUSTED_PROXIES` | — | Dashboard 0.5.2+: addresses / CIDRs (comma or space separated) of the reverse proxies whose `X-Forwarded-For` names the client (nginx `real_ip`; the sign-in throttle counts that address) |
 
 ### HA Profile (`docker-compose.ha.yml`)
 

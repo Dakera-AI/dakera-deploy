@@ -9,7 +9,7 @@
 #   docker compose --profile dashboard up -d   # with Dashboard UI
 #   docker compose down
 #
-# Dakera v0.12.4, Dashboard 0.5.2. (v0.11 users: the previous version of this file
+# Dakera v0.12.4, Dashboard 0.5.3. (v0.11 users: the previous version of this file
 # is on the `release/0.11` branch.)
 #
 # Upgrading from v0.12.3 (or older v0.12): back up, then `docker compose pull && docker compose up -d`.
@@ -187,6 +187,11 @@ services:
       # like the ones above. Your e-mail address, for the Dakera team to reach you about
       # this install (shown in the startup banner; sent only when telemetry is on):
       - DAKERA_CONTACT_EMAIL
+      # Product telemetry opt-out (README, "Telemetry"): DAKERA_TELEMETRY=off or
+      # DO_NOT_TRACK=1 in .env. Passed only when set; it never reached the server
+      # before this file listed them.
+      - DAKERA_TELEMETRY
+      - DO_NOT_TRACK
       # Entity extraction, on by default from 0.12.4 (`none` = off for every namespace
       # that never set its own). DAKERA_GLINER_MODEL must read the embedding model's
       # languages: unset picks gliner-bi-small (English models) or gliner-x-small
@@ -484,30 +489,35 @@ services:
   # Dakera Dashboard (optional)
   # ==========================================================================
   dashboard:
-    # 0.5.2 (deploys like 0.4.0 / 0.5.x; runs as uid 10001, no curl inside).
+    # 0.5.3 (deploys like 0.4.0 / 0.5.x; runs as uid 10001, no curl inside).
     # Operators sign in at /login with their OWN Dakera
     # API key, held in server memory by the dashboard's session service (no key in
     # this container: DAKERA_API_KEY and DAKERA_CLIENT_URL are gone since 0.4.0).
     # Sessions are in memory, so a restart signs everyone out. Put TLS in front
     # (README, "Dashboard 0.5.0", TLS in front):
     # the proxy must forward X-Forwarded-Proto and the original Host.
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.2}
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.3}
     container_name: dakera-dashboard
     profiles: ["dashboard", "full"]
     ports:
       - "127.0.0.1:${DASHBOARD_PORT:-3002}:3000"
     environment:
-      # A plain http(s)://host[:port][/path] URL (0.5.2 refuses anything else: it is
+      # A plain http(s)://host[:port][/path] URL (0.5.2+ refuses anything else: it is
       # written into nginx configuration).
       - DAKERA_API_UPSTREAM=http://dakera:3000
       # Longest a sign-in lasts (default 12; idle sessions end after 2 h):
       - DAKERA_SESSION_TTL_HOURS=${DAKERA_SESSION_TTL_HOURS:-12}
-      # Dashboard 0.5.2: addresses / CIDRs (comma or space separated) of the reverse
+      # Dashboard 0.5.2+: addresses / CIDRs (comma or space separated) of the reverse
       # proxies in front of it whose X-Forwarded-For names the client (nginx real_ip;
       # the sign-in throttle counts that address). Empty: the connecting peer is the
       # client. E.g. the Docker bridge gateway when a host proxy forwards to it.
       - DAKERA_TRUSTED_PROXIES=${DAKERA_TRUSTED_PROXIES:-}
-    # python3 (in every dashboard image; 0.5.2 has no curl), proxies ignored, exit != 0
+      # Dashboard 0.5.3: anonymous usage telemetry (pages and feature use, never content,
+      # ids, names or keys; dashboard TELEMETRY.md). The same opt-out as the server:
+      # DAKERA_TELEMETRY=off or DO_NOT_TRACK=1 in .env turns both off.
+      - DAKERA_TELEMETRY=${DAKERA_TELEMETRY:-}
+      - DO_NOT_TRACK=${DO_NOT_TRACK:-}
+    # python3 (in every dashboard image; 0.5.2+ has no curl), proxies ignored, exit != 0
     # on anything but a 2xx: nginx up AND the session service answering through it.
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:3000/_session/healthz', timeout=5)"]
@@ -515,10 +525,10 @@ services:
       timeout: 10s
       start_period: 10s
       retries: 3
-    # 0.5.2 runs as uid/gid 10001 and needs no capability. The four below are only for
+    # 0.5.2+ runs as uid/gid 10001 and needs no capability. The four below are only for
     # a DASHBOARD_IMAGE up to 0.5.1, which starts as root (nginx and the session service
     # then drop to their own users; measured with 0.5.1). Not read_only for the same
-    # reason (0.5.1 edits its nginx configuration at start; 0.5.2 writes only /tmp).
+    # reason (0.5.1 edits its nginx configuration at start; 0.5.2+ writes only /tmp).
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
     security_opt:

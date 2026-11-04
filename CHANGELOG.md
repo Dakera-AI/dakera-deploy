@@ -4,9 +4,18 @@ All notable changes to the Dakera deployment configurations will be documented i
 
 ## [Unreleased]
 
-### Changed: Dakera server v0.12.4
+### Changed: Dakera server v0.12.4, Dashboard 0.5.3
 
-Merge after the `ghcr.io/dakera-ai/dakera:0.12.4` image is published (Dashboard stays 0.5.2).
+Merge after the `ghcr.io/dakera-ai/dakera:0.12.4` and `ghcr.io/dakera-ai/dakera-dashboard:0.5.3` images are
+published.
+
+- **Dashboard 0.5.2 -> 0.5.3** (both compose files, `k8s/dashboard/`, `.env` examples, README, environment
+  reference): forget by request and the trash, the engine's setup advice, standing instructions in the Recall lab,
+  ways to reach the team, and anonymous usage telemetry. It deploys like 0.5.2 (same variables, port, user, health
+  check). Its telemetry follows the server's opt-out: `DAKERA_TELEMETRY` and `DO_NOT_TRACK` are passed to it.
+- **Fixed: the telemetry opt-out never reached the server.** The README says `DAKERA_TELEMETRY=off` (or
+  `DO_NOT_TRACK=1`) in `.env` turns telemetry off, but neither compose file passed either variable to the server;
+  both files now pass them (when set) to the server and the dashboard.
 
 - Default image: Dakera `0.12.3` -> `0.12.4` (every compose file, the devcontainer, `k8s/` including the
   `check-config` / `downgrade` Jobs and the `models-cache` component, `.env` examples, README helm example).

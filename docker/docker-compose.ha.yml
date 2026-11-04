@@ -32,7 +32,7 @@
 #
 # Override any port by setting the corresponding HA_* env var. See .env.ha.example.
 #
-# Dakera v0.12.4, Dashboard 0.5.2 (upgrade notes: docker-compose.yml). (v0.11 users:
+# Dakera v0.12.4, Dashboard 0.5.3 (upgrade notes: docker-compose.yml). (v0.11 users:
 # the previous version of this file is on the `release/0.11` branch.)
 #
 # v0.12 cluster requirements:
@@ -244,6 +244,10 @@ x-dakera-env: &dakera-env
   # Settings of server v0.12.4 (.env.example "Server v0.12.4"), passed only when set.
   # Same value on every node.
   DAKERA_CONTACT_EMAIL:
+  # Product telemetry opt-out (README, "Telemetry"): DAKERA_TELEMETRY=off or
+  # DO_NOT_TRACK=1 in .env, for every node.
+  DAKERA_TELEMETRY:
+  DO_NOT_TRACK:
   # Entity extraction (on by default from 0.12.4); DAKERA_GLINER_MODEL must read the
   # embedding model's languages (unset = the right one, in the image).
   DAKERA_DEFAULT_ENTITY_TYPES:
@@ -469,29 +473,34 @@ services:
   # Dakera Dashboard — Web UI
   # ==========================================================================
   dashboard:
-    # 0.5.2 (deploys like 0.4.0 / 0.5.x; runs as uid 10001, no curl inside).
+    # 0.5.3 (deploys like 0.4.0 / 0.5.x; runs as uid 10001, no curl inside).
     # Operators sign in at /login with their OWN Dakera
     # API key (kept in server memory by the dashboard's session service);
     # DAKERA_API_KEY and DAKERA_CLIENT_URL are gone since 0.4.0. Serve it behind TLS
     # that forwards X-Forwarded-Proto and Host (README, "Dashboard 0.5.0", TLS in front).
-    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.2}
+    image: ${DASHBOARD_IMAGE:-ghcr.io/dakera-ai/dakera-dashboard:0.5.3}
     container_name: dakera-dashboard
     # Loopback only, as in docker-compose.yml: operators sign in with their API key,
     # so serve it through a TLS proxy on the host.
     ports:
       - "127.0.0.1:${HA_DASHBOARD_PORT:-3202}:3000"
     environment:
-      # A plain http(s)://host[:port][/path] URL (0.5.2 refuses anything else: it is
+      # A plain http(s)://host[:port][/path] URL (0.5.2+ refuses anything else: it is
       # written into nginx configuration).
       - DAKERA_API_UPSTREAM=http://dakera-traefik:3000
       # Longest a sign-in lasts (default 12; idle sessions end after 2 h):
       - DAKERA_SESSION_TTL_HOURS=${DAKERA_SESSION_TTL_HOURS:-12}
-      # Dashboard 0.5.2: addresses / CIDRs (comma or space separated) of the reverse
+      # Dashboard 0.5.2+: addresses / CIDRs (comma or space separated) of the reverse
       # proxies in front of it whose X-Forwarded-For names the client (nginx real_ip;
       # the sign-in throttle counts that address). Empty: the connecting peer is the
       # client. E.g. the Docker bridge gateway when a host proxy forwards to it.
       - DAKERA_TRUSTED_PROXIES=${DAKERA_TRUSTED_PROXIES:-}
-    # python3 (in every dashboard image; 0.5.2 has no curl), proxies ignored, exit != 0
+      # Dashboard 0.5.3: anonymous usage telemetry (pages and feature use, never content,
+      # ids, names or keys; dashboard TELEMETRY.md). The same opt-out as the server:
+      # DAKERA_TELEMETRY=off or DO_NOT_TRACK=1 in .env turns both off.
+      - DAKERA_TELEMETRY=${DAKERA_TELEMETRY:-}
+      - DO_NOT_TRACK=${DO_NOT_TRACK:-}
+    # python3 (in every dashboard image; 0.5.2+ has no curl), proxies ignored, exit != 0
     # on anything but a 2xx: nginx up AND the session service answering through it.
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:3000/_session/healthz', timeout=5)"]
@@ -499,10 +508,10 @@ services:
       timeout: 10s
       start_period: 10s
       retries: 3
-    # 0.5.2 runs as uid/gid 10001 and needs no capability. The four below are only for
+    # 0.5.2+ runs as uid/gid 10001 and needs no capability. The four below are only for
     # a DASHBOARD_IMAGE up to 0.5.1, which starts as root (nginx and the session service
     # then drop to their own users; measured with 0.5.1). Not read_only for the same
-    # reason (0.5.1 edits its nginx configuration at start; 0.5.2 writes only /tmp).
+    # reason (0.5.1 edits its nginx configuration at start; 0.5.2+ writes only /tmp).
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
     security_opt:
